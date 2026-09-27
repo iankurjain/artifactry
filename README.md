@@ -153,19 +153,31 @@ rebuilds the local database from scratch.
 
 - **Platform**: Cloudflare Pages (BYOK — the user's own account via API token)
 - **Build**: `vite build` → `dist/` (Worker ~176 kB, ~50 kB gzip)
-- **Compatibility date**: 2024-01-01
-- **Status**: deployed via `wrangler pages deploy`
+- **Compatibility date**: 2026-09-17
+- **Pages project**: `artifact-library` — **created**, but the first deploy is **blocked**
+- **Status**: ⚠️ Not yet live on `pages.dev`. The app runs fully on the local/emulated
+  stack (see Local development) and through the sandbox preview URL.
 
-Two operational notes for this deployment path:
+**Blocker — R2 bucket does not exist.** `wrangler pages deploy` fails with:
 
-1. **R2 permission is required.** `wrangler r2 bucket create artifact-library-bucket` fails with
-   `Authentication error [code: 10000]` on the current API token. Artifact upload/download cannot
-   work in production until the token carries **Workers R2 Storage: Edit** and the bucket exists.
-   Local development is unaffected because R2 is emulated.
-2. **`kv_namespaces` and `triggers` are deliberately absent** from `wrangler.jsonc`, so the same
-   source also works on the platform-hosted deploy path.
-3. **No hosted access rules are set** — this is a Pages deployment, which cannot enforce them, and
+```
+Failed to publish your Function. Got error: R2 bucket 'artifact-library-bucket' not found.
+```
+
+`wrangler r2 bucket create artifact-library-bucket` fails with `Authentication error [code: 10000]`,
+and `r2 bucket list` reports `Unable to get membership roles… missing User->Memberships->Read`.
+The token needs **Workers R2 Storage: Edit** (plus `User → Memberships → Read` for role lookup).
+Once the bucket exists, `npm run deploy:prod` completes the deployment. Local development is
+unaffected because R2 is emulated.
+
+Other operational notes for this deployment path:
+
+1. **`kv_namespaces` and `triggers` are deliberately absent** from `wrangler.jsonc`, so the same
+   source also works unmodified on the platform-hosted deploy path.
+2. **No hosted access rules are set** — this is a Pages deployment, which cannot enforce them, and
    such rules are rejected while present. The application performs its own authentication.
+3. **Email delivery** is in dev-code mode until `EMAIL_API_KEY` (Resend) is provided; setting it
+   disables dev-code mode automatically.
 
 ---
 
