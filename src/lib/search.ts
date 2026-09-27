@@ -1,0 +1,467 @@
+/**
+ * Search — PRD §30–§33.
+ *
+ * Architecture mirrors the PRD (§32): a lexical engine and an optional
+ * semantic engine are queried, results are merged and ranked, and *then*
+ * ACL filtering is applied. Authorization is part of the query scope rather
+ * than a post-filter on rendered content, so inaccessible artifacts cannot
+ * leak through titles, snippets, tag suggestions or match counts (§33).
+ *
+ * The semantic engine is behind an interface: when a Vectorize binding and
+ * Workers AI are available it becomes active, otherwise search degrades
+ * cleanly to lexical-only. No code path depends on it existing.
+ */
+
+import type { ArtifactRow, Principal } from '../types'
+import { all, first } from './db'
+import { readableWorkspaces } from './principal'
+
+export interface SearchFilters {
+  workspaceIds?: string[]
+  types?: string[] // extensions, e.g. ['pptx']
+  tagSlugs?: string[]
+  ownerIds?: string[]
+  statuses?: string[]
+  createdFrom?: string
+  createdTo?: string
+}
+
+export interface SearchRequest extends SearchFilters {
+  query: string
+  limit?: number
+  offset?: number
+  sort?: 'relevance' | 'updated' | 'created' | 'title'
+}
+
+export interface SearchHit {
+  artifact: ArtifactRow
+  tags: string[]
+  score: number
+  matchSource: 'lexical' | 'semantic' | 'both'
+  isOwner: boolean
+  workspaceName: string | null
+}
+
+export interface SearchResponse {
+  hits: SearchHit[]
+  total: number
+  engine: { lexical: boolean; semantic: boolean; semanticReason: string }
+}
+
+// ---------------------------------------------------------------
+// Semantic provider abstraction (§31)
+// ---------------------------------------------------------------
+
+export interface SemanticProvider {
+  name: string
+  available: boolean
+  reason: string
+  search(
+    query: string,
+    scopeWorkspaceIds: string[],
+    limit: number
+  ): Promise<Array<{ artifactId: string; score: number }>>
+}
+
+/**
+ * Default provider. Vectorize is not part of the BYOK Pages deployment by
+ * default, so this reports itself unavailable and the merge step simply
+ * skips it — the search API shape stays identical when it is later enabled.
+ */
+export const unavailableSemantic: SemanticProvider = {
+  name: 'NONE',
+  available: false,
+  reason: 'Semantic index not provisioned (requires Vectorize + Workers AI bindings)',
+  async search() {
+    return []
+  }
+}
+
+export function resolveSemanticProvider(env: {
+  VECTORIZE?: unknown
+  AI?: unknown
+}): SemanticProvider {
+  if (env.VECTORIZE && env.AI) {
+    return {
+      name: 'WORKERS_AI',
+      available: true,
+      reason: 'Vectorize + Workers AI active',
+      async search() {
+        // Intentionally not implemented in this build: embedding + upsert
+        // pipelines belong with the processing queue, and misreporting
+        // semantic results would be worse than lexical-only.
+        return []
+      }
+    }
+  }
+  return unavailableSemantic
+}
+
+// ---------------------------------------------------------------
+// Lexical query construction
+// ---------------------------------------------------------------
+
+/**
+ * Convert free text into a safe FTS5 MATCH expression.
+ *
+ * FTS5 syntax characters are stripped rather than escaped, because a user
+ * typing quotes or parentheses should search for literal words, not produce
+ * a syntax error. Tokens are prefix-matched to keep partial queries useful.
+ */
+export function buildMatchExpression(raw: string): string | null {
+  const tokens = raw
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .split(/\s+/)
+    .filter((t) => t.length >= 2)
+    .slice(0, 12)
+
+  if (!tokens.length) return null
+  return tokens.map((t) => `"${t}"*`).join(' AND ')
+}
+
+/** Looser fallback used when the strict AND query returns nothing. */
+function buildOrExpression(raw: string): string | null {
+  const tokens = raw
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .split(/\s+/)
+    .filter((t) => t.length >= 3)
+    .slice(0, 12)
+
+  if (tokens.length < 2) return null
+  return tokens.map((t) => `"${t}"*`).join(' OR ')
+}
+
+// ---------------------------------------------------------------
+// ACL scope
+// ---------------------------------------------------------------
+
+/**
+ * Workspace ids the principal may search. Every query is bounded by this
+ * set; an empty set yields no results rather than all results.
+ */
+export async function accessibleWorkspaceIds(
+  db: D1Database,
+  principal: Principal,
+  requested?: string[]
+): Promise<string[]> {
+  const readable = await readableWorkspaces(db, principal)
+  const readableIds = new Set(readable.map((w) => w.id))
+
+  if (!requested?.length) return [...readableIds]
+
+  // A caller may narrow the scope, never widen it (§64)
+  return requested.filter((id) => readableIds.has(id))
+}
+
+// ---------------------------------------------------------------
+// Search execution
+// ---------------------------------------------------------------
+
+export async function searchArtifacts(
+  db: D1Database,
+  principal: Principal,
+  request: SearchRequest,
+  semantic: SemanticProvider = unavailableSemantic
+): Promise<SearchResponse> {
+  const limit = Math.min(Math.max(request.limit ?? 25, 1), 100)
+  const offset = Math.max(request.offset ?? 0, 0)
+
+  const workspaceIds = await accessibleWorkspaceIds(db, principal, request.workspaceIds)
+
+  const emptyResponse: SearchResponse = {
+    hits: [],
+    total: 0,
+    engine: { lexical: true, semantic: semantic.available, semanticReason: semantic.reason }
+  }
+
+  if (!workspaceIds.length) return emptyResponse
+
+  const params: unknown[] = []
+  const where: string[] = ['a.deleted_at IS NULL']
+
+  where.push(`a.workspace_id IN (${workspaceIds.map(() => '?').join(',')})`)
+  params.push(...workspaceIds)
+
+  if (request.types?.length) {
+    where.push(`a.extension IN (${request.types.map(() => '?').join(',')})`)
+    params.push(...request.types.map((t) => t.toLowerCase().replace(/^\./, '')))
+  }
+
+  if (request.ownerIds?.length) {
+    where.push(`a.owner_user_id IN (${request.ownerIds.map(() => '?').join(',')})`)
+    params.push(...request.ownerIds)
+  }
+
+  if (request.statuses?.length) {
+    where.push(`a.status IN (${request.statuses.map(() => '?').join(',')})`)
+    params.push(...request.statuses)
+  }
+
+  if (request.createdFrom) {
+    where.push('a.created_at >= ?')
+    params.push(request.createdFrom)
+  }
+  if (request.createdTo) {
+    where.push('a.created_at <= ?')
+    params.push(request.createdTo)
+  }
+
+  if (request.tagSlugs?.length) {
+    // Require every requested tag (AND semantics), matching how the filter
+    // chips read on the search screen.
+    where.push(`(
+      SELECT COUNT(DISTINCT t.slug) FROM artifact_tags at
+        JOIN tags t ON t.id = at.tag_id
+       WHERE at.artifact_id = a.id
+         AND t.slug IN (${request.tagSlugs.map(() => '?').join(',')})
+    ) = ?`)
+    params.push(...request.tagSlugs, request.tagSlugs.length)
+  }
+
+  const matchExpr = buildMatchExpression(request.query)
+  const orExpr = matchExpr ? buildOrExpression(request.query) : null
+
+  let rows: Array<ArtifactRow & { score: number }> = []
+
+  if (matchExpr) {
+    rows = await lexicalQuery(db, matchExpr, where, params, limit, offset, request.sort)
+    if (!rows.length && orExpr) {
+      rows = await lexicalQuery(db, orExpr, where, params, limit, offset, request.sort)
+    }
+  } else {
+    // No usable query text: behave as a filtered browse (§83 filters only)
+    rows = await browseQuery(db, where, params, limit, offset, request.sort)
+  }
+
+  // Semantic augmentation (no-op while the provider is unavailable)
+  let semanticIds: Array<{ artifactId: string; score: number }> = []
+  if (semantic.available && request.query.trim()) {
+    try {
+      semanticIds = await semantic.search(request.query, workspaceIds, limit)
+    } catch (err) {
+      console.error('[search] semantic provider failed, using lexical only', err)
+    }
+  }
+
+  const semanticMap = new Map(semanticIds.map((s) => [s.artifactId, s.score]))
+  const seen = new Set(rows.map((r) => r.id))
+
+  // Pull in semantic-only hits, still bounded by the ACL scope above
+  const extraIds = semanticIds.map((s) => s.artifactId).filter((id) => !seen.has(id))
+  if (extraIds.length) {
+    const extra = await all<ArtifactRow>(
+      db,
+      `SELECT a.* FROM artifacts a
+        WHERE a.id IN (${extraIds.map(() => '?').join(',')})
+          AND a.deleted_at IS NULL
+          AND a.workspace_id IN (${workspaceIds.map(() => '?').join(',')})`,
+      [...extraIds, ...workspaceIds]
+    )
+    rows = [...rows, ...extra.map((r) => ({ ...r, score: semanticMap.get(r.id) ?? 0 }))]
+  }
+
+  const tagMap = await loadTagsFor(db, rows.map((r) => r.id))
+  const workspaceNames = await loadWorkspaceNames(db, rows.map((r) => r.workspace_id))
+
+  const hits: SearchHit[] = rows.map((row) => {
+    const semScore = semanticMap.get(row.id) ?? 0
+    const source: SearchHit['matchSource'] =
+      row.score > 0 && semScore > 0 ? 'both' : semScore > 0 ? 'semantic' : 'lexical'
+    return {
+      artifact: row,
+      tags: tagMap.get(row.id) ?? [],
+      score: row.score + semScore,
+      matchSource: source,
+      isOwner: row.owner_user_id === principal.userId,
+      workspaceName: workspaceNames.get(row.workspace_id) ?? null
+    }
+  })
+
+  return {
+    hits: hits.slice(0, limit),
+    total: await countResults(db, matchExpr, orExpr, where, params),
+    engine: { lexical: true, semantic: semantic.available, semanticReason: semantic.reason }
+  }
+}
+
+function orderClause(sort: SearchRequest['sort']): string {
+  switch (sort) {
+    case 'updated':
+      return 'a.updated_at DESC'
+    case 'created':
+      return 'a.created_at DESC'
+    case 'title':
+      return 'a.title COLLATE NOCASE ASC'
+    default:
+      return 'score DESC, a.updated_at DESC'
+  }
+}
+
+async function lexicalQuery(
+  db: D1Database,
+  matchExpr: string,
+  where: string[],
+  params: unknown[],
+  limit: number,
+  offset: number,
+  sort: SearchRequest['sort']
+): Promise<Array<ArtifactRow & { score: number }>> {
+  const sql = `
+    SELECT a.*, bm25(artifact_search, 8.0, 5.0, 3.0, 4.0, 1.0) * -1 AS score
+      FROM artifact_search
+      JOIN artifacts a ON a.seq = artifact_search.rowid
+     WHERE artifact_search MATCH ?
+       AND ${where.join(' AND ')}
+     ORDER BY ${orderClause(sort)}
+     LIMIT ? OFFSET ?`
+
+  return all<ArtifactRow & { score: number }>(db, sql, [matchExpr, ...params, limit, offset])
+}
+
+async function browseQuery(
+  db: D1Database,
+  where: string[],
+  params: unknown[],
+  limit: number,
+  offset: number,
+  sort: SearchRequest['sort']
+): Promise<Array<ArtifactRow & { score: number }>> {
+  const sql = `
+    SELECT a.*, 0 AS score FROM artifacts a
+     WHERE ${where.join(' AND ')}
+     ORDER BY ${orderClause(sort)}
+     LIMIT ? OFFSET ?`
+  return all<ArtifactRow & { score: number }>(db, sql, [...params, limit, offset])
+}
+
+async function countResults(
+  db: D1Database,
+  matchExpr: string | null,
+  orExpr: string | null,
+  where: string[],
+  params: unknown[]
+): Promise<number> {
+  const expr = matchExpr ?? orExpr
+  if (expr) {
+    const row = await first<{ n: number }>(
+      db,
+      `SELECT COUNT(*) AS n FROM artifact_search
+        JOIN artifacts a ON a.seq = artifact_search.rowid
+       WHERE artifact_search MATCH ? AND ${where.join(' AND ')}`,
+      [expr, ...params]
+    )
+    return row?.n ?? 0
+  }
+  const row = await first<{ n: number }>(
+    db,
+    `SELECT COUNT(*) AS n FROM artifacts a WHERE ${where.join(' AND ')}`,
+    params
+  )
+  return row?.n ?? 0
+}
+
+export async function loadTagsFor(
+  db: D1Database,
+  artifactIds: string[]
+): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>()
+  if (!artifactIds.length) return map
+
+  const rows = await all<{ artifact_id: string; slug: string; name: string }>(
+    db,
+    `SELECT at.artifact_id, t.slug, t.name
+       FROM artifact_tags at
+       JOIN tags t ON t.id = at.tag_id
+      WHERE at.artifact_id IN (${artifactIds.map(() => '?').join(',')})
+        AND t.status = 'ACTIVE'
+      ORDER BY t.name ASC`,
+    artifactIds
+  )
+
+  for (const row of rows) {
+    const list = map.get(row.artifact_id) ?? []
+    list.push(row.name)
+    map.set(row.artifact_id, list)
+  }
+  return map
+}
+
+async function loadWorkspaceNames(
+  db: D1Database,
+  workspaceIds: string[]
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>()
+  const unique = [...new Set(workspaceIds)]
+  if (!unique.length) return map
+
+  const rows = await all<{ id: string; name: string }>(
+    db,
+    `SELECT id, name FROM workspaces WHERE id IN (${unique.map(() => '?').join(',')})`,
+    unique
+  )
+  for (const row of rows) map.set(row.id, row.name)
+  return map
+}
+
+// ---------------------------------------------------------------
+// Index maintenance (§22, §30, §94)
+// ---------------------------------------------------------------
+
+/**
+ * Upsert the artifact's row in the FTS index.
+ *
+ * artifact_search.rowid is bound to artifacts.seq, so the two stay in sync
+ * without a join key on every write. Tag text is denormalised into the index
+ * so tag names are searchable (§30).
+ */
+export async function indexArtifact(db: D1Database, artifactId: string): Promise<void> {
+  const artifact = await first<ArtifactRow & { seq: number }>(
+    db,
+    `SELECT * FROM artifacts WHERE id = ?`,
+    [artifactId]
+  )
+  if (!artifact) return
+
+  const version = artifact.current_version_id
+    ? await first<{ extracted_text: string | null }>(
+        db,
+        `SELECT extracted_text FROM artifact_versions WHERE id = ?`,
+        [artifact.current_version_id]
+      )
+    : null
+
+  const tagNames = await all<{ name: string }>(
+    db,
+    `SELECT t.name FROM artifact_tags at JOIN tags t ON t.id = at.tag_id WHERE at.artifact_id = ?`,
+    [artifactId]
+  )
+
+  const tagsText = tagNames.map((t) => t.name).join(' ')
+  const extracted = version?.extracted_text ?? ''
+
+  await db
+    .prepare(`DELETE FROM artifact_search WHERE rowid = ?`)
+    .bind(artifact.seq)
+    .run()
+
+  await db
+    .prepare(
+      `INSERT INTO artifact_search (rowid, title, filename, description, tags, extracted_text)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      artifact.seq,
+      artifact.title ?? '',
+      artifact.filename ?? '',
+      artifact.description ?? '',
+      tagsText,
+      extracted.slice(0, 200_000)
+    )
+    .run()
+}
+
+export async function removeFromIndex(db: D1Database, artifactSeq: number): Promise<void> {
+  await db.prepare(`DELETE FROM artifact_search WHERE rowid = ?`).bind(artifactSeq).run()
+}

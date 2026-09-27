@@ -1,12 +1,475 @@
-import { jsxRenderer } from 'hono/jsx-renderer'
+/**
+ * HTML shell renderer.
+ *
+ * Delivers a mobile-first application shell (PRD §71–§93). The app runs as a
+ * single-page client against the JSON API; the server's only job here is to
+ * emit the document, the design tokens, and any boot data a deep link needs
+ * (an artifact id, or a share token) so the first render is correct without a
+ * round trip.
+ *
+ * The shell is intentionally the same document for /, /library, /a/:id and
+ * /s/:token: one cached document, and no server-rendered content that could
+ * leak across a permission boundary.
+ */
 
-export const renderer = jsxRenderer(({ children }) => {
-  return (
-    <html>
-      <head>
-        <link href="/static/style.css" rel="stylesheet" />
-      </head>
-      <body>{children}</body>
-    </html>
-  )
-})
+import type { Context } from 'hono'
+import type { AppEnv } from './middleware'
+import { readShareGrantCookie } from './lib/http'
+
+export interface ShellOptions {
+  route: string
+  artifactId?: string
+  shareToken?: string
+  initialData?: unknown
+}
+
+/** Serialise boot data for inline embedding without breaking out of <script>. */
+function serializeBoot(data: unknown): string {
+  return JSON.stringify(data ?? null)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029')
+}
+
+/**
+ * The design tokens are declared in CSS rather than Tailwind's config so the
+ * palette is available to plain CSS too (the preview iframe and share page
+ * do not load Tailwind).
+ */
+const DESIGN_TOKENS = `
+  :root {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --surface-2: #f1f3f6;
+    --border: #e4e7ec;
+    --text: #16181d;
+    --text-2: #5b6472;
+    --text-3: #8b94a3;
+    --accent: #2f6bff;
+    --accent-weak: #eaf0ff;
+    --danger: #d92d20;
+    --danger-weak: #fef3f2;
+    --success: #067647;
+    --success-weak: #ecfdf3;
+    --warning: #b54708;
+    --warning-weak: #fffaeb;
+    --radius: 14px;
+    --radius-sm: 10px;
+    --shadow-1: 0 1px 2px rgba(16, 24, 40, 0.05);
+    --shadow-2: 0 4px 14px rgba(16, 24, 40, 0.08);
+    --nav-h: 62px;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  * { -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Global guard: nothing in the app may introduce horizontal scrolling (PRD §73) */
+  html, body { overflow-x: hidden; max-width: 100vw; }
+
+  /* Desktop presentation: a centred 430px application shell on a neutral
+     backdrop, rather than a stretched interface (PRD §72, §93). */
+  #shell {
+    width: 100%;
+    max-width: 430px;
+    margin-left: auto;
+    margin-right: auto;
+    box-sizing: border-box;
+    background: var(--bg);
+    min-height: 100vh;
+    min-height: 100dvh;
+    position: relative;
+    overflow-x: hidden;
+  }
+
+  @media (min-width: 480px) {
+    body { background: #eceef2; }
+    #shell {
+      box-shadow: 0 0 0 1px rgba(16,24,40,0.06), 0 24px 60px rgba(16,24,40,0.10);
+    }
+  }
+
+  .app-main {
+    padding: 0 16px calc(var(--nav-h) + var(--safe-bottom) + 20px);
+    box-sizing: border-box;
+    width: 100%;
+  }
+
+  .app-header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: rgba(246, 247, 249, 0.86);
+    backdrop-filter: saturate(180%) blur(12px);
+    -webkit-backdrop-filter: saturate(180%) blur(12px);
+    border-bottom: 1px solid transparent;
+    padding-top: var(--safe-top);
+    box-sizing: border-box;
+  }
+  .app-header.is-scrolled { border-bottom-color: var(--border); }
+
+  /* Touch targets: 44px minimum, 48px for primary actions (PRD §74) */
+  .tap { min-height: 44px; }
+  .tap-lg { min-height: 48px; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-1);
+    box-sizing: border-box;
+    width: 100%;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 550;
+    background: var(--surface-2);
+    color: var(--text-2);
+    white-space: nowrap;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-height: 48px;
+    padding: 0 16px;
+    border-radius: 12px;
+    border: 1px solid transparent;
+    font-size: 15px;
+    font-weight: 560;
+    cursor: pointer;
+    transition: transform .06s ease, background .15s ease, opacity .15s ease;
+    box-sizing: border-box;
+  }
+  .btn:active { transform: scale(0.985); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn-primary { background: var(--text); color: #fff; }
+  .btn-accent { background: var(--accent); color: #fff; }
+  .btn-secondary { background: var(--surface); color: var(--text); border-color: var(--border); }
+  .btn-ghost { background: transparent; color: var(--text-2); min-height: 44px; }
+  .btn-danger { background: var(--danger-weak); color: var(--danger); border-color: #fecdca; }
+  .btn-block { width: 100%; }
+
+  .input {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 48px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 16px; /* prevents iOS zoom-on-focus */
+    font-family: inherit;
+    color: var(--text);
+  }
+  .input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+  .input::placeholder { color: var(--text-3); }
+
+  textarea.input { min-height: 96px; resize: vertical; line-height: 1.5; }
+  select.input { appearance: none; background-image: none; }
+
+  /* Visible focus for keyboard users (PRD §113) */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+
+  /* Bottom navigation (§77, §78) */
+  .bottom-nav {
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: 0;
+    width: 100%;
+    max-width: 430px;
+    height: calc(var(--nav-h) + var(--safe-bottom));
+    padding-bottom: var(--safe-bottom);
+    background: rgba(255,255,255,0.94);
+    backdrop-filter: saturate(180%) blur(14px);
+    -webkit-backdrop-filter: saturate(180%) blur(14px);
+    border-top: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    align-items: center;
+    z-index: 40;
+    box-sizing: border-box;
+  }
+  .nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-height: 48px;
+    border: 0;
+    background: none;
+    color: var(--text-3);
+    font-size: 10.5px;
+    font-weight: 550;
+    cursor: pointer;
+    font-family: inherit;
+    padding: 0;
+  }
+  .nav-item[aria-current="page"] { color: var(--text); }
+  .nav-item svg { width: 21px; height: 21px; }
+
+  /* Centre Add action gets visual emphasis (§77) */
+  .nav-add {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 46px;
+    height: 46px;
+    margin: 0 auto;
+    border-radius: 999px;
+    background: var(--text);
+    color: #fff;
+    border: 0;
+    cursor: pointer;
+    box-shadow: var(--shadow-2);
+  }
+  .nav-add:active { transform: scale(0.95); }
+  .nav-add svg { width: 22px; height: 22px; }
+
+  /* Bottom sheets (§79) — the mobile-native alternative to modal dialogs */
+  .sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(16, 24, 40, 0.42);
+    z-index: 60;
+    opacity: 0;
+    transition: opacity .2s ease;
+  }
+  .sheet-backdrop.is-open { opacity: 1; }
+
+  .sheet {
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%) translateY(100%);
+    bottom: 0;
+    width: 100%;
+    max-width: 430px;
+    max-height: 88vh;
+    background: var(--surface);
+    border-radius: 20px 20px 0 0;
+    z-index: 61;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    transition: transform .26s cubic-bezier(.32,.72,0,1);
+    padding-bottom: var(--safe-bottom);
+  }
+  .sheet.is-open { transform: translateX(-50%) translateY(0); }
+  .sheet-grabber {
+    width: 38px; height: 4px; border-radius: 999px;
+    background: #d3d7de; margin: 10px auto 2px; flex: none;
+  }
+  .sheet-body { overflow-y: auto; padding: 8px 16px 20px; box-sizing: border-box; }
+
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 52px;
+    padding: 10px 0;
+    border: 0;
+    background: none;
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 15px;
+    color: var(--text);
+  }
+  .row + .row { border-top: 1px solid var(--border); }
+
+  .skeleton {
+    background: linear-gradient(90deg, #eef0f4 25%, #e6e9ef 37%, #eef0f4 63%);
+    background-size: 400% 100%;
+    animation: shimmer 1.4s ease-in-out infinite;
+    border-radius: 8px;
+  }
+  @keyframes shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+
+  .spinner {
+    width: 18px; height: 18px;
+    border: 2px solid rgba(255,255,255,.35);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  .spinner-dark { border-color: rgba(22,24,29,.2); border-top-color: var(--text); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Toast */
+  .toast-host {
+    position: fixed;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: calc(var(--nav-h) + var(--safe-bottom) + 14px);
+    width: calc(100% - 32px);
+    max-width: 398px;
+    z-index: 80;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    pointer-events: none;
+  }
+  .toast {
+    background: #16181d;
+    color: #fff;
+    font-size: 13.5px;
+    line-height: 1.45;
+    padding: 11px 14px;
+    border-radius: 12px;
+    box-shadow: var(--shadow-2);
+    animation: toast-in .22s ease;
+    pointer-events: auto;
+  }
+  .toast-error { background: var(--danger); }
+  .toast-success { background: var(--success); }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .preview-frame {
+    width: 100%;
+    height: 440px;
+    border: 0;
+    border-radius: var(--radius);
+    background: #fff;
+    display: block;
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 44px 20px;
+    color: var(--text-2);
+  }
+  .empty-state svg { width: 40px; height: 40px; color: var(--text-3); margin-bottom: 12px; }
+
+  .divider { height: 1px; background: var(--border); border: 0; margin: 0; }
+
+  .list-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 60px;
+    padding: 12px 14px;
+    box-sizing: border-box;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+    color: var(--text);
+  }
+
+  .thumbs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+
+  .stat-tile {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px;
+    box-sizing: border-box;
+  }
+  .stat-value { font-size: 24px; font-weight: 640; letter-spacing: -0.02em; line-height: 1.1; }
+  .stat-label { font-size: 12px; color: var(--text-2); margin-top: 3px; }
+
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+  }
+
+  /* Respect reduced-motion preferences (PRD §113) */
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
+  }
+`
+
+export async function renderShell(c: Context<AppEnv>, options: ShellOptions): Promise<Response> {
+  const hasShareCookie = !!readShareGrantCookie(c)
+
+  const boot = {
+    route: options.route,
+    artifactId: options.artifactId ?? null,
+    shareToken: options.shareToken ?? null,
+    initialData: options.initialData ?? null,
+    hasShareGrant: hasShareCookie,
+    authenticated: !!c.get('principal')?.userId
+  }
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5">
+<meta name="theme-color" content="#f6f7f9">
+<meta name="color-scheme" content="light">
+<meta name="description" content="One secure library for everything you and your AI create.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="robots" content="noindex, nofollow">
+<title>Artifact Library</title>
+<link rel="icon" href="data:image/svg+xml,${encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#16181d"/><path d="M9 11h14M9 16h10M9 21h7" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg>'
+  )}">
+<style>${DESIGN_TOKENS}</style>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  // Tailwind is used for layout utilities only; the palette above stays the
+  // single source of truth so the preview iframe and share page match.
+  if (window.tailwind) {
+    tailwind.config = {
+      corePlugins: { preflight: false },
+      theme: { extend: {
+        colors: {
+          ink: '#16181d', muted: '#5b6472', faint: '#8b94a3',
+          line: '#e4e7ec', accent: '#2f6bff'
+        },
+        borderRadius: { card: '14px' }
+      } }
+    }
+  }
+</script>
+</head>
+<body>
+<div id="shell" role="application" aria-label="Artifact Library">
+  <noscript>
+    <div style="padding:24px;text-align:center">
+      <h1 style="font-size:20px">JavaScript required</h1>
+      <p style="color:#5b6472">Artifact Library is an interactive application. Please enable JavaScript.</p>
+    </div>
+  </noscript>
+  <div id="app" aria-live="polite"></div>
+</div>
+<div id="sheet-host"></div>
+<div id="toast-host" class="toast-host" aria-live="assertive" aria-atomic="false"></div>
+<script id="boot-data" type="application/json">${serializeBoot(boot)}</script>
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>`
+
+  return c.html(html)
+}

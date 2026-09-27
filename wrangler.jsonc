@@ -1,34 +1,39 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "webapp",
+  "name": "artifact-library",
   "compatibility_date": "2026-09-17",
   "pages_build_output_dir": "./dist",
-  "compatibility_flags": [
-    "nodejs_compat"
-  ]
-  // "vars": {
-  //   "MY_VAR": "my-variable"
-  // },
-  // "kv_namespaces": [
-  //   {
-  //     "binding": "MY_KV_NAMESPACE",
-  //     "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-  //   }
-  // ],
-  // "r2_buckets": [
-  //   {
-  //     "binding": "MY_BUCKET",
-  //     "bucket_name": "my-bucket"
-  //   }
-  // ],
-  // "d1_databases": [
-  //   {
-  //     "binding": "MY_DB",
-  //     "database_name": "my-database",
-  //     "database_id": ""
-  //   }
-  // ],
-  // "ai": {
-  //   "binding": "AI"
-  // }
+  "compatibility_flags": ["nodejs_compat"],
+
+  // ---------------------------------------------------------------
+  // D1 — metadata, RBAC, shares, analytics (PRD §62, §94)
+  // ---------------------------------------------------------------
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "artifact-library-production",
+      "database_id": "10cb7bc6-41c5-4c9d-8788-6d1896531fd5"
+    }
+  ],
+
+  // ---------------------------------------------------------------
+  // R2 — original artifacts, versions, previews (PRD §62, §65)
+  // ---------------------------------------------------------------
+  "r2_buckets": [
+    {
+      "binding": "R2",
+      "bucket_name": "artifact-library-bucket"
+    }
+  ],
+
+  "vars": {
+    "APP_NAME": "Artifact Library",
+    // Server-side enforced upload ceilings (PRD §9). Worker-proxied uploads,
+    // so this is bounded by the Workers request body limit.
+    "MAX_UPLOAD_BYTES": "26214400"
+  }
+
+  // NOTE (BYOK path only): kv_namespaces and triggers are permitted here,
+  // but this build keeps all state in D1 + R2 so the same source also
+  // deploys on the hosted path if ever needed.
 }
