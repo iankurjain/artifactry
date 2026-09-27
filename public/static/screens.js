@@ -271,6 +271,7 @@ export function renderHome(ctx) {
               : ''
           }`
         }
+        ${ctx.appFooter()}
       </main>
       ${ctx.bottomNav('home')}`,
     mount(root) {
@@ -394,6 +395,7 @@ export function renderLibrary(ctx) {
                 })}
                </div>`
         }
+        ${ctx.appFooter()}
       </main>
       ${ctx.bottomNav('library')}`,
     mount(root) {
@@ -564,6 +566,7 @@ export function renderSearch(ctx) {
                     })}
                    </div>`
         }
+        ${ctx.appFooter()}
       </main>
       ${ctx.bottomNav('search')}`,
     mount(root) {
@@ -662,6 +665,8 @@ export function renderAdd(ctx) {
           An AI app must be connected before it can save into your library. It never receives more
           access than you have.
         </p>
+
+        ${ctx.appFooter()}
       </main>`,
     mount(root) {
       root.querySelector('#add-back')?.addEventListener('click', () => ctx.navigate('/'))
@@ -817,6 +822,16 @@ export function renderProfile(ctx) {
           }
         </div>
 
+        <h2 style="font-size:14px;font-weight:640;margin:22px 0 9px">Help</h2>
+        <div class="card" style="overflow:hidden">
+          <button class="row" id="profile-guide" style="padding:12px 14px">
+            ${icon('file', 20)} <span style="flex:1">User guide &amp; help</span> ${icon('back', 16)}
+          </button>
+          <button class="row" id="profile-shortcuts" style="padding:12px 14px">
+            ${icon('search', 20)} <span style="flex:1">Keyboard &amp; tips</span> ${icon('back', 16)}
+          </button>
+        </div>
+
         <div class="card" style="overflow:hidden;margin-top:22px">
           <button class="row" id="profile-tags" style="padding:12px 14px">${icon('tag', 20)} <span style="flex:1">Tag management</span> ${icon('back', 16)}</button>
           <button class="row" id="profile-activity" style="padding:12px 14px">${icon('chart', 20)} <span style="flex:1">Recent activity</span> ${icon('back', 16)}</button>
@@ -829,10 +844,14 @@ export function renderProfile(ctx) {
           ${esc(state.me?.email || '')}<br>
           ${icon('shield', 12)} Artifacts are private unless shared
         </p>
+
+        ${ctx.appFooter()}
       </main>
       ${ctx.bottomNav('profile')}`,
     mount(root) {
       root.querySelector('#profile-edit')?.addEventListener('click', () => ctx.openEditNameSheet())
+      root.querySelector('#profile-guide')?.addEventListener('click', () => ctx.navigate('/guide'))
+      root.querySelector('#profile-shortcuts')?.addEventListener('click', () => ctx.openShortcutsSheet())
       root.querySelector('#profile-tags')?.addEventListener('click', () => ctx.openTagsSheet({ manage: true }))
       root.querySelector('#profile-activity')?.addEventListener('click', () => ctx.openActivitySheet())
       root.querySelector('#profile-logout')?.addEventListener('click', () => ctx.signOut())
@@ -883,6 +902,8 @@ export function renderAdmin(ctx) {
               action: '<button class="btn btn-secondary" id="admin-create-org">Create an organization</button>'
             })}
           </div>
+
+          ${ctx.appFooter()}
         </main>`,
       mount(root) {
         root.querySelector('#admin-back')?.addEventListener('click', () => ctx.navigate('/profile'))
@@ -980,6 +1001,8 @@ export function renderAdmin(ctx) {
               : '<p style="padding:16px;font-size:13px;color:var(--text-2);margin:0">No AI-created artifacts.</p>'
           }
         </div>
+
+        ${ctx.appFooter()}
       </main>`,
     mount(root) {
       root.querySelector('#admin-back')?.addEventListener('click', () => ctx.navigate('/profile'))
@@ -1021,6 +1044,7 @@ export function renderShareRecipient(ctx) {
         <span style="font-size:14px;font-weight:620">Artifact Library</span>
       </div>
       ${inner}
+      ${ctx.appFooter()}
     </main>`
 
   // Verification gate (§37, §38)

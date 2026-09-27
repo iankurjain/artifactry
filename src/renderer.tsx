@@ -402,6 +402,121 @@ const DESIGN_TOKENS = `
     overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
   }
 
+  /* ----------------------------------------------------------------
+     User guide
+     Long-form prose inside a 430px shell: readable measure, generous
+     line height, and no horizontal overflow at 320px (PRD §73).
+     ---------------------------------------------------------------- */
+
+  .guide-search-wrap { position: sticky; top: 0; z-index: 10; padding: 6px 0 10px;
+    background: linear-gradient(var(--bg) 72%, rgba(246,247,249,0)); }
+  .guide-search {
+    display: flex; align-items: center; gap: 9px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 0 12px; min-height: 46px;
+    color: var(--text-2); box-sizing: border-box;
+  }
+  .guide-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-weak); }
+  .guide-search input {
+    flex: 1; min-width: 0; border: 0; outline: 0; background: transparent;
+    font-size: 15px; color: var(--text); font-family: inherit; min-height: 44px;
+  }
+  .guide-search input::-webkit-search-cancel-button { display: none; }
+  .guide-clear {
+    border: 0; background: var(--surface-2, #f1f3f6); color: var(--text-2);
+    width: 30px; height: 30px; border-radius: 999px; display: flex;
+    align-items: center; justify-content: center; cursor: pointer; flex: none;
+  }
+  .guide-hint { font-size: 12px; color: var(--text-3); margin: 8px 2px 0; line-height: 1.5; }
+
+  .guide-results { display: flex; flex-direction: column; gap: 9px; }
+  .guide-result {
+    text-align: left; padding: 13px 14px; cursor: pointer; font-family: inherit;
+    display: flex; flex-direction: column; gap: 5px; min-height: 44px;
+  }
+  .guide-result:active { transform: scale(0.995); }
+  .guide-result-title { font-size: 14.5px; font-weight: 620; color: var(--text); }
+  .guide-result-snippet { font-size: 13px; color: var(--text-2); line-height: 1.55; }
+  .guide-result mark, .guide-section mark {
+    background: #fff2b8; color: inherit; border-radius: 3px; padding: 0 2px;
+  }
+  .guide-no-results { padding: 16px; }
+
+  .guide-toc { padding: 6px 0; overflow: hidden; }
+  .guide-toc-title {
+    font-size: 12px; font-weight: 640; color: var(--text-2); text-transform: uppercase;
+    letter-spacing: .05em; margin: 10px 14px 6px;
+  }
+  .guide-toc-item {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    width: 100%; border: 0; background: transparent; cursor: pointer;
+    padding: 12px 14px; min-height: 46px; font-family: inherit;
+    font-size: 14.5px; color: var(--text); text-align: left;
+  }
+  .guide-toc-item + .guide-toc-item { border-top: 1px solid var(--border); }
+  .guide-toc-item:active { background: var(--surface-2, #f1f3f6); }
+  .guide-toc-item svg { color: var(--text-3); flex: none; }
+
+  .guide-section {
+    margin-top: 26px; padding-top: 4px; scroll-margin-top: 76px;
+    border-radius: 12px; transition: background-color .5s ease;
+  }
+  .guide-section.guide-flash { background: var(--accent-weak); }
+  .guide-h2 {
+    font-size: 18px; font-weight: 640; letter-spacing: -0.01em;
+    margin: 0 0 10px; scroll-margin-top: 76px;
+  }
+  .guide-section p { font-size: 14px; line-height: 1.68; color: var(--text-2); margin: 0 0 11px; }
+  .guide-section strong { color: var(--text); font-weight: 620; }
+  .guide-section ul, .guide-section ol {
+    margin: 0 0 12px; padding-left: 20px; font-size: 14px;
+    line-height: 1.68; color: var(--text-2);
+  }
+  .guide-section li { margin-bottom: 6px; }
+  .guide-section li::marker { color: var(--text-3); }
+  .guide-section code {
+    font-size: 12.5px; background: var(--surface-2, #f1f3f6); padding: 1px 5px;
+    border-radius: 5px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  .guide-note {
+    background: var(--surface); border: 1px solid var(--border);
+    border-left: 3px solid var(--accent); border-radius: 10px;
+    padding: 12px 14px; font-size: 13.5px; line-height: 1.62; color: var(--text-2);
+    margin: 0 0 12px; box-sizing: border-box;
+  }
+  .guide-note strong { color: var(--text); }
+
+  .guide-top {
+    border: 0; background: transparent; color: var(--text-3); cursor: pointer;
+    font-family: inherit; font-size: 12.5px; padding: 4px 2px 0; min-height: 32px;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .guide-footer-note {
+    font-size: 12.5px; color: var(--text-3); line-height: 1.62;
+    margin: 28px 0 0; padding-top: 16px; border-top: 1px solid var(--border);
+  }
+  .guide-inline-link {
+    border: 0; background: transparent; color: var(--accent); cursor: pointer;
+    font-family: inherit; font-size: 12.5px; padding: 0; text-decoration: underline;
+  }
+
+  /* App footer: persistent route into the guide and the footer surfaces. */
+  .app-footer {
+    margin-top: 26px; padding: 16px 0 4px; border-top: 1px solid var(--border);
+    display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+    gap: 6px 14px;
+  }
+  .app-footer button {
+    border: 0; background: transparent; color: var(--text-2); cursor: pointer;
+    font-family: inherit; font-size: 12.5px; padding: 8px 2px; min-height: 40px;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .app-footer button:hover { color: var(--text); }
+  .app-footer .footer-copy {
+    flex-basis: 100%; text-align: center; font-size: 11.5px; color: var(--text-3);
+    line-height: 1.6;
+  }
+
   /* Respect reduced-motion preferences (PRD §113) */
   @media (prefers-reduced-motion: reduce) {
     * { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }

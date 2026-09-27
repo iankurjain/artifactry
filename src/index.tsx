@@ -149,11 +149,21 @@ const SPA_ROUTES = [
   '/add',
   '/profile',
   '/admin',
-  '/settings'
+  '/settings',
+  '/guide'
 ]
 
 for (const route of SPA_ROUTES) {
-  app.get(route, (c) => renderShell(c, { route: route.replace(/^\//, '') || 'home' }))
+  app.get(route, (c) => {
+    const name = route.replace(/^\//, '') || 'home'
+    // The guide is a public reference surface, reachable from the footer of
+    // every screen as well as from a shared link. It reads no user data, so a
+    // signed-out visitor sees the same content rather than a sign-in wall.
+    if (name === 'guide') {
+      return renderShell(c, { route: 'guide', initialData: { publicSurface: true } })
+    }
+    return renderShell(c, { route: name })
+  })
 }
 
 // ---------------------------------------------------------------

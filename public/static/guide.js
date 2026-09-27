@@ -1,0 +1,516 @@
+/**
+ * User guide.
+ *
+ * A self-contained, searchable reference for the whole application. Content is
+ * authored here as static trusted markup (never interpolated with user data),
+ * and a plain-text projection of the same content powers the in-page search, so
+ * the index can never drift from what is displayed.
+ *
+ * Reachable from the footer on every screen, and from Profile → Help & guide.
+ */
+
+import { esc, icon, screenHeader } from './ui.js'
+
+// ---------------------------------------------------------------
+// Content
+// ---------------------------------------------------------------
+
+const S = (id, title, tags, html) => ({ id, title, tags, html })
+
+export const GUIDE_SECTIONS = [
+  S(
+    'getting-started',
+    'Getting started',
+    'sign in login email code otp passwordless account first time workspace personal',
+    `
+    <p>Artifact Library is a private library for everything you and your AI tools create. There are no passwords — you sign in with a short code sent to your email.</p>
+    <ol>
+      <li>Enter your email address and choose <strong>Send code</strong>.</li>
+      <li>Open the email and type the 6-digit code on the next screen.</li>
+      <li>You are signed in. A personal workspace is created automatically the first time.</li>
+    </ol>
+    <p>Codes expire after 10 minutes and can only be used once. If you did not get one, you can request a new code after a short cooldown.</p>
+    <div class="guide-note">
+      <strong>Sessions last 30 days.</strong> Signing out ends your session on this device immediately.
+    </div>`
+  ),
+
+  S(
+    'uploading',
+    'Uploading artifacts',
+    'upload add file formats pdf docx pptx html png jpg size limit 25mb checksum scan',
+    `
+    <p>An artifact is a single file plus everything the library knows about it: who owns it, its tags, its versions, and its usage history.</p>
+    <p><strong>Supported types:</strong> PDF, DOCX, PPTX, HTML, PNG, JPG, JPEG, BMP and GIF.</p>
+    <p><strong>Size limit:</strong> 25 MB per file.</p>
+    <p>When you upload, the library:</p>
+    <ul>
+      <li>verifies the file's real type against its contents, not just its name;</li>
+      <li>computes a checksum so you can prove the file never changed;</li>
+      <li>scans it and records a verdict;</li>
+      <li>extracts the text it can read, so the file becomes searchable by its contents;</li>
+      <li>adds it to the search index.</li>
+    </ul>
+    <p>Each of those steps is recorded on the artifact, so you can always see what happened. If a step was skipped, the reason is shown rather than hidden.</p>`
+  ),
+
+  S(
+    'library',
+    'Browsing your library',
+    'library home cards grid filter sort type workspace switcher recent newest title',
+    `
+    <p>The <strong>Library</strong> tab lists what you can access, newest first by default.</p>
+    <p>You can narrow the list by <strong>type</strong> (document, presentation, image, web) and change the sort order to updated date, created date or title.</p>
+    <p>The switcher at the top of the Home screen moves between your workspaces. Each workspace keeps its own artifacts, tags and members, so switching never mixes two projects together.</p>
+    <p>Anything you cannot access is not merely hidden from view — it is excluded from the results themselves, so it cannot leak through counts, titles or suggestions.</p>`
+  ),
+
+  S(
+    'search',
+    'Searching',
+    'search query keyword full text fts lexical semantic vectorize filters recent history',
+    `
+    <p>Search looks across titles, filenames, descriptions, tags and the <strong>extracted text inside your files</strong>.</p>
+    <p>Type at least two characters. Results are ranked by relevance, and each result tells you how it matched.</p>
+    <p>You can filter results by workspace, type, tag, owner and date. Your recent searches are stored per user, so they are never visible to anyone else.</p>
+    <div class="guide-note">
+      <strong>About "semantic" search.</strong> Search currently uses keyword (lexical) matching. The keyword index is listed as active in the search response; the semantic engine reports itself as unavailable until the vector index is provisioned on the account. The app never presents keyword results as if they were semantic — the engine block in each search response tells you exactly which engines ran.
+    </div>`
+  ),
+
+  S(
+    'extraction',
+    'What is searchable inside your files',
+    'extract text inside pdf docx pptx html ocr scanned images partial skipped metadata searchable',
+    `
+    <p>Files are more useful when you can search their contents, not just their names. The library reads text out of documents as they are uploaded:</p>
+    <ul>
+      <li><strong>HTML</strong> — visible text, with scripts and styling removed.</li>
+      <li><strong>PDF</strong> — the text layer, including compressed content streams.</li>
+      <li><strong>DOCX</strong> — body text, preserving line breaks and tabs so words do not run together.</li>
+      <li><strong>PPTX</strong> — the text on each slide, plus speaker notes, labelled by slide number.</li>
+    </ul>
+    <p>Every artifact records an extraction outcome:</p>
+    <ul>
+      <li><strong>DONE</strong> — text was extracted and is searchable.</li>
+      <li><strong>PARTIAL</strong> — the file was read successfully but contained no usable text. This is normal for scanned or image-only PDFs, which are pictures of text.</li>
+      <li><strong>SKIPPED</strong> — this file type carries no text to extract, such as a PNG or JPG.</li>
+    </ul>
+    <p>Whatever the outcome, an artifact is always findable by its <strong>title, filename, description, tags, owner and dates</strong>. A scanned PDF is still perfectly findable — just by its metadata rather than its words.</p>`
+  ),
+
+  S(
+    'tags',
+    'Tags',
+    'tag taxonomy admin governed personal organization color slug',
+    `
+    <p>Tags are a shared vocabulary, not free-form labels. That keeps one person's "invoice" from becoming another's "Invoices" or "billing".</p>
+    <p>Tags can be scoped to a whole organization or kept personal to your own workspace, and each has a name, a description and a colour.</p>
+    <p>You can attach any number of tags to an artifact and filter the library by them. Tag management lives in <strong>Profile → Tag management</strong>.</p>`
+  ),
+
+  S(
+    'collections',
+    'Collections',
+    'collection group bundle share collection of artifacts',
+    `
+    <p>Collections group related artifacts into a single shareable unit — a pitch deck with its supporting documents, for example.</p>
+    <p>A collection can be shared the same way a single artifact can, and it can be set to include items you add later.</p>
+    <p>Deleting a collection never deletes the artifacts inside it; it only removes the grouping.</p>`
+  ),
+
+  S(
+    'sharing',
+    'Sharing with others',
+    'share link public email domain restrict expiry revoke download recipient incognito external',
+    `
+    <p>Nothing is shared by default. When you do share, you choose <strong>who</strong> and <strong>what they may do</strong>.</p>
+    <p><strong>Three access types:</strong></p>
+    <ul>
+      <li><strong>Anyone with the link</strong> — no sign-in required. Useful for sending something to someone outside your organization.</li>
+      <li><strong>Specific email addresses</strong> — the recipient proves control of the address by entering a code before they can open the item.</li>
+      <li><strong>Anyone with a domain</strong> — restricted to people with an address on an approved domain.</li>
+    </ul>
+    <p><strong>You also control:</strong></p>
+    <ul>
+      <li><strong>Expiry</strong> — after which the share stops working automatically.</li>
+      <li><strong>Downloading</strong> — viewing can be allowed while downloading is not.</li>
+      <li><strong>Revoking</strong> — ends the share immediately, even if someone already opened it.</li>
+    </ul>
+    <p>Recipients see only the item you shared. They do not see your workspaces, tags, members, analytics or any navigation into the rest of the library.</p>
+    <div class="guide-note">
+      <strong>How it stays secure:</strong> the link's token is stored only as a hash, so it cannot be recovered from the database. For email shares, typing an address is never enough — access is granted only after the code is redeemed against the address actually entitled to it.
+    </div>`
+  ),
+
+  S(
+    'versions',
+    'Versions',
+    'version history restore revert replace file new version change summary immutable',
+    `
+    <p>Uploading a new file to an existing artifact creates a <strong>version</strong> instead of a new artifact.</p>
+    <p>Every version keeps its own file, checksum, size and extraction result. Older versions stay downloadable, and you can restore one to make it current again.</p>
+    <p>An artifact's identity and its link never change, no matter how many versions it has, what it is renamed to, or which workspace it lives in. Links you shared months ago keep working.</p>`
+  ),
+
+  S(
+    'analytics',
+    'Usage analytics',
+    'analytics views unique viewers downloads channels internal public link email ai daily rollup',
+    `
+    <p>Each artifact has an analytics view showing how it is actually being used:</p>
+    <ul>
+      <li><strong>Views</strong> — each time it was opened.</li>
+      <li><strong>Unique viewers</strong> — counted with a daily-rotating privacy-safe key, so one person refreshing the page counts once, without fingerprinting anyone.</li>
+      <li><strong>Downloads</strong> — counted separately from views.</li>
+      <li><strong>Where it was seen</strong> — internal, public link, email share, domain share, or an AI app.</li>
+    </ul>
+    <p>Counters are rolled up per day, so long histories stay fast to read.</p>`
+  ),
+
+  S(
+    'ai',
+    'Connecting AI apps',
+    'ai mcp chatgpt claude gemini connector scope token connect endpoint model context protocol',
+    `
+    <p>AI applications can read and write your library through <strong>MCP</strong> (Model Context Protocol), so an assistant can search your artifacts and cite them.</p>
+    <p><strong>To connect one:</strong></p>
+    <ol>
+      <li>Open <strong>Profile → Connected AI apps</strong>.</li>
+      <li>Choose a connector and pick the permissions you want to grant.</li>
+      <li>Copy the access token immediately — it is shown <strong>once</strong> and stored only as a hash.</li>
+      <li>Paste the token into your AI application, along with the MCP endpoint shown on that screen.</li>
+    </ol>
+    <p><strong>Permissions are granular.</strong> A connection might be allowed to read artifacts but not write them, or read analytics but not share. Each capability is granted separately and enforced on every request, so a token can never do more than you allowed.</p>
+    <p>Disconnecting a connector revokes its token straight away, and reconnecting replaces the previous one.</p>`
+  ),
+
+  S(
+    'roles',
+    'Roles and permissions',
+    'roles rbac owner admin member contributor viewer organization workspace permission',
+    `
+    <p>Access is decided by role. Organization roles are <strong>Owner</strong> and <strong>Admin</strong>; workspace roles are <strong>Workspace admin</strong>, <strong>Contributor</strong> and <strong>Viewer</strong>.</p>
+    <p>A Viewer can read and download. A Contributor can also upload and create versions. A Workspace admin can additionally manage members, tags and collections. Organization owners and admins manage the organization and its workspaces.</p>
+    <p>Adding someone to a workspace requires that they already have an account. The API will not create an account on someone else's behalf, which is what prevents an invitation from being used to take over an address.</p>`
+  ),
+
+  S(
+    'security',
+    'Security and privacy',
+    'security privacy hash token session audit trail private encrypted acl scope no plaintext',
+    `
+    <p>Your artifacts are private unless you deliberately share them.</p>
+    <ul>
+      <li><strong>Sign-in codes and session tokens are stored as hashes</strong>, never as readable values.</li>
+      <li><strong>Share links and AI tokens are hashed too</strong> — the raw value exists only in the moment it is created or sent.</li>
+      <li><strong>Access is part of every query.</strong> What you may read is applied when data is fetched, not filtered afterwards, so nothing can slip through.</li>
+      <li><strong>Audit trail.</strong> Significant actions — sharing, access, administrative changes — are recorded.</li>
+      <li><strong>HTML previews run sandboxed</strong> with no access to your session or the library.</li>
+    </ul>`
+  ),
+
+  S(
+    'accessibility',
+    'Mobile use and accessibility',
+    'mobile touch target thumb keyboard screen reader reduced motion contrast wcag safe area',
+    `
+    <p>The interface is designed mobile-first and stays comfortable on a phone as small as 320 px wide.</p>
+    <ul>
+      <li>Buttons and rows are at least 44 px tall, and primary actions 48 px.</li>
+      <li>Primary actions sit within easy reach of your thumb, and the navigation bar respects the home-indicator area.</li>
+      <li>Panels open as bottom sheets that can be dismissed with a swipe, the close button, or the Escape key.</li>
+      <li>Animations are reduced automatically if your device requests it.</li>
+      <li>Text and controls meet WCAG 2.2 AA contrast targets.</li>
+    </ul>
+    <p>There is no horizontal scrolling, and no wide tables — data is shown as cards that read well on a narrow screen.</p>`
+  ),
+
+  S(
+    'limits',
+    'Known limitations',
+    'limitation not supported known issue thumbnail semantic ocr preview email timeline roadmap',
+    `
+    <p>These are the current, deliberate limits. They are stated here rather than hidden, and each is visible in the app where it applies.</p>
+    <ul>
+      <li><strong>Semantic search is not active yet.</strong> Search is keyword-based. The semantic engine reports itself as unavailable until the vector index is provisioned; nothing pretends otherwise.</li>
+      <li><strong>Scanned PDFs have no text to extract.</strong> They are stored and shared normally, and remain searchable by title, filename, description, tags and dates.</li>
+      <li><strong>Thumbnails are not generated.</strong> Files show a type badge instead of a preview image.</li>
+      <li><strong>DOCX and PPTX cannot be generated.</strong> Content can be rendered to PDF and HTML; the app refuses the other two rather than returning a degraded file.</li>
+      <li><strong>Live HTML preview</strong> opens in a sandboxed frame without access to your session.</li>
+    </ul>`
+  ),
+
+  S(
+    'troubleshooting',
+    'Troubleshooting',
+    'troubleshoot problem not working error sign in code not received upload failed share not accessible',
+    `
+    <p><strong>"My sign-in code never arrived."</strong> Check the address for typos, then request a new code after the cooldown. If codes consistently fail to arrive, email delivery may not be fully configured for the deployment — ask the person who runs the service.</p>
+    <p><strong>"My upload failed."</strong> The most common causes are a file over 25 MB, or a file whose contents do not match its extension (for example a video renamed to <code>.pdf</code>). Both are rejected deliberately.</p>
+    <p><strong>"A share link will not open for someone."</strong> Check whether it has expired or been revoked, and whether the recipient is using the address it was granted to. Email shares only open for the entitled address, after the code is redeemed.</p>
+    <p><strong>"I cannot find a file I uploaded."</strong> Confirm you are in the right workspace, and try searching a word you know is in the document. If it is a scanned PDF, search by its title or tags instead — scanned pages have no searchable text.</p>
+    <p><strong>"An AI app says it is not authorised."</strong> The token may have been revoked or replaced by a newer connection, or it may lack the specific permission the action needs. Reconnect it in Profile → Connected AI apps.</p>`
+  )
+]
+
+// ---------------------------------------------------------------
+// Search over the guide
+// ---------------------------------------------------------------
+
+/** Plain-text projection of a section, used for matching and snippets. */
+function sectionText(section) {
+  return section.html
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&middot;/g, '.')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+const INDEX = GUIDE_SECTIONS.map((section) => ({
+  section,
+  title: section.title.toLowerCase(),
+  tags: section.tags.toLowerCase(),
+  text: sectionText(section),
+  lowered: sectionText(section).toLowerCase()
+}))
+
+/** Split a query into terms, ignoring very short fragments. */
+function terms(query) {
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .map((t) => t.replace(/[^a-z0-9.-]/g, ''))
+    .filter((t) => t.length >= 2)
+    .slice(0, 6)
+}
+
+/**
+ * Rank sections against a query.
+ *
+ * Every term must appear somewhere (AND), so adding a word narrows rather than
+ * widens. Title hits outrank tag hits, which outrank body hits.
+ */
+function searchGuide(query) {
+  const list = terms(query)
+  if (!list.length) return []
+
+  const results = []
+  for (const entry of INDEX) {
+    const haystacks = [entry.title, entry.tags, entry.lowered]
+    if (!list.every((t) => haystacks.some((h) => h.includes(t)))) continue
+
+    let score = 0
+    for (const t of list) {
+      if (entry.title.includes(t)) score += 10
+      if (entry.tags.includes(t)) score += 5
+      if (entry.lowered.includes(t)) score += 1
+    }
+    results.push({ ...entry, score })
+  }
+
+  return results.sort((a, b) => b.score - a.score || a.section.title.localeCompare(b.section.title))
+}
+
+/** A readable excerpt around the first matching term, safe to inject. */
+function snippet(text, query, width = 150) {
+  const lower = text.toLowerCase()
+  let at = -1
+  for (const t of terms(query)) {
+    const found = lower.indexOf(t)
+    if (found >= 0 && (at < 0 || found < at)) at = found
+  }
+  if (at < 0) at = 0
+
+  const start = Math.max(0, at - 50)
+  const slice = text.slice(start, start + width).trim()
+  const prefix = start > 0 ? '… ' : ''
+  const suffix = start + width < text.length ? ' …' : ''
+
+  let out = esc(prefix + slice + suffix)
+  for (const t of terms(query)) {
+    if (t.length < 2) continue
+    const safe = t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    out = out.replace(new RegExp(`(${safe})`, 'gi'), '<mark>$1</mark>')
+  }
+  return out
+}
+
+// ---------------------------------------------------------------
+// Screen
+// ---------------------------------------------------------------
+
+export function renderGuide(ctx) {
+  const authenticated = !!ctx.state?.session?.authenticated
+  const canGoBack = !!ctx.boot?.initialData?.cameFromApp || authenticated
+
+  const toc = GUIDE_SECTIONS.map(
+    (s) => `<button class="guide-toc-item" data-guide-jump="${esc(s.id)}">
+        <span>${esc(s.title)}</span>${icon('back', 14, 'rotate-180')}
+      </button>`
+  ).join('')
+
+  const body = GUIDE_SECTIONS.map(
+    (s) => `
+    <section class="guide-section" id="guide-${esc(s.id)}">
+      <h2 class="guide-h2">${esc(s.title)}</h2>
+      ${s.html}
+      <button class="guide-top" data-guide-top>${icon('back', 13, 'rotate-90')} Back to top</button>
+    </section>`
+  ).join('')
+
+  return {
+    html: `
+      ${screenHeader({
+        title: 'User guide',
+        onBackId: canGoBack ? 'guide-back' : undefined,
+        subtitle: 'How Artifact Library works'
+      })}
+
+      <main class="app-main" style="padding-top:10px">
+        <div class="guide-search-wrap">
+          <label class="sr-only" for="guide-search">Search the guide</label>
+          <div class="guide-search">
+            ${icon('search', 18)}
+            <input id="guide-search" type="search" inputmode="search" autocomplete="off"
+              placeholder="Search the guide — e.g. sharing, versions, tags" aria-describedby="guide-search-hint">
+            <button id="guide-search-clear" class="guide-clear" aria-label="Clear search" hidden>${icon('x', 16)}</button>
+          </div>
+          <p id="guide-search-hint" class="guide-hint">Type at least two characters to filter ${GUIDE_SECTIONS.length} topics.</p>
+        </div>
+
+        <div id="guide-results" class="guide-results" hidden aria-live="polite"></div>
+
+        <nav id="guide-toc-card" class="card guide-toc" aria-label="Guide contents">
+          <h2 class="guide-toc-title">Contents</h2>
+          ${toc}
+        </nav>
+
+        <div id="guide-body">${body}</div>
+
+        <p class="guide-footer-note">
+          This guide covers Artifact Library. Where a feature is not available yet, it is listed under
+          <button class="guide-inline-link" data-guide-jump="limits">Known limitations</button>.
+        </p>
+      </main>
+      ${authenticated ? ctx.bottomNav('profile') : ''}`,
+
+    mount(root) {
+      const input = root.querySelector('#guide-search')
+      const clear = root.querySelector('#guide-search-clear')
+      const results = root.querySelector('#guide-results')
+      const tocCard = root.querySelector('#guide-toc-card')
+      const bodyWrap = root.querySelector('#guide-body')
+      const hint = root.querySelector('#guide-search-hint')
+
+      const jump = (id) => {
+        const target = root.querySelector(`#guide-${id}`)
+        if (!target) return
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        target.classList.add('guide-flash')
+        window.setTimeout(() => target.classList.remove('guide-flash'), 1200)
+      }
+
+      const renderResults = (query) => {
+        const matches = searchGuide(query)
+
+        if (matches.length) {
+          results.hidden = false
+          tocCard.hidden = true
+          bodyWrap.hidden = true
+          hint.textContent = `${matches.length} of ${GUIDE_SECTIONS.length} topics match “${query.trim()}”.`
+          results.innerHTML = matches
+            .map(
+              (m) => `
+              <button class="card guide-result" data-guide-jump="${esc(m.section.id)}">
+                <span class="guide-result-title">${esc(m.section.title)}</span>
+                <span class="guide-result-snippet">${snippet(sectionText(m.section), query)}</span>
+              </button>`
+            )
+            .join('')
+        } else {
+          results.hidden = false
+          tocCard.hidden = true
+          bodyWrap.hidden = true
+          hint.textContent = `No topics match “${query.trim()}”.`
+          results.innerHTML = `
+            <div class="card guide-no-results">
+              <div class="guide-result-title">No matches</div>
+              <p class="guide-result-snippet">
+                Try a different word — for example <em>share</em>, <em>version</em>, <em>tag</em> or <em>search</em>.
+              </p>
+              <button class="btn" id="guide-show-all" style="margin-top:10px">Show all topics</button>
+            </div>`
+          root.querySelector('#guide-show-all')?.addEventListener('click', () => {
+            input.value = ''
+            reset()
+            input.focus()
+          })
+        }
+      }
+
+      const reset = () => {
+        results.hidden = true
+        results.innerHTML = ''
+        tocCard.hidden = false
+        bodyWrap.hidden = false
+        hint.textContent = `Type at least two characters to filter ${GUIDE_SECTIONS.length} topics.`
+        clear.hidden = true
+      }
+
+      let timer = null
+      input?.addEventListener('input', () => {
+        const value = input.value
+        clear.hidden = !value
+        window.clearTimeout(timer)
+        timer = window.setTimeout(() => {
+          if (terms(value).length) renderResults(value)
+          else reset()
+        }, 180)
+      })
+
+      input?.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          window.clearTimeout(timer)
+          if (terms(input.value).length) renderResults(input.value)
+        }
+        if (event.key === 'Escape') {
+          input.value = ''
+          reset()
+        }
+      })
+
+      clear?.addEventListener('click', () => {
+        input.value = ''
+        reset()
+        input.focus()
+      })
+
+      root.querySelector('#guide-back')?.addEventListener('click', () => ctx.goBack())
+
+      // Jump links exist in the TOC, in results and inline in the prose, so the
+      // handler is bound by selector rather than per-element.
+      root.querySelectorAll('[data-guide-jump]').forEach((button) => {
+        button.addEventListener('click', () => {
+          const id = button.dataset.guideJump
+          if (results.hidden === false) {
+            input.value = ''
+            reset()
+          }
+          jump(id)
+        })
+      })
+
+      root.querySelectorAll('[data-guide-top]').forEach((button) => {
+        button.addEventListener('click', () =>
+          window.scrollTo({ top: 0, behavior: 'smooth' })
+        )
+      })
+    }
+  }
+}

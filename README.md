@@ -90,8 +90,9 @@ These are honest capability gaps, not omissions:
 
 | Gap | Reason |
 |---|---|
+| **Searchable document text** | PDF, DOCX, PPTX and HTML are parsed in-Worker (`DecompressionStream` + hand-rolled OOXML/PDF readers), stored on `artifact_versions.extracted_text` and indexed into FTS5. Per-format job status is `DONE` / `PARTIAL` / `SKIPPED` / `FAILED` with a human-readable note and a `via` provenance string. |
 | **Semantic / vector search** | Requires Vectorize + Workers AI bindings. The `SemanticProvider` interface is in place; `unavailableSemantic` is the default and search reports `semantic: false` with a reason instead of pretending. |
-| **Text extraction for PDF / DOCX / PPTX** | No PDF or OOXML parser can run inside Workers' constraints. These types are indexed by title, filename, description and tags only; the pipeline records an explicit `SKIPPED` job with a note rather than silently failing. HTML *is* extracted. |
+| **Extraction is best-effort by design** | PDF, DOCX, PPTX and HTML text **are** extracted (pure web-platform parsers, no Node deps). Formats we have no parser for (images, archives) and documents with no recoverable text (scanned/image-only PDFs) report `SKIPPED` / `PARTIAL` respectively with an explicit note — never a silent failure or a fake success. |
 | **DOCX / PPTX generation** | Refused with `ConversionUnsupported` and an actionable message. Content can be rendered to **PDF and HTML** only. |
 | **Presigned R2 uploads** | Need dedicated S3 credentials. Uploads are worker-proxied instead. |
 | **Cron / scheduled jobs** | Not available on Pages. Expired sessions and OTPs are pruned opportunistically on the login path. |
@@ -126,10 +127,27 @@ These are honest capability gaps, not omissions:
 4. **Artifact detail** — preview HTML inline, **Share** and **Download** live in the thumb zone; secondary actions (rename, tag, new version, copy canonical link, analytics, delete) are in the ••• sheet.
 5. **Versions** — "upload a new version" keeps every previous one; the link never changes. Any version can be restored.
 6. **Share** — choose link / specific people / email domain, set an expiry and whether downloading is allowed. **The link is shown once**; copy it then. Recipients verify their email before they see anything.
-7. **Search** — full-text across title, filename, description, tags and extracted HTML text, limited to what you can read.
-8. **Profile** — usage totals, workspaces, organizations, connected AI apps, active shares, tag management, activity feed.
+7. **Search** — full-text across title, filename, description, tags and the **extracted text of your documents**, limited to what you can read.
+8. **Profile** — usage totals, workspaces, organizations, connected AI apps, active shares, tag management, activity feed, and a **Help** card linking to the user guide.
 9. **Admin** — organization totals, members, workspaces and AI-created breakdown, as cards.
 10. **Connect an AI app** — connect from Profile/Add, pick the least privilege you need, then paste the **MCP endpoint** and **access token** into the AI app. The token is shown once.
+
+### The in-app user guide
+
+There is a searchable guide at **`/guide`** (`public/static/guide.js`). It is a
+**public** surface — it reads no user data, so it renders with or without a
+session — and it is linked from:
+
+- the **footer** rendered at the bottom of every screen (`ctx.appFooter()`), and
+- the **Profile → Help** card, alongside "Keyboard & tips" (`ctx.openShortcutsSheet()`).
+
+It has 16 sections (getting started, uploading, library, search, extraction,
+tags, collections, sharing, versions, analytics, AI apps, roles, security,
+accessibility, limits, troubleshooting) with an in-page filter that searches
+titles, tags and body text and highlights matches. Its **limits** section is
+deliberately explicit: semantic search is reported as unavailable until the
+vector index exists on the account, and the app never presents keyword results
+as though they were semantic.
 
 ---
 

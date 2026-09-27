@@ -200,6 +200,8 @@ export function renderArtifactDetail(ctx) {
                </button>`
             : ''
         }
+
+        ${ctx.appFooter()}
       </main>
 
       <!-- Sticky bottom actions: thumb-accessible (§75, §82) -->
@@ -430,6 +432,8 @@ export function renderAnalytics(ctx) {
         <p style="font-size:11px;color:var(--text-3);text-align:center;margin:18px 0 0;line-height:1.6">
           Anonymous viewers are never identified.<br>Counts are deduplicated per viewer per day.
         </p>
+
+        ${ctx.appFooter()}
       </main>`,
     mount(root) {
       root.querySelector('#analytics-back')?.addEventListener('click', () => ctx.goBack())

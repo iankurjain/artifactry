@@ -34,71 +34,7 @@ import {
 } from './validate'
 import { conflict, notFound, tooLarge, unsupported } from './http'
 import { recordAudit } from './audit'
-
-// ---------------------------------------------------------------
-// Text extraction (§22 "Extract text")
-// ---------------------------------------------------------------
-
-export interface ExtractionResult {
-  text: string | null
-  supported: boolean
-  note: string
-}
-
-/**
- * Extract searchable text from formats the Workers runtime can parse
- * natively. PDF/DOCX/PPTX are binary container formats that need a parser
- * library unavailable at the edge, so they are reported as unsupported and
- * excluded from full-text indexing rather than silently skipped.
- *
- * This is a real product limitation, not a placeholder: those artifacts are
- * still found by title, filename, description, tags, owner and dates (§30).
- */
-export function extractText(ext: string, bytes: Uint8Array): ExtractionResult {
-  const decode = () => new TextDecoder('utf-8', { fatal: false }).decode(bytes)
-
-  switch (ext) {
-    case 'html':
-    case 'htm': {
-      const raw = decode()
-      const text = raw
-        .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-        .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-        .replace(/<[^>]+>/g, ' ')
-        .replace(/&nbsp;/gi, ' ')
-        .replace(/&amp;/gi, '&')
-        .replace(/&lt;/gi, '<')
-        .replace(/&gt;/gi, '>')
-        .replace(/\s+/g, ' ')
-        .trim()
-      return { text: text.slice(0, 200_000), supported: true, note: 'HTML text extracted' }
-    }
-    case 'pdf':
-      return {
-        text: null,
-        supported: false,
-        note: 'PDF text extraction requires a parser unavailable in the Workers runtime'
-      }
-    case 'docx':
-      return {
-        text: null,
-        supported: false,
-        note: 'DOCX text extraction requires a parser unavailable in the Workers runtime'
-      }
-    case 'pptx':
-      return {
-        text: null,
-        supported: false,
-        note: 'PPTX text extraction requires a parser unavailable in the Workers runtime'
-      }
-    default:
-      return {
-        text: null,
-        supported: false,
-        note: `No text extraction for .${ext}`
-      }
-  }
-}
+import { extractText, type ExtractionResult } from './extract'
 
 // ---------------------------------------------------------------
 // Processing job bookkeeping
@@ -106,12 +42,50 @@ export function extractText(ext: string, bytes: Uint8Array): ExtractionResult {
 
 export type JobType = 'EXTRACT' | 'INDEX' | 'THUMBNAIL' | 'EMBED' | 'SCAN'
 
+/**
+ * Job outcomes (§22).
+ *
+ * `PARTIAL` is the honest middle state: the extractor ran and understands the
+ * format, but recovered no usable text (a scanned PDF, a deck of images). It is
+ * distinct from `SKIPPED`, which means no extractor exists for that type at all.
+ * Both leave the artifact searchable by title, filename, description and tags.
+ */
+export type JobStatus = 'PENDING' | 'RUNNING' | 'DONE' | 'PARTIAL' | 'FAILED' | 'SKIPPED'
+
+/**
+ * Map an extraction result onto a job status.
+ * Kept in one place so the upload and re-version paths cannot drift apart.
+ */
+export function statusForExtraction(result: ExtractionResult): JobStatus {
+  if (result.ok) return 'DONE'
+  return result.supported ? 'PARTIAL' : 'SKIPPED'
+}
+
+export interface ExtractionSummary {
+  status: JobStatus
+  supported: boolean
+  chars: number
+  note: string
+  via?: string
+}
+
+/** Plain-language extraction outcome, surfaced on the artifact payload. */
+export function summariseExtraction(result: ExtractionResult): ExtractionSummary {
+  return {
+    status: statusForExtraction(result),
+    supported: result.supported,
+    chars: result.text?.length ?? 0,
+    note: result.note,
+    via: result.via
+  }
+}
+
 export async function recordJob(
   db: D1Database,
   artifactId: string,
   versionId: string | null,
   jobType: JobType,
-  status: 'PENDING' | 'RUNNING' | 'DONE' | 'FAILED' | 'SKIPPED',
+  status: JobStatus,
   detail: Record<string, unknown> = {},
   lastError: string | null = null
 ): Promise<void> {
@@ -432,21 +406,18 @@ async function runPipeline(
   const db = env.DB
 
   try {
-    const extraction = extractText(ext, bytes)
+    const extraction = await extractText(ext, bytes)
     if (extraction.text) {
       await run(db, `UPDATE artifact_versions SET extracted_text = ? WHERE id = ?`, [
         extraction.text,
         versionId
       ])
     }
-    await recordJob(
-      db,
-      artifactId,
-      versionId,
-      'EXTRACT',
-      extraction.supported ? 'DONE' : 'SKIPPED',
-      { note: extraction.note, chars: extraction.text?.length ?? 0 }
-    )
+    await recordJob(db, artifactId, versionId, 'EXTRACT', statusForExtraction(extraction), {
+      note: extraction.note,
+      chars: extraction.text?.length ?? 0,
+      via: extraction.via
+    })
   } catch (err) {
     await recordJob(db, artifactId, versionId, 'EXTRACT', 'FAILED', {}, String(err))
   }
@@ -574,21 +545,18 @@ export async function createVersion(
 
   await recordJob(db, input.artifactId, versionId, 'SCAN', 'DONE', { ext, verdict: 'CLEAN' })
 
-  const extraction = extractText(ext, input.bytes)
+  const extraction = await extractText(ext, input.bytes)
   if (extraction.text) {
     await run(db, `UPDATE artifact_versions SET extracted_text = ? WHERE id = ?`, [
       extraction.text,
       versionId
     ])
   }
-  await recordJob(
-    db,
-    input.artifactId,
-    versionId,
-    'EXTRACT',
-    extraction.supported ? 'DONE' : 'SKIPPED',
-    { note: extraction.note }
-  )
+  await recordJob(db, input.artifactId, versionId, 'EXTRACT', statusForExtraction(extraction), {
+    note: extraction.note,
+    chars: extraction.text?.length ?? 0,
+    via: extraction.via
+  })
 
   if (input.makeCurrent !== false) {
     await run(

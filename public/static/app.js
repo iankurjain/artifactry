@@ -46,6 +46,7 @@ import {
   shareCreateSheet,
   shareResultSheet
 } from './detail.js'
+import { renderGuide } from './guide.js'
 
 // ---------------------------------------------------------------
 // Boot payload
@@ -106,7 +107,8 @@ const SIMPLE_ROUTES = {
   add: 'add',
   profile: 'profile',
   admin: 'admin',
-  settings: 'profile'
+  settings: 'profile',
+  guide: 'guide'
 }
 
 function parseRoute(pathname = window.location.pathname) {
@@ -185,10 +187,12 @@ let shareGranted = !!boot.hasShareGrant
 // ---------------------------------------------------------------
 
 function screenFor(route) {
-  // The external recipient surface is public; every other route requires a
-  // session, so an unknown visitor gets the sign-in screen instead of an
-  // empty-but-authenticated-looking library.
-  if (!state.session.authenticated && route.name !== 'share') {
+  // The external recipient surface and the user guide are public: the guide is
+  // documentation, holds no user data, and is linked from every footer, so a
+  // signed-out visitor gets it rather than a sign-in wall. Every other route
+  // requires a session.
+  const isPublic = route.name === 'share' || route.name === 'guide'
+  if (!state.session.authenticated && !isPublic) {
     return renderLogin(ctx)
   }
 
@@ -211,6 +215,8 @@ function screenFor(route) {
       return renderAnalytics(ctx)
     case 'share':
       return renderShareRecipient(ctx)
+    case 'guide':
+      return renderGuide(ctx)
     default:
       return renderHome(ctx)
   }
@@ -526,6 +532,53 @@ ctx.bottomNav = (active) => `
     ${navItem('search', '/search', 'Search', 'search', active)}
     ${navItem('profile', '/profile', 'Profile', 'user', active)}
   </nav>`
+
+/**
+ * Application footer.
+ *
+ * A persistent, quiet route into the user guide and the app's standing
+ * statements. Rendered at the end of every screen's <main> so it is always
+ * reachable. The "Keyboard & tips" button is handled by the single delegated
+ * document click handler, so screens need no per-screen wiring.
+ */
+ctx.appFooter = () => `
+  <footer class="app-footer" aria-label="Help and information">
+    <button type="button" data-nav="/guide">${icon('file', 14)} User guide</button>
+    <button type="button" id="footer-shortcuts">${icon('search', 14)} Keyboard &amp; tips</button>
+    <span class="footer-copy">
+      Artifacts are private unless shared &middot; ${icon('shield', 11)} Access is checked on every request
+    </span>
+  </footer>`
+
+/**
+ * Keyboard & tips bottom sheet.
+ *
+ * Shared by the footer's "Keyboard & tips" button and the Profile/settings row,
+ * so the guidance lives in exactly one place.
+ */
+ctx.openShortcutsSheet = () => {
+  sheet({
+    title: 'Keyboard & tips',
+    content: `
+      <div class="guide-section" style="margin-top:0">
+        <ul>
+          <li><strong>Add a file quickly</strong> — the <em>Add</em> button in the middle of the bottom bar.</li>
+          <li><strong>Search everything</strong> — search matches titles, tags and the text inside your documents.</li>
+          <li><strong>Close a panel</strong> — swipe it down, tap the X, or press <code>Esc</code>.</li>
+          <li><strong>Go back</strong> — your device's back gesture works everywhere; links are real URLs.</li>
+          <li><strong>Copy a link</strong> — open an artifact and use its share button.</li>
+        </ul>
+        <p>The full reference, including every feature and its current limits, is in the
+        <button class="guide-inline-link" id="footer-open-guide">user guide</button>.</p>
+      </div>`,
+    onMount: (host) => {
+      host.querySelector('#footer-open-guide')?.addEventListener('click', () => {
+        closeSheet()
+        ctx.navigate('/guide')
+      })
+    }
+  })
+}
 
 /** Workspace switcher in the home header (§30). */
 ctx.workspaceSwitcher = () => {
@@ -2380,6 +2433,13 @@ function attachGlobalHandlers() {
     if (event.target.closest('#nav-add')) {
       event.preventDefault()
       ctx.openAddSheet()
+      return
+    }
+
+    // Footer "Keyboard & tips" — one delegated hook serves every screen's footer
+    if (event.target.closest('#footer-shortcuts')) {
+      event.preventDefault()
+      ctx.openShortcutsSheet()
       return
     }
 
