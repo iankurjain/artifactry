@@ -14,7 +14,7 @@ There is no server process and no filesystem.
 
 | | |
 |---|---|
-| **Production (Cloudflare Pages)** | see the deploy step in this session; the Pages project name is persisted in project meta as `cloudflare_project_name` |
+| **Production (Cloudflare Pages)** | https://artifact-library.pages.dev — live (BYOK, user's own account) |
 | **Canonical artifact URL** | `/a/:artifactId` — permanent identity, survives renames, re-versioning and moves |
 | **Share link** | `/s/:token` — external recipient surface |
 | **Health** | `/api/health` |
@@ -154,41 +154,44 @@ rebuilds the local database from scratch.
 - **Platform**: Cloudflare Pages (BYOK — the user's own account via API token)
 - **Build**: `vite build` → `dist/` (Worker ~176 kB, ~50 kB gzip)
 - **Compatibility date**: 2026-09-17
-- **Pages project**: `artifact-library` — **created**, but the first deploy is **blocked**
-- **Status**: ⚠️ Not yet live on `pages.dev`. The app runs fully on the local/emulated
-  stack (see Local development) and through the sandbox preview URL.
+- **Pages project**: `artifact-library` (production branch `main`)
+- **Status**: ✅ **Live** at https://artifact-library.pages.dev
 
-**Blocker — R2 is not enabled on the account.** `wrangler pages deploy` fails with:
+Redeploy with:
 
-```
-Failed to publish your Function. Got error: R2 bucket 'artifact-library-bucket' not found.
-```
-
-That message is a downstream symptom, not the cause. The R2 API answers with a distinct code:
-
-```
-GET/POST /accounts/:id/r2/buckets  →  403
-{"code":10042,"message":"Please enable R2 through the Cloudflare Dashboard."}
+```bash
+npx wrangler d1 migrations apply artifact-library-production --remote  # if new migrations
+npm run deploy:prod
 ```
 
-`10042` is R2 **activation**, not authorization — it is returned for every token regardless of
-scopes, so adding `Workers R2 Storage Write` alone will not clear it. R2 must be enabled once in
-the Cloudflare dashboard (R2 → Enable R2), which requires a payment method on file even for the
-free tier. There is no API route for activation: `/accounts/:id/subscriptions` returns
-`403 Authentication error` and `/accounts/:id/r2/subscriptions` returns `404 No route matches`.
+**Resource bindings** (must exist on the account before deploying):
 
-Note that an earlier attempt reported `10000 Authentication error`; the change to `10042` is what
-identified activation (rather than token scope) as the real blocker. `wrangler whoami` reads the
-token from `CLOUDFLARE_API_TOKEN` and reports the account either way, so a successful `whoami`
-does **not** imply R2 access — test `/accounts/:id/r2/buckets` directly instead.
+| Binding | Type | Name |
+|---|---|---|
+| `DB` | D1 | `artifact-library-production` |
+| `R2` | R2 bucket | `artifact-library-bucket` |
 
-Once R2 is enabled and the bucket exists, `npm run deploy:prod` completes the deployment. Local
-development is unaffected because R2 is emulated.
+`wrangler pages deploy` fails with `Failed to publish your Function. Got error: R2 bucket
+'artifact-library-bucket' not found.` whenever the bucket is missing — this is a downstream
+symptom of the bucket not existing, not a code problem.
 
-**Alternative path.** If R2 activation is not available on this account, `gsk-hosted-deploy`
-provisions D1/R2 on a Genspark-managed Cloudflare account with no billing step. The source already
-works unmodified on that path (see note 1 below).
+**On first-time R2 setup** the account must have R2 *enabled* once in the dashboard (R2 →
+Enable R2, payment method on file even for the free tier). Until then the R2 API answers
+`403 {"code":10042,"message":"Please enable R2 through the Cloudflare Dashboard."}` — this is
+**activation**, not authorization, so adding `Workers R2 Storage Write` alone will not clear it.
+Note that `10042` is distinct from `10000 Authentication error`: if R2 is enabled but the token
+lacks an R2 scope, the API answers `10000` instead. `wrangler whoami` reports the account either
+way, so a successful `whoami` does **not** imply R2 access — test `/accounts/:id/r2/buckets`.
 
+Also required: the token needs **Workers R2 Storage Write** (account-level, all accounts) to
+create/read buckets; D1 and Pages scopes are separate and will not cover it.
+
+**Email**: delivery is in dev-code mode until `EMAIL_API_KEY` (Resend) is set; setting it
+disables dev-code mode automatically.
+
+**Alternative path.** `gsk-hosted-deploy` provisions D1/R2 on a Genspark-managed Cloudflare
+account with no billing step. The source works unmodified on that path (see note 1 below), but
+`kv_namespaces` and `triggers` must stay absent, which they are.
 
 Other operational notes for this deployment path:
 
