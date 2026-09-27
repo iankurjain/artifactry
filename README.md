@@ -158,17 +158,37 @@ rebuilds the local database from scratch.
 - **Status**: ⚠️ Not yet live on `pages.dev`. The app runs fully on the local/emulated
   stack (see Local development) and through the sandbox preview URL.
 
-**Blocker — R2 bucket does not exist.** `wrangler pages deploy` fails with:
+**Blocker — R2 is not enabled on the account.** `wrangler pages deploy` fails with:
 
 ```
 Failed to publish your Function. Got error: R2 bucket 'artifact-library-bucket' not found.
 ```
 
-`wrangler r2 bucket create artifact-library-bucket` fails with `Authentication error [code: 10000]`,
-and `r2 bucket list` reports `Unable to get membership roles… missing User->Memberships->Read`.
-The token needs **Workers R2 Storage: Edit** (plus `User → Memberships → Read` for role lookup).
-Once the bucket exists, `npm run deploy:prod` completes the deployment. Local development is
-unaffected because R2 is emulated.
+That message is a downstream symptom, not the cause. The R2 API answers with a distinct code:
+
+```
+GET/POST /accounts/:id/r2/buckets  →  403
+{"code":10042,"message":"Please enable R2 through the Cloudflare Dashboard."}
+```
+
+`10042` is R2 **activation**, not authorization — it is returned for every token regardless of
+scopes, so adding `Workers R2 Storage Write` alone will not clear it. R2 must be enabled once in
+the Cloudflare dashboard (R2 → Enable R2), which requires a payment method on file even for the
+free tier. There is no API route for activation: `/accounts/:id/subscriptions` returns
+`403 Authentication error` and `/accounts/:id/r2/subscriptions` returns `404 No route matches`.
+
+Note that an earlier attempt reported `10000 Authentication error`; the change to `10042` is what
+identified activation (rather than token scope) as the real blocker. `wrangler whoami` reads the
+token from `CLOUDFLARE_API_TOKEN` and reports the account either way, so a successful `whoami`
+does **not** imply R2 access — test `/accounts/:id/r2/buckets` directly instead.
+
+Once R2 is enabled and the bucket exists, `npm run deploy:prod` completes the deployment. Local
+development is unaffected because R2 is emulated.
+
+**Alternative path.** If R2 activation is not available on this account, `gsk-hosted-deploy`
+provisions D1/R2 on a Genspark-managed Cloudflare account with no billing step. The source already
+works unmodified on that path (see note 1 below).
+
 
 Other operational notes for this deployment path:
 
