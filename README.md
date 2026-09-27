@@ -96,7 +96,7 @@ These are honest capability gaps, not omissions:
 | **Presigned R2 uploads** | Need dedicated S3 credentials. Uploads are worker-proxied instead. |
 | **Cron / scheduled jobs** | Not available on Pages. Expired sessions and OTPs are pruned opportunistically on the login path. |
 | **Custom domain for HTML preview** | The account has no zones. HTML preview isolation is instead an **opaque-origin sandboxed iframe** (`sandbox="allow-scripts"`, no `allow-same-origin`) plus a nonce CSP with `default-src 'none'`, `connect-src 'none'`, `frame-src 'none'`, `frame-ancestors 'self'`. |
-| **Email delivery** | Dev-code mode is active until `EMAIL_API_KEY` (Resend) is set. |
+| **Email to arbitrary recipients** | Resend is configured (`EMAIL_API_KEY` set, dev-code mode off), but the Resend account has **no verified sending domain**. With the shared test sender, Resend delivers **only to the address that owns the Resend account**. Verify a domain and set `EMAIL_FROM` to an address on it to open delivery to all recipients. Non-deliverable addresses fail loudly (`400`) rather than silently. |
 
 ---
 
@@ -186,8 +186,20 @@ way, so a successful `whoami` does **not** imply R2 access — test `/accounts/:
 Also required: the token needs **Workers R2 Storage Write** (account-level, all accounts) to
 create/read buckets; D1 and Pages scopes are separate and will not cover it.
 
-**Email**: delivery is in dev-code mode until `EMAIL_API_KEY` (Resend) is set; setting it
-disables dev-code mode automatically.
+**Email**: `EMAIL_API_KEY` (Resend) **is set**, so dev-code mode is off and codes are emailed.
+
+> **Sender-domain limitation.** Resend refuses to send from an unverified domain, and this
+> account has **no verified domain** (`GET https://api.resend.com/domains` → empty). The code's
+> built-in fallback sender is `noreply@artifactlibrary.dev`, which Resend rejects with `403` —
+> so `EMAIL_FROM` is pinned in `wrangler.jsonc` to `onboarding@resend.dev`, the one identity
+> this account can currently send as. With that sender Resend delivers **only to the Resend
+> account owner's address**; every other recipient is rejected `403` and the API fails with
+> `400 Could not send email. Please try again shortly.`
+>
+> **To fix properly:** verify a domain at https://resend.com/domains (add DNS records), then
+> change `EMAIL_FROM` in `wrangler.jsonc` to an address on it and redeploy. Alternatively, set
+> `DEV_LOGIN_MODE=false` *and* revert to dev-code mode to restore demo sign-in — but note that
+> without an email key dev-code mode is the only working path.
 
 **Alternative path.** `gsk-hosted-deploy` provisions D1/R2 on a Genspark-managed Cloudflare
 account with no billing step. The source works unmodified on that path (see note 1 below), but
@@ -199,8 +211,10 @@ Other operational notes for this deployment path:
    source also works unmodified on the platform-hosted deploy path.
 2. **No hosted access rules are set** — this is a Pages deployment, which cannot enforce them, and
    such rules are rejected while present. The application performs its own authentication.
-3. **Email delivery** is in dev-code mode until `EMAIL_API_KEY` (Resend) is provided; setting it
-   disables dev-code mode automatically.
+3. **Email delivery** uses Resend (`EMAIL_API_KEY` set). Because the account has no verified
+   sending domain, `EMAIL_FROM` must stay on the shared test sender — see the sender-domain
+   limitation above. A failed send writes **no** `auth_otp` row and burns **no** cooldown, so a
+   delivery failure never locks a recipient out or leaves a false audit record.
 
 ---
 

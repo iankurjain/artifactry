@@ -43,8 +43,13 @@ async function sendEmail(
   subject: string,
   html: string
 ): Promise<DeliverResult> {
+  // Reached only when dev-code mode is off. If that happened without an API
+  // key (e.g. DEV_LOGIN_MODE=false but no provider configured), failing loudly
+  // is the only honest outcome — silently reporting success would tell the
+  // caller a code was emailed when nothing was sent.
   if (!env.EMAIL_API_KEY) {
-    return { deliveredVia: 'DEV_CONSOLE' }
+    console.error('[email] no provider configured but dev-code mode is disabled')
+    throw badRequest('Email delivery is not configured. Please contact the administrator.')
   }
 
   const from = env.EMAIL_FROM ?? 'Artifact Library <noreply@artifactlibrary.dev>'
@@ -95,18 +100,54 @@ export async function issueOtp(
     }
   }
 
-  // Invalidate outstanding codes for this purpose
+  const code = otpCode(6)
+  const codeHash = await hashOtp(emailNormalized, code, purpose)
+  const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000).toISOString()
+  const mode = devCodeMode(env)
+
+  // Deliver first; mutate state second.
+  //
+  // `delivered_via` has to describe what actually happened. Previously the row
+  // was written before the provider was called and hard-coded to 'EMAIL', so a
+  // rejected send still produced a row claiming email delivery. It also burned
+  // the resend cooldown and invalidated any code the recipient already had,
+  // even though nothing reached them.
+  //
+  // sendEmail() throws on a provider rejection, so a failed send now leaves the
+  // database untouched: no false record, no cooldown consumed, and a code
+  // already sitting in the recipient's inbox keeps working.
+  let deliveredVia: 'EMAIL' | 'DEV_CONSOLE'
+
+  if (mode) {
+    console.log(`[dev-code] ${purpose} code for ${emailNormalized}: ${code}`)
+    deliveredVia = 'DEV_CONSOLE'
+  } else {
+    const subject =
+      purpose === 'LOGIN'
+        ? 'Your Artifact Library sign-in code'
+        : 'Verify your email to open this share'
+    const html = `
+    <div style="font-family:system-ui,-apple-system,sans-serif;max-width:480px">
+      <h2 style="font-size:18px;margin:0 0 12px">Your verification code</h2>
+      <p style="font-size:24px;letter-spacing:4px;font-weight:700;margin:0 0 16px">${code}</p>
+      <p style="color:#555;font-size:14px">
+        This code expires in ${OTP_TTL_MINUTES} minutes. If you did not request it, you can ignore this email.
+      </p>
+    </div>`
+
+    await sendEmail(env, emailNormalized, subject, html)
+    deliveredVia = 'EMAIL'
+  }
+
+  // Delivery is confirmed, so it is now safe to consume the previous code and
+  // record the new one — guaranteeing the newest delivered code is the only
+  // live one.
   await run(
     db,
     `UPDATE auth_otp SET consumed_at = ?
       WHERE email_normalized = ? AND purpose = ? AND consumed_at IS NULL`,
     [nowIso(), emailNormalized, purpose]
   )
-
-  const code = otpCode(6)
-  const codeHash = await hashOtp(emailNormalized, code, purpose)
-  const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000).toISOString()
-  const mode = devCodeMode(env)
 
   await run(
     db,
@@ -123,27 +164,13 @@ export async function issueOtp(
       OTP_MAX_ATTEMPTS,
       nowIso(),
       expiresAt,
-      mode ? 'DEV_CONSOLE' : 'EMAIL'
+      deliveredVia
     ]
   )
 
-  if (mode) {
-    console.log(`[dev-code] ${purpose} code for ${emailNormalized}: ${code}`)
-    return { deliveredVia: 'DEV_CONSOLE', devCode: code }
-  }
-
-  const subject =
-    purpose === 'LOGIN' ? 'Your Artifact Library sign-in code' : 'Verify your email to open this share'
-  const html = `
-    <div style="font-family:system-ui,-apple-system,sans-serif;max-width:480px">
-      <h2 style="font-size:18px;margin:0 0 12px">Your verification code</h2>
-      <p style="font-size:24px;letter-spacing:4px;font-weight:700;margin:0 0 16px">${code}</p>
-      <p style="color:#555;font-size:14px">
-        This code expires in ${OTP_TTL_MINUTES} minutes. If you did not request it, you can ignore this email.
-      </p>
-    </div>`
-
-  return sendEmail(env, emailNormalized, subject, html)
+  return deliveredVia === 'DEV_CONSOLE'
+    ? { deliveredVia, devCode: code }
+    : { deliveredVia }
 }
 
 /**
