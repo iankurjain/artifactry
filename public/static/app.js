@@ -483,7 +483,22 @@ ctx.navigate = navigate
 
 ctx.goBack = goBack
 
+/**
+ * Re-render the current route from data already in memory.
+ *
+ * Cheap and correct only for changes that are purely presentational. It does
+ * NOT re-fetch, so it must never be used after a write: the rendered output
+ * would reflect the new server state while the cached data still described the
+ * old one. That is not hypothetical — it made the Interactive Preview toggle
+ * show "ON" while its iframe kept the Safe preview descriptor, i.e. the UI
+ * claimed scripts would run and they would not.
+ *
+ * Use `ctx.reload()` after a mutation instead.
+ */
 ctx.refresh = () => refresh({ reload: false })
+
+/** Re-fetch the current route's data, then re-render. Use after a write. */
+ctx.reload = () => refresh({ reload: true })
 
 ctx.onAuthenticated = async () => {
   await refresh({ reload: true })

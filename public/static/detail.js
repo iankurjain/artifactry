@@ -439,7 +439,11 @@ async function applyPreviewMode(root, a, ctx, next) {
       toast('Interactive Preview is not available on this deployment', 'error')
     } else {
       toast(next ? 'Interactive Preview enabled' : 'Safe Preview restored', 'success')
-      await ctx.refresh()
+      // `reload`, not `refresh`: the rendered iframe is built from the cached
+      // artifact, so re-rendering without re-fetching would leave the OLD
+      // descriptor (and its sandbox) in place while the card claimed the mode
+      // had changed.
+      await ctx.reload()
     }
   } catch (err) {
     toast(err.message, 'error')
