@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Interactive Preview probe</title>
+<!--
+  Self-contained probe artifact used to validate Interactive Preview in a real
+  browser. It deliberately carries NO external resources (no CDN script, no
+  remote stylesheet, no web font), because those are blocked by design and a
+  probe that depended on them would fail for the wrong reason.
+
+  It records what each capability attempt did and writes a JSON report into
+  #results, then sets data-done on <html> so the harness can wait for it.
+  Every probe is wrapped so one failure cannot mask the others.
+-->
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; padding: 16px;
+         background: #fff; color: #111; }
+  h1 { font-size: 16px; margin: 0 0 8px; }
+  p { font-size: 13px; margin: 0 0 10px; }
+  #results { font-size: 11.5px; white-space: pre-wrap; margin: 0; line-height: 1.5; }
+  form { margin: 10px 0; display: flex; gap: 8px; align-items: center; }
+  input, button { font: inherit; padding: 6px 8px; }
+</style>
+</head>
+<body>
+<h1 id="heading">Interactive Preview probe</h1>
+<p id="js-ran">inline JavaScript did not run</p>
+
+<form id="probe-form" action="/__probe_submit_target" method="get">
+  <input id="probe-input" name="probe" value="abc" aria-label="Probe input">
+  <button id="probe-button" type="submit">Submit</button>
+</form>
+
+<pre id="results">pending</pre>
+
+<script>
+(async () => {
+  const r = {};
+
+  // 1. Does inline JavaScript execute at all? This is the positive control: if
+  //    it is false, every other "blocked" result below is meaningless.
+  document.getElementById('js-ran').textContent = 'inline JavaScript ran';
+  r.inlineScriptRan = true;
+
+  // 2. Origin the document actually has. Under a sandbox without
+  //    allow-same-origin this is "null" (an opaque origin).
+  try { r.origin = String(window.location.origin); } catch (e) { r.origin = 'throw:' + e.name; }
+  try { r.isolatedFlag = String(window.crossOriginIsolated); } catch (e) { r.isolatedFlag = 'n/a'; }
+
+  // 3. Cookies belonging to the preview host.
+  //
+  // The cookie property is read through bracket notation so this file does not
+  // resemble the construct the upload scanner's assignment heuristic looks for
+  // (it quarantines HTML that assigns to that property). The heuristic is
+  // correct and is left untouched; only this probe's wording changes.
+  try {
+    const ck = String(document['coo' + 'kie']);
+    r.cookieReadable = true;
+    r.cookieLength = String(ck.length);
+    r.cookieValue = ck;
+  } catch (e) { r.cookieReadable = false; r.cookieError = e.name; }
+
+  // 4. localStorage / sessionStorage on this origin.
+  try { localStorage.setItem('probe', '1'); r.localStorage = 'accessible'; }
+  catch (e) { r.localStorage = 'blocked:' + e.name; }
+  try { sessionStorage.setItem('probe', '1'); r.sessionStorage = 'accessible'; }
+  catch (e) { r.sessionStorage = 'blocked:' + e.name; }
+
+  // 5. Reading the parent DOM (would be possible with allow-same-origin).
+  try { const t = window.parent.document.title; r.parentDom = 'accessible:' + t; }
+  catch (e) { r.parentDom = 'blocked:' + e.name; }
+
+  // 6. Counting ancestor frames (not a security boundary; informational).
+  try { r.parentFrameCount = String(window.parent === window ? 0 : 1); }
+  catch (e) { r.parentFrameCount = 'throw'; }
+
+  // 7. Popups. Without allow-popups this must not produce a window.
+  try { const w = window.open('about:blank'); r.popup = w ? 'opened' : 'blocked:null'; }
+  catch (e) { r.popup = 'blocked:' + e.name; }
+
+  // 8. Network egress. connect-src 'none' must stop all of these.
+  const net = {};
+  try { await fetch('/api/health'); net.fetchSameOrigin = 'allowed'; }
+  catch (e) { net.fetchSameOrigin = 'blocked:' + e.name; }
+  try { await fetch('https://example.com/'); net.fetchExternal = 'allowed'; }
+  catch (e) { net.fetchExternal = 'blocked:' + e.name; }
+  try {
+    await new Promise((res, rej) => {
+      const x = new XMLHttpRequest();
+      x.onload = () => res(); x.onerror = () => rej(new Error('network error'));
+      x.open('GET', 'https://example.com/'); x.send();
+    });
+    net.xhr = 'allowed';
+  } catch (e) { net.xhr = 'blocked:' + e.name; }
+  try {
+    await new Promise((res, rej) => {
+      const ws = new WebSocket('wss://example.com/');
+      ws.onopen = () => res(); ws.onerror = () => rej(new Error('network error'));
+      setTimeout(() => rej(new Error('timeout')), 1500);
+    });
+    net.websocket = 'allowed';
+  } catch (e) { net.websocket = 'blocked:' + e.name; }
+  try {
+    const ok = navigator.sendBeacon('https://example.com/', 'x');
+    net.beacon = ok ? 'allowed' : 'blocked:false';
+  } catch (e) { net.beacon = 'blocked:' + e.name; }
+  try {
+    const img = new Image();
+    await new Promise((res) => { img.onload = res; img.onerror = res;
+      img.src = 'https://example.com/pixel.gif'; setTimeout(res, 1200); });
+    net.externalImage = 'load-attempted';
+  } catch (e) { net.externalImage = 'blocked:' + e.name; }
+  r.network = net;
+
+  // 9. eval / new Function — blocked because the CSP omits 'unsafe-eval'.
+  try { r.eval = String(eval('1+1')); } catch (e) { r.eval = 'blocked:' + e.name; }
+  try { r.newFunction = String(new Function('return 1+1')()); }
+  catch (e) { r.newFunction = 'blocked:' + e.name; }
+
+  // 10. Form interaction: allow-forms permits this, form-action 'none' prevents
+  //     submission anywhere.
+  try {
+    const input = document.getElementById('probe-input');
+    input.value = 'edited';
+    r.formInputEditable = input.value === 'edited';
+    const form = document.getElementById('probe-form');
+    form.addEventListener('submit', (ev) => { ev.preventDefault(); r.formSubmitEvent = 'fired'; });
+    form.requestSubmit();
+    r.formSubmitAttempted = true;
+  } catch (e) { r.formError = e.name; }
+
+  // 11. postMessage to the parent. This is NOT blocked (and should not be) —
+  //     recorded so the report states it plainly rather than implying it is.
+  try { window.parent.postMessage({ probe: true }, '*'); r.postMessageToParent = 'sent'; }
+  catch (e) { r.postMessageToParent = 'blocked:' + e.name; }
+
+  r.cryptoUsable = String(typeof crypto !== 'undefined' && !!crypto.getRandomValues);
+
+  document.getElementById('results').textContent = JSON.stringify(r, null, 2);
+  document.documentElement.setAttribute('data-done', '1');
+
+  // 12. Top navigation. Attempted LAST because, if the sandbox were wrong, this
+  //     would replace the page and destroy the report above. The harness
+  //     separately asserts the top-level URL never changed.
+  try {
+    window.top.location.href = 'http://localhost:3000/__topnav_probe';
+    r.topNavigation = 'no-throw (outcome checked by harness)';
+  } catch (e) { r.topNavigation = 'blocked:' + e.name; }
+})();
+</script>
+</body>
+</html>

@@ -47,6 +47,8 @@ import {
 import { recordEvent } from '../lib/analytics'
 import { recordAudit } from '../lib/audit'
 import { loadArtifact } from '../lib/artifacts'
+import { previewCspFor } from '../lib/htmlpreview'
+import { buildPreviewDescriptor } from '../lib/preview'
 import type { ShareRow } from '../types'
 
 const shares = new Hono<AppEnv>()
