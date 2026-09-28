@@ -383,7 +383,8 @@ r = await semanticQuery({ VECTORIZE: vz, AI: makeAI() }, 'quarterly revenue', ['
 check('happy path: ran === true', r.ran === true)
 check('happy path: returns the in-scope artifact', r.results.some((x) => x.artifactId === 'art_mine'))
 check('happy path: EXCLUDES the out-of-scope vector', !r.results.some((x) => x.artifactId === 'art_other'))
-check('happy path: reason names the model', /bge-base-en-v1\.5/.test(r.reason))
+check('happy path: reason does NOT name the model', !/bge-base-en-v1\.5/.test(r.reason), r.reason)
+check('happy path: reason confirms semantic search ran', /semantic search ran/i.test(r.reason), r.reason)
 
 // AI outage
 r = await semanticQuery({ VECTORIZE: makeVectorize(), AI: makeAI('throw') }, 'hello', ['ws_1'], 10)

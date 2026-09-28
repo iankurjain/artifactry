@@ -977,7 +977,7 @@ ctx.openUploadSheet = () => {
              <input id="upload-file" type="file" class="sr-only" accept="${ACCEPTED}">
            </label>
            <div id="upload-filename" style="font-size:12.5px;color:var(--text-2);margin-top:8px">No file chosen</div>`,
-          'PPTX, PDF, DOCX, HTML or images.'
+          'PPTX, PDF, DOCX, HTML or images. HTML artifacts are rendered in a secure sandbox: HTML and CSS are supported, but uploaded JavaScript is not executed.'
         )}
         ${field(
           'Workspace',

@@ -525,9 +525,17 @@ export function renderSearch(ctx) {
                  </div>`
               : ctx.search.results.length
                 ? `
-            <div style="font-size:12.5px;color:var(--text-2);margin-bottom:10px">
-              ${ctx.search.total} result${ctx.search.total === 1 ? '' : 's'}
-              ${ctx.search.engine?.semantic ? '' : ''}
+            <div style="font-size:12.5px;color:var(--text-2);margin-bottom:10px;
+              display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span>${ctx.search.total} result${ctx.search.total === 1 ? '' : 's'}</span>
+              ${
+                // An explicit answer either way. Relying on the badge being
+                // absent to mean "it did not run" would be ambiguous — the
+                // whole point is to confirm that semantic search actually ran.
+                ctx.search.engine?.semantic
+                  ? '<span class="chip" title="Results also come from meaning-based search">Meaning search on</span>'
+                  : '<span class="chip" title="Keyword search">Keyword search</span>'
+              }
             </div>
             <div style="display:flex;flex-direction:column;gap:10px">
               ${ctx.search.results
@@ -544,6 +552,16 @@ export function renderSearch(ctx) {
                       <div style="font-size:11.5px;color:var(--text-2);margin-top:4px">
                         ${esc(kindLabel(r.extension))} · ${esc(r.workspaceName || '')}
                       </div>
+                      ${
+                        // How this particular result was found. Plain words, no
+                        // engine or index names: the distinction a user cares
+                        // about is whether the match is by wording or by meaning.
+                        r.matchSource === 'semantic'
+                          ? '<div style="margin-top:6px"><span class="chip">Found by meaning</span></div>'
+                          : r.matchSource === 'both'
+                            ? '<div style="margin-top:6px"><span class="chip">Wording + meaning</span></div>'
+                            : ''
+                      }
                       <div style="font-size:11.5px;color:var(--text-3);margin-top:2px">Updated ${esc(timeAgo(r.updatedAt))}</div>
                       ${
                         (r.tags || []).length

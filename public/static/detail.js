@@ -190,6 +190,14 @@ export function renderArtifactDetail(ctx) {
           ${detailRow('Status', a.status)}
           ${detailRow('Versions', String(a.versionCount || versions.length))}
           ${detailRow('Search index', indexStateLabel(detail.indexState))}
+          ${
+            // Why that state was reached, in the artifact's own words: "no
+            // extractable text" or "3 chunks indexed". The server strips model,
+            // index and vector-detail wording before it reaches here.
+            detail.indexState?.reason
+              ? `<div style="font-size:11.5px;color:var(--text-2);padding:0 0 7px 0;margin-top:-2px">${esc(detail.indexState.reason)}</div>`
+              : ''
+          }
           ${a.checksum ? detailRow('Checksum', `${a.checksum.slice(0, 16)}…`) : ''}
           ${detailRow('Artifact ID', a.id)}
         </div>

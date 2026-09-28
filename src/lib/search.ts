@@ -16,9 +16,8 @@ import type { ArtifactRow, Env, Principal } from '../types'
 import { all, first } from './db'
 import { readableWorkspaces } from './principal'
 import {
-  EMBEDDING_DIMENSIONS,
-  EMBEDDING_MODEL,
   isSemanticConfigured,
+  publicIndexReason,
   semanticQuery
 } from './embeddings'
 
@@ -84,7 +83,7 @@ export interface SemanticProvider {
 export const unavailableSemantic: SemanticProvider = {
   name: 'NONE',
   available: false,
-  reason: 'Semantic index not provisioned (requires Vectorize + Workers AI bindings)',
+  reason: 'Semantic index not provisioned',
   async search() {
     return { ran: false, results: [], reason: 'Semantic index not provisioned' }
   }
@@ -107,9 +106,7 @@ export function resolveSemanticProvider(env: Pick<Env, 'VECTORIZE' | 'AI'>): Sem
   return {
     name: configured ? 'WORKERS_AI_VECTORIZE' : 'NONE',
     available: configured,
-    reason: configured
-      ? `Vectorize (${EMBEDDING_MODEL}, ${EMBEDDING_DIMENSIONS}d) + Workers AI`
-      : 'Semantic index not provisioned (requires Vectorize + Workers AI bindings)',
+    reason: configured ? 'Semantic search available' : 'Semantic index not provisioned',
     async search(query, scopeWorkspaceIds, limit) {
       const result = await semanticQuery(env, query, scopeWorkspaceIds, limit)
       return {
@@ -337,7 +334,13 @@ export async function searchArtifacts(
     total: (await countResults(db, usedExpr, where, params)) + semanticOnlyCount,
     // `semantic` reflects whether the vector query actually ran for this
     // request — not merely whether the bindings exist.
-    engine: { lexical: true, semantic: semanticRan, semanticReason }
+    // Scrubbed at the single point every caller reads it, so no provider
+    // wording can put a model name or index detail in front of a user.
+    engine: {
+      lexical: true,
+      semantic: semanticRan,
+      semanticReason: publicIndexReason(semanticReason)
+    }
   }
 }
 

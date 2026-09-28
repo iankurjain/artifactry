@@ -36,6 +36,32 @@ export const EMBEDDING_MODEL = '@cf/baai/bge-base-en-v1.5'
 /** Output dimension of EMBEDDING_MODEL. Must equal the Vectorize index dims. */
 export const EMBEDDING_DIMENSIONS = 768
 
+/**
+ * Scrub implementation detail from a reason string before it leaves the API.
+ *
+ * Reasons are shown on the artifact detail screen and in search metadata, where
+ * they must explain *what happened* without naming the embedding model, its
+ * dimension, the vector index or individual vector ids. Those are internals, and
+ * the kind of detail that ages badly the moment the model changes.
+ *
+ * This runs on read as well as on write so rows recorded before the rule existed
+ * cannot leak a model name, and so the shape survives any future reason wording.
+ */
+export function publicIndexReason(raw: string): string {
+  return raw
+    .replace(EMBEDDING_MODEL, 'the embedding model')
+    .replace(`${EMBEDDING_DIMENSIONS}d`, '')
+    .replace(/\bVectorize\b/g, 'the semantic index')
+    .replace(/\bWorkers AI\b/g, 'the embedding service')
+    // Tidy the punctuation and spacing those substitutions can leave behind,
+    // e.g. "the semantic index (the embedding model, ) over 2 ...".
+    .replace(/\s+with the embedding model\b/g, '')
+    .replace(/\(\s*the embedding model\s*,\s*\)/g, '')
+    .replace(/\(\s*,?\s*\)/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
 /** Vectorize index name (production). */
 export const INDEX_NAME = 'artifact-library-embeddings'
 
@@ -380,7 +406,7 @@ export async function semanticQuery(
     return {
       ran: false,
       results: [],
-      reason: 'Semantic index not provisioned (requires Vectorize + Workers AI bindings)'
+      reason: 'Semantic index not provisioned — keyword search only'
     }
   }
   if (!allowedWorkspaceIds.length) {
@@ -406,7 +432,7 @@ export async function semanticQuery(
     return {
       ran: true,
       results,
-      reason: `Vectorize (${EMBEDDING_MODEL}, ${EMBEDDING_DIMENSIONS}d) over ${allowedWorkspaceIds.length} readable workspace(s)`
+      reason: `Semantic search ran over ${allowedWorkspaceIds.length} readable workspace(s)`
     }
   } catch (err) {
     console.error('[embeddings] Vectorize query failed, falling back to lexical', err)
@@ -560,7 +586,7 @@ export async function reindexVersion(
       state: 'INDEXED',
       chunks: chunks.length,
       vectors: records.length,
-      reason: `${records.length} chunk vector(s) indexed with ${EMBEDDING_MODEL}`
+      reason: `${records.length} chunk${records.length === 1 ? '' : 's'} indexed`
     }
   } catch (err) {
     console.error('[embeddings] reindex failed', err)
@@ -629,7 +655,9 @@ export async function indexStateFor(db: D1Database, artifactId: string): Promise
   let reason = 'Not yet indexed'
   try {
     const detail = job?.detail_json ? (JSON.parse(job.detail_json) as { note?: string }) : null
-    if (detail?.note) reason = detail.note
+    // Scrubbed on read: a row written before the rule existed can still carry a
+    // model name, and this value is rendered on the detail screen.
+    if (detail?.note) reason = publicIndexReason(detail.note)
   } catch {
     /* detail_json is best-effort display metadata */
   }

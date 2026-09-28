@@ -43,6 +43,10 @@ export const GUIDE_SECTIONS = [
     <p>An artifact is a single file plus everything the library knows about it: who owns it, its tags, its versions, and its usage history.</p>
     <p><strong>Supported types:</strong> PDF, DOCX, PPTX, HTML, PNG, JPG, JPEG, BMP and GIF.</p>
     <p><strong>Size limit:</strong> 25 MB per file.</p>
+    <div class="guide-note">
+      <strong>HTML artifacts are rendered in a secure sandbox. HTML and CSS are supported. Uploaded JavaScript is not executed in V1.</strong>
+      This is deliberate, not a defect. An uploaded page cannot read your session, reach the library's APIs, or run code on the library's own address. An explicit Interactive HTML mode with its own security controls can be added later, rather than enabling arbitrary script execution by default.
+    </div>
     <p>When you upload, the library:</p>
     <ul>
       <li>verifies the file's real type against its contents, not just its name;</li>
@@ -229,15 +233,15 @@ export const GUIDE_SECTIONS = [
   S(
     'limits',
     'Known limitations',
-    'limitation not supported known issue thumbnail semantic ocr preview email timeline roadmap',
+    'limitation not supported known issue thumbnail semantic ocr preview email timeline roadmap javascript script sandbox html css interactive',
     `
     <p>These are the current, deliberate limits. They are stated here rather than hidden, and each is visible in the app where it applies.</p>
     <ul>
-      <li><strong>Semantic search is not active yet.</strong> Search is keyword-based. The semantic engine reports itself as unavailable until the vector index is provisioned; nothing pretends otherwise.</li>
+      <li><strong>Uploaded JavaScript does not run.</strong> HTML artifacts are rendered in a secure sandbox: HTML and CSS are supported, but uploaded JavaScript is not executed in V1. This is deliberate, not a defect. An explicit Interactive HTML mode with its own security controls can be added later, rather than silently enabling arbitrary script execution.</li>
       <li><strong>Scanned PDFs have no text to extract.</strong> They are stored and shared normally, and remain searchable by title, filename, description, tags and dates.</li>
+      <li><strong>PDF text extraction is best-effort.</strong> Text layers, including compressed content streams and documents that map glyphs to characters through their own font tables, are read. PDFs that encrypt their content, compress the file structure itself, or give no character mapping for their fonts may yield partial text or none — the artifact is still stored, shared and findable by its metadata.</li>
       <li><strong>Thumbnails are not generated.</strong> Files show a type badge instead of a preview image.</li>
       <li><strong>DOCX and PPTX cannot be generated.</strong> Content can be rendered to PDF and HTML; the app refuses the other two rather than returning a degraded file.</li>
-      <li><strong>Live HTML preview</strong> opens in a sandboxed frame without access to your session.</li>
     </ul>`
   ),
 
