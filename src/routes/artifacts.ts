@@ -32,6 +32,7 @@ import {
 } from '../lib/artifacts'
 import { artifactAccess, assertArtifactPermission, mayReadAnalytics, workspaceRefOf } from '../lib/access'
 import { indexStateFor, isSemanticConfigured } from '../lib/embeddings'
+import { reprocessVersion } from '../lib/reprocess'
 import { assertWorkspaceAccess, effectiveWorkspaceRole } from '../lib/principal'
 import { getObject, buildDeliveryHeaders, previewCsp } from '../lib/storage'
 import {
@@ -975,6 +976,43 @@ artifacts.get(
  * the latest EMBED job), not an optimistic flag — so PENDING / INDEXED /
  * PARTIAL / FAILED / SKIPPED always reflects reality.
  */
+artifacts.post(
+  '/:artifactId/reprocess',
+  rateLimit({ bucket: 'artifact:reprocess', limit: 60, windowSeconds: 300 }),
+  guarded(async (c) => {
+    const principal = requirePrincipal(c)
+    const artifactId = c.req.param('artifactId')
+
+    // Same permission as reindex: this rebuilds derived search data from a
+    // version that is already stored and creates no new version.
+    const artifact = await assertArtifactPermission(
+      c.env.DB,
+      principal,
+      artifactId,
+      'artifact.update'
+    )
+    if (!artifact.current_version_id) throw badRequest('Artifact has no current version')
+
+    const outcome = await reprocessVersion(c.env, artifactId, artifact.current_version_id)
+
+    await recordAudit(c.env.DB, {
+      organizationId: artifact.organization_id,
+      workspaceId: artifact.workspace_id,
+      actorUserId: principal.userId,
+      actorType: principal.kind === 'AI_GRANT' ? 'AI' : 'USER',
+      action: 'ARTIFACT_REPROCESS',
+      targetType: 'artifact',
+      targetId: artifactId,
+      metadata: {
+        extraction: outcome.extraction.status,
+        index: outcome.index.state
+      }
+    }).catch(() => {})
+
+    return ok(c, outcome)
+  })
+)
+
 artifacts.get(
   '/:artifactId/index-state',
   guarded(async (c) => {
@@ -984,10 +1022,12 @@ artifacts.get(
 
     const state = await indexStateFor(c.env.DB, artifactId)
 
+    // No model name, vector id or dimension is returned: this feeds the user
+    // facing detail screen, and those are implementation details. The state
+    // and chunk counts are what the UI actually needs.
     return ok(c, {
       ...state,
-      semanticConfigured: isSemanticConfigured(c.env),
-      model: 'bge-base-en-v1.5'
+      semanticConfigured: isSemanticConfigured(c.env)
     })
   })
 )
@@ -1006,11 +1046,19 @@ artifacts.post(
     const principal = requirePrincipal(c)
     const artifactId = c.req.param('artifactId')
 
+    // `artifact.update` — NOT `artifact.version.create`.
+    //
+    // Reindexing creates no version: it rebuilds derived search data from a
+    // version that is already stored. Gating it on version-create implied a
+    // mutation that never happens. Both permissions resolve to the identical
+    // role set (CONTRIBUTOR and above — see ROLE_PERMISSIONS in src/types.ts),
+    // so this changes nobody's access; it only stops the endpoint from
+    // claiming a privilege it does not use.
     const artifact = await assertArtifactPermission(
       c.env.DB,
       principal,
       artifactId,
-      'artifact.version.create'
+      'artifact.update'
     )
     if (!artifact.current_version_id) throw badRequest('Artifact has no current version')
 

@@ -128,6 +128,12 @@ export const api = {
 
   getArtifact: (id) => request(`/api/v1/artifacts/${encodeURIComponent(id)}`),
 
+  indexState: (id) =>
+    request(`/api/v1/artifacts/${encodeURIComponent(id)}/index-state`).catch(() => null),
+
+  reprocess: (id) =>
+    request(`/api/v1/artifacts/${encodeURIComponent(id)}/reprocess`, { method: 'POST', body: {} }),
+
   uploadArtifact: (formData) =>
     request('/api/v1/artifacts', { method: 'POST', body: formData }),
 

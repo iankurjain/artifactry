@@ -150,10 +150,29 @@ export function chunkText(raw: string | null | undefined): TextChunk[] {
 // Vector identity + metadata
 // ---------------------------------------------------------------
 
-/** Deterministic vector id. Mirrored into D1 so stale vectors can be deleted. */
-export function vectorIdFor(artifactId: string, versionId: string, chunkIndex: number): string {
-  return `${artifactId}__${versionId}__${chunkIndex}`
+/**
+ * Deterministic vector id. Mirrored into D1 so stale vectors can be deleted.
+ *
+ * Keyed on the **version**, not the artifact: a version id is globally unique
+ * and belongs to exactly one artifact, so it already identifies both. This
+ * matters because Vectorize caps ids at **64 bytes**, and the obvious
+ * `{artifactId}__{versionId}__{chunkIndex}` form silently overflows on real
+ * data — both ids are `prefix_` + a 26-char ULID, so that format is 65 bytes
+ * for chunk 0 and 66 for chunk 10+.
+ *
+ * That overflow was not theoretical: it rejected every chunk of a real
+ * production artifact. Short ids in the unit tests (`art_1` / `ver_1`) hid it,
+ * which is why `test-semantic.mjs` now asserts the length against realistic
+ * ULID-sized ids.
+ *
+ * Worst case here is 30 (version) + 2 + 3 (`c` + 59) = 35 bytes.
+ */
+export function vectorIdFor(_artifactId: string, versionId: string, chunkIndex: number): string {
+  return `${versionId}__c${chunkIndex}`
 }
+
+/** Vectorize's hard limit on a vector id, in bytes. */
+export const MAX_VECTOR_ID_BYTES = 64
 
 /**
  * Metadata stored on every vector.

@@ -59,6 +59,7 @@ const {
   reindexVersion,
   removeArtifactVectors,
   indexStateFor,
+  MAX_VECTOR_ID_BYTES,
   EMBEDDING_DIMENSIONS,
   MAX_CHUNKS
 } = emb
@@ -267,7 +268,30 @@ const vid = vectorIdFor('art_1', 'ver_1', 3)
 check('vector id is deterministic', vid === vectorIdFor('art_1', 'ver_1', 3))
 check('vector id encodes version', vid !== vectorIdFor('art_1', 'ver_2', 3))
 check('vector id encodes chunk', vid !== vectorIdFor('art_1', 'ver_1', 4))
-check('vector id contains artifact id', vid.includes('art_1'))
+check('vector id is scoped to the version', vid.includes('ver_1'))
+
+// Regression guard: Vectorize caps a vector id at 64 bytes. Real ids are
+// `prefix_` + a 26-char ULID (30 bytes each), so the original
+// `{artifactId}__{versionId}__{chunkIndex}` form was 65 bytes for chunk 0 and
+// rejected every chunk of a real production artifact. The earlier tests used
+// short ids like `art_1` and passed while production failed — so this now
+// asserts the length against realistic ids at both ends of the chunk range.
+const REAL_ART = 'art_01M3H86PX0C9BBRE6K16KXCBG7'   // 30 bytes
+const REAL_VER = 'ver_01M3H86PX0Q87XT3S92KZ313TQ'   // 30 bytes
+check('real artifact id is 30 bytes (test precondition)', REAL_ART.length === 30)
+check('real version id is 30 bytes (test precondition)', REAL_VER.length === 30)
+for (const chunk of [0, 9, 59]) {
+  const id = vectorIdFor(REAL_ART, REAL_VER, chunk)
+  check(
+    `realistic id fits Vectorize's limit (chunk ${chunk}, ${id.length} bytes)`,
+    id.length <= MAX_VECTOR_ID_BYTES,
+    `${id.length} > ${MAX_VECTOR_ID_BYTES}`
+  )
+}
+check(
+  'ids are unique across chunks of one version',
+  new Set([0, 1, 2, 59].map((c) => vectorIdFor(REAL_ART, REAL_VER, c))).size === 4
+)
 
 const meta = buildMetadata({
   artifactId: 'art_1', versionId: 'ver_1', workspaceId: 'ws_1',

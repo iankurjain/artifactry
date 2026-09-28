@@ -189,6 +189,7 @@ export function renderArtifactDetail(ctx) {
           ${detailRow('Owner', a.isOwner ? 'You' : 'Someone else')}
           ${detailRow('Status', a.status)}
           ${detailRow('Versions', String(a.versionCount || versions.length))}
+          ${detailRow('Search index', indexStateLabel(detail.indexState))}
           ${a.checksum ? detailRow('Checksum', `${a.checksum.slice(0, 16)}…`) : ''}
           ${detailRow('Artifact ID', a.id)}
         </div>
@@ -232,6 +233,33 @@ export function renderArtifactDetail(ctx) {
         button.addEventListener('click', () => ctx.openTagsSheet({ artifact: a }))
       })
     }
+  }
+}
+
+/**
+ * Plain-language indexing state for the detail screen.
+ *
+ * Deliberately abstract: a user cares whether their document is findable by
+ * meaning, not which model or index backs it. No model name, vector id or
+ * dimension is shown here — the API does not even return them to this screen.
+ *
+ * `PARTIAL` is the honest answer for a document we understood but that held
+ * nothing embeddable (a scan, or a file with no text layer), which is
+ * different from a failure and is labelled as such.
+ */
+function indexStateLabel(indexState) {
+  if (!indexState) return '—'
+  switch (indexState.state) {
+    case 'INDEXED':
+      return 'Indexed'
+    case 'PARTIAL':
+      return 'Partial'
+    case 'FAILED':
+      return 'Failed'
+    case 'SKIPPED':
+      return 'Not indexed'
+    default:
+      return 'Processing'
   }
 }
 

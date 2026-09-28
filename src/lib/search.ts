@@ -250,10 +250,23 @@ export async function searchArtifacts(
 
   let rows: Array<ArtifactRow & { score: number }> = []
 
+  // Which FTS expression actually produced `rows`. The count at the end of this
+  // function has to use the same one: counting with the strict AND expression
+  // while the rows came back from the looser OR fallback reported "0 results"
+  // above a non-empty list of hits.
+  let usedExpr: string | null = matchExpr
+
   if (matchExpr) {
     rows = await lexicalQuery(db, matchExpr, where, params, limit, offset, request.sort)
-    if (!rows.length && orExpr) {
-      rows = await lexicalQuery(db, orExpr, where, params, limit, offset, request.sort)
+    // The relaxed expression is a recall rescue for an empty first page, not a
+    // second result set: past page 1 an empty strict page means the results
+    // really are exhausted, and re-running it there would re-order the tail.
+    if (!rows.length && orExpr && offset === 0) {
+      const relaxed = await lexicalQuery(db, orExpr, where, params, limit, offset, request.sort)
+      if (relaxed.length) {
+        rows = relaxed
+        usedExpr = orExpr
+      }
     }
   } else {
     // No usable query text: behave as a filtered browse (§83 filters only)
@@ -281,17 +294,24 @@ export async function searchArtifacts(
   const semanticMap = new Map(semanticIds.map((s) => [s.artifactId, s.score]))
   const seen = new Set(rows.map((r) => r.id))
 
-  // Pull in semantic-only hits, still bounded by the ACL scope above
+  // Pull in the hits that only the vector search found.
+  //
+  // These are re-loaded through the *same* WHERE clause the lexical query used,
+  // not merely the workspace list. The workspace scope is necessary but not
+  // sufficient: a caller who filtered by tag, type, owner or date would
+  // otherwise have that filter side-stepped by any in-scope vector match, so a
+  // vector hit could surface an artifact the filter was meant to exclude.
   const extraIds = semanticIds.map((s) => s.artifactId).filter((id) => !seen.has(id))
+  let semanticOnlyCount = 0
   if (extraIds.length) {
     const extra = await all<ArtifactRow>(
       db,
       `SELECT a.* FROM artifacts a
         WHERE a.id IN (${extraIds.map(() => '?').join(',')})
-          AND a.deleted_at IS NULL
-          AND a.workspace_id IN (${workspaceIds.map(() => '?').join(',')})`,
-      [...extraIds, ...workspaceIds]
+          AND ${where.join(' AND ')}`,
+      [...extraIds, ...params]
     )
+    semanticOnlyCount = extra.length
     rows = [...rows, ...extra.map((r) => ({ ...r, score: semanticMap.get(r.id) ?? 0 }))]
   }
 
@@ -314,7 +334,7 @@ export async function searchArtifacts(
 
   return {
     hits: hits.slice(0, limit),
-    total: await countResults(db, matchExpr, orExpr, where, params),
+    total: (await countResults(db, usedExpr, where, params)) + semanticOnlyCount,
     // `semantic` reflects whether the vector query actually ran for this
     // request — not merely whether the bindings exist.
     engine: { lexical: true, semantic: semanticRan, semanticReason }
@@ -371,14 +391,18 @@ async function browseQuery(
   return all<ArtifactRow & { score: number }>(db, sql, [...params, limit, offset])
 }
 
+/**
+ * Count matches for the expression that actually produced the results.
+ *
+ * `expr` is that expression, or null for a filter-only browse. Semantic-only
+ * hits are not in the FTS index, so the caller adds those separately.
+ */
 async function countResults(
   db: D1Database,
-  matchExpr: string | null,
-  orExpr: string | null,
+  expr: string | null,
   where: string[],
   params: unknown[]
 ): Promise<number> {
-  const expr = matchExpr ?? orExpr
   if (expr) {
     const row = await first<{ n: number }>(
       db,

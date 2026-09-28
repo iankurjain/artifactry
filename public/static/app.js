@@ -153,7 +153,7 @@ const ctx = {
   devCode: null,
   filters: { type: 'all', q: '', sort: 'updated' },
   search: { query: '', results: [], total: 0, performed: false, loading: false, engine: null, activeFilters: [] },
-  detail: { loading: false, artifact: null, versions: [], analytics: null },
+  detail: { loading: false, artifact: null, versions: [], analytics: null, indexState: null },
   analyticsView: { loading: false, data: null, artifactId: null, title: null },
   share: {
     loading: false,
@@ -389,15 +389,18 @@ async function loadRouteData(route) {
       ctx.detail.artifact = null
       ctx.detail.versions = []
       ctx.detail.analytics = null
+      ctx.detail.indexState = null
       render()
       try {
-        const [detail, analytics] = await Promise.all([
+        const [detail, analytics, indexState] = await Promise.all([
           api.getArtifact(route.artifactId),
-          api.analytics(route.artifactId, '30d').catch(() => null)
+          api.analytics(route.artifactId, '30d').catch(() => null),
+          api.indexState(route.artifactId)
         ])
         ctx.detail.artifact = detail?.artifact || null
         ctx.detail.versions = detail?.versions || []
         ctx.detail.analytics = analytics
+        ctx.detail.indexState = indexState
       } catch (error) {
         ctx.detail.artifact = null
         if (error?.status !== 404) throw error
@@ -507,7 +510,7 @@ ctx.signOut = async () => {
     currentWorkspaceId: null,
     session: { authenticated: false, devMode: state.session.devMode }
   })
-  ctx.detail = { loading: false, artifact: null, versions: [], analytics: null }
+  ctx.detail = { loading: false, artifact: null, versions: [], analytics: null, indexState: null }
   window.history.replaceState({}, '', '/')
   currentRoute = parseRoute('/')
   render()
