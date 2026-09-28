@@ -38,6 +38,7 @@ import { extractText } from './extract'
 import { extensionOf } from './validate'
 import { recordJob, statusForExtraction, type JobStatus } from './artifacts'
 import { reindexVersion, type IndexState } from './embeddings'
+import { indexArtifact } from './search'
 
 export interface ReprocessOutcome {
   artifactId: string
@@ -207,7 +208,19 @@ export async function reprocessVersion(
     }
   }
 
-  // Rebuild the lexical row so FTS reflects any newly extracted text.
+  // Rebuild the lexical row so FTS reflects the newly extracted text.
+  //
+  // This is not optional bookkeeping: `artifact_search` is populated explicitly
+  // (there are no triggers), and the FTS row is what the lexical engine matches
+  // against. Without this call a re-extract updated `extracted_text` and the
+  // vector index but left the keyword index holding the *old* text, so newly
+  // recovered words were unfindable by search — the exact problem this path
+  // exists to solve. `indexArtifact` re-reads current_version_id's text, so it
+  // is also correct when the version being reprocessed is not the current one.
+  await indexArtifact(db, artifactId).catch((err) => {
+    console.error('[reprocess] lexical re-index failed', err)
+  })
+
   await run(db, `UPDATE artifacts SET updated_at = ? WHERE id = ?`, [nowIso(), artifactId]).catch(
     () => {}
   )
