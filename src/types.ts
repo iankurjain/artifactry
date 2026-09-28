@@ -36,6 +36,17 @@ export interface Env {
   // than serving executing HTML unauthenticated — see lib/htmlpreview.ts.
   PREVIEW_ORIGIN?: string
   PREVIEW_TOKEN_SECRET?: string
+
+  // APP_ORIGIN is the canonical application origin, e.g. https://artifactry.app.
+  //
+  // A preview token carries the origin permitted to frame the document
+  // (`frame-ancestors`). When APP_ORIGIN is set, the preview origin requires
+  // that signed value to match it exactly, so a token minted for any other
+  // origin is refused rather than served with a foreign framing allow-list. The
+  // app origin derives that value from the request URL, so this check also
+  // closes the case where a spoofed Host header could otherwise choose who is
+  // allowed to frame an artifact. Unset means the check is skipped.
+  APP_ORIGIN?: string
 }
 
 // ---------------------------------------------------------------

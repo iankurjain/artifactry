@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Egress probe</title>
+<!--
+  Egress probe. Every vector below targets a local sink server that the test
+  harness controls, so "blocked" is proven by the sink receiving NOTHING — not
+  by a promise rejecting, which can happen for reasons unrelated to our CSP.
+
+  Static subresource tags are included deliberately: script-src and style-src
+  are the directives a CDN-loaded library would need, so a library that "works"
+  would have to appear at the sink.
+
+  No protocol-relative URLs and no assignment to the cookie property, so this
+  file passes the upload scanner on its own merits.
+-->
+<script src="http://sink.localhost:9999/script-tag.js"></script>
+<link rel="stylesheet" href="http://sink.localhost:9999/stylesheet.css">
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; margin: 0; padding: 16px; }
+  h1 { font-size: 16px; margin: 0 0 8px; }
+  #results { font-size: 11.5px; white-space: pre-wrap; line-height: 1.5; }
+</style>
+</head>
+<body>
+<h1 id="heading">Egress probe</h1>
+<form id="probe-form" action="http://sink.localhost:9999/form-post" method="post">
+  <input id="probe-input" name="probe" value="abc" aria-label="Probe input">
+  <button id="probe-button" type="submit">Submit</button>
+</form>
+<pre id="results">pending</pre>
+
+<script>
+(async () => {
+  const SINK = 'http://sink.localhost:9999';
+  const r = { attempts: {} };
+
+  // Positive control: if this is false, nothing else in this report matters.
+  document.getElementById('heading').setAttribute('data-ran', '1');
+  r.inlineScriptRan = true;
+
+  const attempt = async (name, fn) => {
+    try {
+      await fn();
+      r.attempts[name] = 'no-throw';
+    } catch (e) {
+      r.attempts[name] = 'throw:' + (e && e.name);
+    }
+  };
+
+  await attempt('fetch', () => fetch(SINK + '/fetch'));
+  await attempt('fetchNoCors', () => fetch(SINK + '/fetch-nocors', { mode: 'no-cors' }));
+  await attempt('xhr', () => new Promise((res, rej) => {
+    const x = new XMLHttpRequest();
+    x.onload = res; x.onerror = () => rej(new Error('net'));
+    x.open('GET', SINK + '/xhr'); x.send();
+  }));
+
+  // WebSocket and EventSource need a server handshake; if they connect, the sink
+  // records the upgrade.
+  await attempt('websocket', () => new Promise((res, rej) => {
+    const ws = new WebSocket('ws://sink.localhost:9999/ws');
+    ws.onopen = res; ws.onerror = () => rej(new Error('net'));
+    setTimeout(() => rej(new Error('timeout')), 1200);
+  }));
+  await attempt('eventsource', () => new Promise((res, rej) => {
+    const es = new EventSource(SINK + '/sse');
+    es.onopen = res; es.onerror = () => rej(new Error('net'));
+    setTimeout(() => rej(new Error('timeout')), 1200);
+  }));
+
+  // sendBeacon returns a boolean that is NOT a delivery receipt, so record the
+  // return value AND rely on the sink to decide whether anything arrived.
+  r.attempts.sendBeaconReturn = String(navigator.sendBeacon(SINK + '/beacon', 'x'));
+
+  // Subresource loads.
+  await attempt('image', () => new Promise((res) => {
+    const img = new Image();
+    img.onload = res; img.onerror = res;
+    img.src = SINK + '/pixel.gif';
+    setTimeout(res, 1200);
+  }));
+  await attempt('scriptInject', () => new Promise((res) => {
+    const s = document.createElement('script');
+    s.src = SINK + '/dynamic.js';
+    s.onload = res; s.onerror = res;
+    document.body.appendChild(s);
+    setTimeout(res, 1200);
+  }));
+  await attempt('iframe', () => new Promise((res) => {
+    const f = document.createElement('iframe');
+    f.src = SINK + '/frame.html';
+    f.onload = res; f.onerror = res;
+    document.body.appendChild(f);
+    setTimeout(res, 1200);
+  }));
+  await attempt('cssImport', () => new Promise((res) => {
+    const l = document.createElement('link');
+    l.rel = 'stylesheet'; l.href = SINK + '/dyn.css';
+    document.head.appendChild(l);
+    setTimeout(res, 1200);
+  }));
+
+  // Form submission: allow-forms permits interaction, form-action 'none' must
+  // stop the actual POST.
+  await attempt('formSubmit', () => new Promise((res) => {
+    const form = document.getElementById('probe-form');
+    form.addEventListener('submit', (ev) => ev.preventDefault());
+    form.requestSubmit();
+    setTimeout(res, 800);
+  }));
+
+  // Popup to the sink.
+  await attempt('windowOpen', () => {
+    const w = window.open(SINK + '/popup');
+    if (!w) throw new Error('blocked');
+  });
+
+  document.getElementById('results').textContent = JSON.stringify(r, null, 2);
+  document.documentElement.setAttribute('data-done', '1');
+})();
+</script>
+</body>
+</html>

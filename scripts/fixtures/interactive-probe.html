@@ -43,9 +43,19 @@
   document.getElementById('js-ran').textContent = 'inline JavaScript ran';
   r.inlineScriptRan = true;
 
-  // 2. Origin the document actually has. Under a sandbox without
-  //    allow-same-origin this is "null" (an opaque origin).
+  // 2. Origin the document actually has.
+  //
+  //    Two different questions, and they have different answers:
+  //      - `location.origin` still names the host the bytes came from.
+  //      - `window.origin` is the document's *security* origin. Under a sandbox
+  //        without allow-same-origin it is "null" (opaque), which is precisely
+  //        what detaches the document from cookies and storage.
   try { r.origin = String(window.location.origin); } catch (e) { r.origin = 'throw:' + e.name; }
+  try { r.windowOrigin = String(window.origin); } catch (e) { r.windowOrigin = 'throw:' + e.name; }
+  r.windowOriginOpaque = (function () {
+    try { return window.origin === null || String(window.origin) === 'null'; }
+    catch (e) { return false; }
+  })();
   try { r.isolatedFlag = String(window.crossOriginIsolated); } catch (e) { r.isolatedFlag = 'n/a'; }
 
   // 3. Cookies belonging to the preview host.

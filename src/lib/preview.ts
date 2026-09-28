@@ -25,6 +25,7 @@ import { loadArtifact } from './artifacts'
 import { evaluateShareAccess, shareCoversArtifact } from './sharing'
 import {
   mintPreviewToken,
+  normalizeOrigin,
   previewDocumentCsp,
   previewDocumentUrl,
   previewOrigin,
@@ -73,7 +74,7 @@ function deny(status: number, reason: string, appOrigin: string | null): Preview
  */
 export async function resolvePreviewRequest(
   db: D1Database,
-  env: Pick<Env, 'PREVIEW_ORIGIN' | 'PREVIEW_TOKEN_SECRET'>,
+  env: Pick<Env, 'PREVIEW_ORIGIN' | 'PREVIEW_TOKEN_SECRET' | 'APP_ORIGIN'>,
   payload: PreviewTokenPayload
 ): Promise<PreviewResolution> {
   const appOrigin = payload.o
@@ -81,6 +82,16 @@ export async function resolvePreviewRequest(
   // A deployment without a preview origin or signing secret cannot serve this.
   if (!previewOrigin(env) || !env.PREVIEW_TOKEN_SECRET?.trim()) {
     return deny(503, 'PREVIEW_UNAVAILABLE', appOrigin)
+  }
+
+  // The token's signed framing origin must be the origin this deployment
+  // expects. `o` is what becomes `frame-ancestors` on the served document, and
+  // the app origin derives it from its own request URL — so a request arriving
+  // with a spoofed Host header could otherwise mint a token naming an arbitrary
+  // framer. Pinning it here means such a token is refused instead of served.
+  const configuredApp = normalizeOrigin(env.APP_ORIGIN)
+  if (configuredApp && normalizeOrigin(payload.o) !== configuredApp) {
+    return deny(403, 'ORIGIN_NOT_PERMITTED', appOrigin)
   }
 
   const artifact = await loadArtifact(db, payload.a)

@@ -526,7 +526,12 @@ shares.get(
     const share = await findShareByToken(c.env.DB, token)
     if (!share) throw notFound('This share link is not valid')
 
-    const verifiedEmail = await verifiedEmailFor(c as never, share)
+    // `verifiedGrantFor` (not `verifiedEmailFor`) because the ARTIFACT branch
+    // below needs the grant id as well: the preview token binds the grant, so
+    // the preview origin can re-read the recipient from the database and
+    // revoke the preview the moment the grant expires or is deleted.
+    const grant = await verifiedGrantFor(c as never, share)
+    const verifiedEmail = grant?.email ?? null
     const evaluation = await evaluateShareAccess(c.env.DB, share, verifiedEmail)
 
     const channel =
