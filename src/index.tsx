@@ -38,7 +38,7 @@ import {
 import { loadArtifact } from './lib/artifacts'
 import { buildPreviewDescriptor } from './lib/preview'
 import { previewOrigin, previewSandbox } from './lib/htmlpreview'
-import { verifiedEmailFor } from './routes/shares'
+import { verifiedEmailFor, verifiedGrantFor } from './routes/shares'
 import { recordEvent } from './lib/analytics'
 
 const app = new Hono<AppEnv>()
@@ -214,7 +214,8 @@ app.get(
     const share = await findShareByToken(c.env.DB, token)
     if (!share) return viewerMessage('Link not valid', 'This share link does not exist or has been removed.')
 
-    const verifiedEmail = await verifiedEmailFor(c as never, share)
+    const grant = await verifiedGrantFor(c, share)
+    const verifiedEmail = grant?.email ?? null
     const evaluation = await evaluateShareAccess(c.env.DB, share, verifiedEmail)
     if (!evaluation.allowed) {
       return viewerMessage('This share is not available', 'It may have expired, been revoked, or not be addressed to you.')
@@ -258,7 +259,40 @@ app.get(
     })
 
     const title = artifact.title || artifact.filename || 'Shared artifact'
-    const frameSrc = `/api/v1/shares/${encodeURIComponent(token)}/preview?artifactId=${encodeURIComponent(artifactId)}`
+    const origin = new URL(c.req.url).origin
+
+    /**
+     * How this share should render, decided server-side.
+     *
+     * A recipient never chooses the mode: an Interactive artifact gets a
+     * short-lived signed document URL on the isolated preview origin, and a Safe
+     * artifact gets the same-origin Safe path. The token binds the share and the
+     * recipient grant, so it expires with both.
+     */
+    const preview = await buildPreviewDescriptor(c.env.DB, c.env, artifact, {
+      shareId: share.id,
+      grantId: grant?.grantId ?? null,
+      appOrigin: origin,
+      shareToken: token
+    })
+
+    const frameSrc = preview.url ?? preview.fallbackUrl ?? ''
+    const interactive = preview.mode === 'INTERACTIVE'
+
+    /**
+     * The wrapper must be permitted to frame the isolated origin when that is
+     * where the document lives. `frame-src 'self'` alone would silently block
+     * the frame and leave the recipient looking at an empty box, so the preview
+     * origin is added only when the document actually resolves there.
+     */
+    const isolatedOrigin = previewOrigin(c.env)
+    const frameSrcDirective = ["'self'", ...(interactive && isolatedOrigin ? [isolatedOrigin] : [])].join(' ')
+
+    const modeLabel = interactive ? 'Interactive Preview' : 'Safe Preview'
+    const modeDetail = interactive
+      ? 'JavaScript runs in an isolated sandbox'
+      : 'HTML and CSS render; JavaScript does not run'
+
     const downloadSrc = `/api/v1/shares/${encodeURIComponent(token)}/content?artifactId=${encodeURIComponent(artifactId)}&download=1`
 
     const body = `<!DOCTYPE html>
@@ -295,7 +329,7 @@ app.get(
   <header class="bar">
     <div class="spacer">
       <h1>${escapeHtml(title)}</h1>
-      <div class="meta">Shared with you · renders in a secure sandbox</div>
+      <div class="meta">Shared with you · ${escapeHtml(modeLabel)} — ${escapeHtml(modeDetail)}</div>
     </div>
     ${
       share.allow_download
@@ -306,8 +340,8 @@ app.get(
   <div class="stage">
     <iframe
       title="${escapeHtml(title)}"
-      src="${frameSrc}"
-      sandbox="allow-scripts"
+      src="${escapeHtml(frameSrc)}"
+      sandbox="${escapeHtml(preview.sandbox)}"
       referrerpolicy="no-referrer"
       loading="eager"></iframe>
   </div>
@@ -318,10 +352,11 @@ app.get(
     return new Response(body, {
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
-        // The wrapper itself is locked down; it only needs to frame our own
-        // sandboxed preview document.
+        // The wrapper itself is locked down; it only needs to frame the
+        // sandboxed preview document — same-origin in Safe mode, the isolated
+        // preview origin in Interactive mode.
         'Content-Security-Policy':
-          "default-src 'none'; frame-src 'self'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+          `default-src 'none'; frame-src ${frameSrcDirective}; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
         'Cache-Control': 'private, no-store, max-age=0',
         'Referrer-Policy': 'no-referrer'
       }

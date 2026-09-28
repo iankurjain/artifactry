@@ -103,9 +103,10 @@ export function renderArtifactDetail(ctx) {
           isHtml
             ? `<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px">
                  <iframe class="preview-frame" title="Preview of ${esc(a.title)}"
-                   sandbox="allow-scripts" referrerpolicy="no-referrer" loading="lazy"
-                   src="${safeUrl(`/api/v1/artifacts/${encodeURIComponent(a.id)}/preview`)}"></iframe>
-               </div>`
+                   sandbox="${esc(previewSandbox(a))}" referrerpolicy="no-referrer" loading="lazy"
+                   src="${safeUrl(previewSource(a))}"></iframe>
+               </div>
+               ${previewModeNote(a)}`
             : isImage
               ? `<div class="card" style="padding:10px;margin-bottom:14px;text-align:center">
                    <img alt="Preview of ${esc(a.title)}" loading="lazy"
@@ -202,6 +203,8 @@ export function renderArtifactDetail(ctx) {
           ${detailRow('Artifact ID', a.id)}
         </div>
 
+        ${htmlPreviewCard(a)}
+
         ${
           versions.length > 1
             ? `<button class="btn btn-secondary btn-block" id="detail-versions" style="margin-top:12px">
@@ -240,7 +243,206 @@ export function renderArtifactDetail(ctx) {
       root.querySelectorAll('[data-tag-manage]').forEach((button) => {
         button.addEventListener('click', () => ctx.openTagsSheet({ artifact: a }))
       })
+      // Fills in the owner-only Interactive HTML control from the server's
+      // settings response, so availability and the warning text are never
+      // hard-coded in the client.
+      mountHtmlPreviewCard(root, a, ctx)
     }
+  }
+}
+
+/**
+ * HTML preview: source, sandbox and mode, all taken from the server descriptor.
+ *
+ * The client never decides whether Interactive mode is allowed. The API returns
+ * a `preview` descriptor per HTML artifact carrying `mode`, `url`, `sandbox`,
+ * `isolated` and a plain-language `reason`; this screen only renders it. If the
+ * descriptor is missing or malformed the helpers below fall back to the
+ * most restrictive option — the same-origin Safe path with an empty sandbox,
+ * which permits no scripting at all — rather than assuming it is safe to relax.
+ */
+
+/** Shown before an owner can turn script execution on. Mirrors the API copy. */
+const INTERACTIVE_WARNING =
+  'Interactive HTML runs the uploaded JavaScript. It executes only inside an ' +
+  'isolated, credential-free sandbox on a separate origin, with no access to ' +
+  'your session, this library, or site data — but scripts in the file will run. ' +
+  'Enable it only for artifacts you trust. Use Safe Preview if you are unsure.'
+
+/** Iframe src for the artifact's HTML preview. */
+function previewSource(a) {
+  const preview = a.preview
+  if (preview && (preview.url || preview.fallbackUrl)) {
+    return preview.url || preview.fallbackUrl
+  }
+  // No descriptor: same-origin Safe Preview, which is always available.
+  return `/api/v1/artifacts/${encodeURIComponent(a.id)}/preview`
+}
+
+/** Iframe sandbox tokens. Absent descriptor means no capability granted. */
+function previewSandbox(a) {
+  const sandbox = a.preview && a.preview.sandbox
+  return sandbox ? String(sandbox) : ''
+}
+
+/** True when the artifact is being served in Interactive Preview. */
+function isInteractive(a) {
+  return Boolean(a.preview && a.preview.mode === 'INTERACTIVE')
+}
+
+/** One-line note under the preview saying which mode is in effect. */
+function previewModeNote(a) {
+  const preview = a.preview
+  if (!preview) return ''
+
+  const interactive = preview.mode === 'INTERACTIVE'
+  const label = interactive ? 'Interactive Preview' : 'Safe Preview'
+  const detail = interactive
+    ? 'JavaScript runs in an isolated sandbox.'
+    : 'HTML and CSS render; JavaScript does not run.'
+
+  // An owner who asked for Interactive but cannot have it should be told why,
+  // in the place where they would notice the difference.
+  const notice =
+    preview.requested && !interactive
+      ? `<div style="font-size:11.5px;color:var(--warning);margin-top:5px;line-height:1.5">
+           ${icon('alert', 13)} Interactive Preview was requested but is not available, so JavaScript is disabled.
+         </div>`
+      : ''
+
+  return `
+    <div style="padding:8px 2px 0">
+      <div style="font-size:11.5px;color:var(--text-2);line-height:1.5">
+        <strong style="color:var(--text)">${esc(label)}</strong> · ${esc(detail)}
+      </div>
+      ${notice}
+    </div>`
+}
+
+/**
+ * Owner-only control for the Interactive HTML setting.
+ *
+ * Rendered only for HTML artifacts and only for principals holding
+ * `artifact.update` — the same permission the API endpoint enforces, so the
+ * control is never offered for an action that would be refused. Availability
+ * and the warning text come from the server; the switch cannot enable a mode
+ * the deployment cannot serve.
+ */
+function htmlPreviewCard(a) {
+  if (a.mimeType !== 'text/html' || !a.canUpdate) return ''
+
+  return `
+    <div class="card" style="padding:16px;margin-top:12px" id="html-preview-card">
+      <h2 style="font-size:13px;font-weight:640;margin:0 0 10px;color:var(--text-2);text-transform:uppercase;letter-spacing:.05em">
+        HTML preview
+      </h2>
+      <div id="html-preview-body">
+        <div class="skeleton" style="height:16px;width:60%"></div>
+        <div class="skeleton" style="height:34px;margin-top:12px;border-radius:9px"></div>
+      </div>
+    </div>`
+}
+
+/** Populate the HTML preview card from the server's settings response. */
+async function mountHtmlPreviewCard(root, a, ctx) {
+  const host = root.querySelector('#html-preview-body')
+  if (!host) return
+
+  let settings = null
+  try {
+    settings = await ctx.api.previewSettings(a.id)
+  } catch {
+    // The descriptor already in the artifact payload is enough to describe the
+    // current mode honestly; only the switch needs the settings response.
+    settings = null
+  }
+
+  const requested = settings ? settings.interactiveHtml : Boolean(a.preview?.requested)
+  const available = settings ? settings.interactiveAvailable : !a.preview?.downgraded
+  const effective = settings ? settings.effectiveMode : a.preview?.mode || 'SAFE'
+  const interactive = effective === 'INTERACTIVE'
+
+  const stateLine = interactive
+    ? 'Interactive Preview is <strong>ON</strong> — uploaded JavaScript runs in the isolated sandbox.'
+    : 'Interactive Preview is <strong>OFF</strong> — Safe Preview renders HTML and CSS with JavaScript disabled.'
+
+  const unavailableNote =
+    requested && !interactive
+      ? `<div style="font-size:11.5px;color:var(--warning);margin-top:8px;line-height:1.55">
+           ${icon('alert', 13)} ${esc(settings?.reason || 'Interactive Preview is not available on this deployment, so JavaScript stays disabled.')}
+         </div>`
+      : ''
+
+  const notProvisioned =
+    !available && !requested
+      ? `<div style="font-size:11.5px;color:var(--text-3);margin-top:8px;line-height:1.55">
+           Interactive Preview is not available on this deployment. Safe Preview is always available.
+         </div>`
+      : ''
+
+  host.innerHTML = `
+    <div style="font-size:12.5px;color:var(--text-2);line-height:1.55">${stateLine}</div>
+    ${unavailableNote}
+    ${notProvisioned}
+    ${
+      available
+        ? `<button class="btn btn-secondary btn-block"
+             id="html-preview-toggle" style="margin-top:12px">
+             ${icon(interactive ? 'shield' : 'sparkle', 17)}
+             ${interactive ? 'Switch to Safe Preview' : 'Enable Interactive Preview'}
+           </button>`
+        : ''
+    }
+    <p style="font-size:11px;color:var(--text-3);margin:10px 0 0;line-height:1.55">
+      Safe Preview is the default. Interactive Preview must be enabled per artifact
+      and is recorded in the audit trail.
+    </p>`
+
+  host.querySelector('#html-preview-toggle')?.addEventListener('click', () => {
+    if (interactive) {
+      applyPreviewMode(root, a, ctx, false)
+      return
+    }
+    confirmInteractive(root, a, ctx, settings)
+  })
+}
+
+/** Show the owner warning, then enable only if the owner confirms. */
+function confirmInteractive(root, a, ctx, settings) {
+  sheet({
+    title: 'Enable Interactive Preview?',
+    content: `
+      <div style="font-size:13.5px;line-height:1.6;color:var(--text-2)">
+        ${esc(settings?.warning || INTERACTIVE_WARNING)}
+      </div>
+      <ul style="font-size:12.5px;color:var(--text-2);line-height:1.7;margin:12px 0 0;padding-left:18px">
+        <li>JavaScript in this file will run.</li>
+        <li>It runs on a separate origin with no access to your session or library data.</li>
+        <li>Network requests stay blocked, so the script cannot send data anywhere.</li>
+        <li>Libraries that load from the internet will not work.</li>
+      </ul>`,
+    actions: [
+      {
+        label: 'Enable Interactive Preview',
+        variant: 'primary',
+        onClick: () => applyPreviewMode(root, a, ctx, true)
+      },
+      { label: 'Keep Safe Preview' }
+    ]
+  })
+}
+
+async function applyPreviewMode(root, a, ctx, next) {
+  try {
+    const result = await ctx.api.setPreviewMode(a.id, next)
+    if (result?.unavailable) {
+      toast('Interactive Preview is not available on this deployment', 'error')
+    } else {
+      toast(next ? 'Interactive Preview enabled' : 'Safe Preview restored', 'success')
+      await ctx.refresh()
+    }
+  } catch (err) {
+    toast(err.message, 'error')
   }
 }
 

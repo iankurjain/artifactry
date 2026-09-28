@@ -27,6 +27,37 @@ import {
 } from './ui.js'
 
 // ---------------------------------------------------------------
+// Shared-recipient HTML preview
+//
+// Both helpers read the server's `preview` descriptor; neither decides whether
+// Interactive mode is allowed. A missing descriptor falls back to the most
+// restrictive option (same-origin Safe path, empty sandbox) rather than
+// assuming it is safe to grant scripting.
+// ---------------------------------------------------------------
+
+/** Sandbox tokens for a shared HTML preview. */
+function sharePreviewSandbox(shareView) {
+  const sandbox = shareView && shareView.preview && shareView.preview.sandbox
+  return sandbox ? String(sandbox) : ''
+}
+
+/** One-line note telling the recipient which mode rendered the page. */
+function sharePreviewNote(shareView) {
+  const preview = shareView && shareView.preview
+  if (!preview) return ''
+  const interactive = preview.mode === 'INTERACTIVE'
+  return `
+    <div style="font-size:11.5px;color:var(--text-2);margin-top:7px;line-height:1.5">
+      <strong style="color:var(--text)">${interactive ? 'Interactive Preview' : 'Safe Preview'}</strong> ·
+      ${
+        interactive
+          ? 'JavaScript runs in an isolated sandbox.'
+          : 'HTML and CSS render; JavaScript does not run.'
+      }
+    </div>`
+}
+
+// ---------------------------------------------------------------
 // Sign in (§5)
 // ---------------------------------------------------------------
 
@@ -1205,10 +1236,11 @@ export function renderShareRecipient(ctx) {
             item.mimeType === 'text/html'
               ? `<div style="margin-top:16px">
                    <iframe class="preview-frame" title="Artifact preview"
-                     sandbox="allow-scripts"
+                     sandbox="${esc(sharePreviewSandbox(view.view))}"
                      referrerpolicy="no-referrer"
                      loading="lazy"
-                     src="${safeUrl(ctx.sharePreviewUrl(item.id))}"></iframe>
+                     src="${safeUrl(ctx.sharePreviewUrl(item.id, view.view))}"></iframe>
+                   ${sharePreviewNote(view.view)}
                  </div>`
               : `<div style="margin-top:16px;padding:14px;border-radius:12px;background:var(--surface-2);
                    font-size:13px;color:var(--text-2);line-height:1.55">

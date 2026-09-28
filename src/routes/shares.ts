@@ -772,6 +772,6 @@ shares.get(
   })
 )
 
-export { verifiedEmailFor }
+export { verifiedEmailFor, verifiedGrantFor }
 export default shares
 export { findOrCreateUser }

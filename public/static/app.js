@@ -869,8 +869,19 @@ async function loadShare() {
 ctx.loadShare = loadShare
 ctx.loadAnalytics = loadAnalytics
 
-ctx.sharePreviewUrl = (artifactId) =>
-  `/api/v1/shares/${encodeURIComponent(ctx.shareToken)}/preview?artifactId=${encodeURIComponent(artifactId)}`
+/**
+ * Preview URL for a shared HTML artifact.
+ *
+ * Uses the server's `preview` descriptor when present: for an Interactive
+ * artifact that is a short-lived signed document URL on the isolated preview
+ * origin, and for a Safe artifact it is the same-origin Safe path. Falling back
+ * to the same-origin path keeps older links working and is always Safe.
+ */
+ctx.sharePreviewUrl = (artifactId, shareView) => {
+  const preview = shareView && shareView.preview
+  if (preview && (preview.url || preview.fallbackUrl)) return preview.url || preview.fallbackUrl
+  return `/api/v1/shares/${encodeURIComponent(ctx.shareToken)}/preview?artifactId=${encodeURIComponent(artifactId)}`
+}
 
 ctx.shareContentUrl = (artifactId, download) =>
   `/api/v1/shares/${encodeURIComponent(ctx.shareToken)}/content?artifactId=${encodeURIComponent(artifactId)}${download ? '&download=1' : ''}`
@@ -977,7 +988,7 @@ ctx.openUploadSheet = () => {
              <input id="upload-file" type="file" class="sr-only" accept="${ACCEPTED}">
            </label>
            <div id="upload-filename" style="font-size:12.5px;color:var(--text-2);margin-top:8px">No file chosen</div>`,
-          'PPTX, PDF, DOCX, HTML or images. HTML artifacts are rendered in a secure sandbox: HTML and CSS are supported, but uploaded JavaScript is not executed.'
+          'PPTX, PDF, DOCX, HTML or images. HTML artifacts use Safe Preview by default: HTML and CSS render but JavaScript does not execute. Owners can enable Interactive Preview, which runs JavaScript in an isolated, credential-free sandbox with network access blocked by default.'
         )}
         ${field(
           'Workspace',

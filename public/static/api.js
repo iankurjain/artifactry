@@ -143,6 +143,23 @@ export const api = {
   updateArtifact: (id, patch) =>
     request(`/api/v1/artifacts/${encodeURIComponent(id)}`, { method: 'PATCH', body: patch }),
 
+  /**
+   * Interactive HTML setting.
+   *
+   * The server decides whether Interactive Preview is available at all and what
+   * mode will actually be used; the client only displays that decision. Nothing
+   * here decides whether Interactive is permitted — see `setPreviewMode`'s
+   * response, which reports the *effective* mode, not the requested one.
+   */
+  previewSettings: (id) =>
+    request(`/api/v1/artifacts/${encodeURIComponent(id)}/preview-settings`),
+
+  setPreviewMode: (id, interactiveHtml) =>
+    request(`/api/v1/artifacts/${encodeURIComponent(id)}/preview-settings`, {
+      method: 'PUT',
+      body: { interactiveHtml }
+    }),
+
   deleteArtifact: (id) =>
     request(`/api/v1/artifacts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 

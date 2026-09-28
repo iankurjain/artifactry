@@ -44,8 +44,8 @@ export const GUIDE_SECTIONS = [
     <p><strong>Supported types:</strong> PDF, DOCX, PPTX, HTML, PNG, JPG, JPEG, BMP and GIF.</p>
     <p><strong>Size limit:</strong> 25 MB per file.</p>
     <div class="guide-note">
-      <strong>HTML artifacts are rendered in a secure sandbox. HTML and CSS are supported. Uploaded JavaScript is not executed in V1.</strong>
-      This is deliberate, not a defect. An uploaded page cannot read your session, reach the library's APIs, or run code on the library's own address. An explicit Interactive HTML mode with its own security controls can be added later, rather than enabling arbitrary script execution by default.
+      <strong>HTML artifacts use Safe Preview by default. In Safe Preview, HTML and CSS render but JavaScript does not execute. Artifact owners may enable Interactive Preview, which runs JavaScript in an isolated, credential-free sandbox with network access blocked by default.</strong>
+      Safe Preview is served from the library's own address, and the page cannot read your session or reach the library's APIs. Interactive Preview is opt-in per artifact, runs on a separate origin so it holds no cookies and cannot touch library storage, and every change to the setting is recorded in the audit trail.
     </div>
     <p>When you upload, the library:</p>
     <ul>
@@ -210,7 +210,7 @@ export const GUIDE_SECTIONS = [
       <li><strong>Share links and AI tokens are hashed too</strong> — the raw value exists only in the moment it is created or sent.</li>
       <li><strong>Access is part of every query.</strong> What you may read is applied when data is fetched, not filtered afterwards, so nothing can slip through.</li>
       <li><strong>Audit trail.</strong> Significant actions — sharing, access, administrative changes — are recorded.</li>
-      <li><strong>HTML previews run sandboxed</strong> with no access to your session or the library.</li>
+      <li><strong>HTML previews run sandboxed.</strong> Safe Preview renders HTML and CSS with JavaScript disabled. Interactive Preview runs on a separate origin with no access to your session, no library storage, and network requests blocked by default.</li>
     </ul>`
   ),
 
@@ -237,7 +237,10 @@ export const GUIDE_SECTIONS = [
     `
     <p>These are the current, deliberate limits. They are stated here rather than hidden, and each is visible in the app where it applies.</p>
     <ul>
-      <li><strong>Uploaded JavaScript does not run.</strong> HTML artifacts are rendered in a secure sandbox: HTML and CSS are supported, but uploaded JavaScript is not executed in V1. This is deliberate, not a defect. An explicit Interactive HTML mode with its own security controls can be added later, rather than silently enabling arbitrary script execution.</li>
+      <li><strong>HTML has two preview modes.</strong> Safe Preview is the default and runs no JavaScript. Interactive Preview is opt-in per artifact and runs the uploaded JavaScript inside an isolated, credential-free sandbox on a separate origin, with network access blocked by default.</li>
+      <li><strong>Interactive Preview does not support <code>eval</code> or <code>new Function</code>.</strong> Both are blocked, so a script that builds code from strings at run time will not work.</li>
+      <li><strong>Interactive Preview has no external network access.</strong> <code>fetch</code>, <code>XMLHttpRequest</code>, WebSocket and beacon requests are all blocked. A page cannot call an API or send data anywhere.</li>
+      <li><strong>Libraries loaded from the internet will not work in Interactive Preview.</strong> A CDN script, remote stylesheet or web font is a blocked external resource, so an artifact must carry its HTML, CSS and JavaScript in the file itself. Links may still point outwards, but nothing loads automatically.</li>
       <li><strong>Scanned PDFs have no text to extract.</strong> They are stored and shared normally, and remain searchable by title, filename, description, tags and dates.</li>
       <li><strong>PDF text extraction is best-effort.</strong> Text layers, including compressed content streams and documents that map glyphs to characters through their own font tables, are read. PDFs that encrypt their content, compress the file structure itself, or give no character mapping for their fonts may yield partial text or none — the artifact is still stored, shared and findable by its metadata.</li>
       <li><strong>Thumbnails are not generated.</strong> Files show a type badge instead of a preview image.</li>

@@ -33,7 +33,7 @@ import {
 import { artifactAccess, assertArtifactPermission, mayReadAnalytics, workspaceRefOf } from '../lib/access'
 import { indexStateFor, isSemanticConfigured } from '../lib/embeddings'
 import { reprocessVersion } from '../lib/reprocess'
-import { assertWorkspaceAccess, effectiveWorkspaceRole } from '../lib/principal'
+import { assertWorkspaceAccess, effectiveWorkspaceRole, can } from '../lib/principal'
 import { getObject, buildDeliveryHeaders } from '../lib/storage'
 import {
   interactiveAvailable,
@@ -434,6 +434,15 @@ artifacts.get(
         isOwner: access.isOwner,
         canDownload: access.allowDownload,
         canWrite: access.allowWrite,
+        /**
+         * Exactly the permission the Interactive HTML toggle requires, reported
+         * separately from `canWrite` (which also covers version-create) so the
+         * control appears to precisely the principals the PUT endpoint admits.
+         * The server still enforces it; this only stops the UI from offering an
+         * action that would be refused.
+         */
+        canUpdate:
+          access.isOwner || can(principal, 'artifact.update', workspaceRefOf(access.artifact)),
         preview,
         workspace: workspace ? { name: workspace.name, type: workspace.workspace_type } : null
       }),
