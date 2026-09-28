@@ -5,8 +5,9 @@ Pages + Workers. It gives a person or a team one governed library for the files 
 AI tools create: permanent artifact links, versions, tags, collections, search, sharing, usage
 analytics, an audit trail, and a scoped MCP endpoint that ChatGPT / Claude / Gemini can call.
 
-Everything is edge-native: D1 for metadata and RBAC, R2 for binaries, FTS5 for lexical search.
-There is no server process and no filesystem.
+Everything is edge-native: D1 for metadata and RBAC, R2 for binaries, FTS5 for lexical
+search, and Vectorize + Workers AI for semantic search. There is no server process and
+no filesystem.
 
 ---
 
@@ -17,6 +18,7 @@ There is no server process and no filesystem.
 | **Production (Cloudflare Pages)** | https://artifact-library.pages.dev — live (BYOK, user's own account) |
 | **Canonical artifact URL** | `/a/:artifactId` — permanent identity, survives renames, re-versioning and moves |
 | **Share link** | `/s/:token` — external recipient surface |
+| **Shared HTML viewer** | `/s/:token/artifact/:artifactId` — renders HTML shares as a page in a secure sandbox |
 | **Health** | `/api/health` |
 | **MCP endpoint** | `/api/v1/mcp` (JSON-RPC 2.0 over HTTP, protocol `2025-06-18`, 17 tools) |
 
@@ -49,11 +51,23 @@ There is no server process and no filesystem.
 - Deleting a tag in use is refused with an actionable "deactivate instead" conflict rather than silently orphaning join rows
 - Collections with membership management and collection-level analytics
 
-**Search**
+**Search — hybrid lexical + semantic**
 - **D1 FTS5** index (`artifact_search`, `porter unicode61`) with `rowid` bound to `artifacts.seq`, ranked by `bm25(...)`
 - Query building strips FTS5 syntax characters and prefix-matches; a safe OR fallback
 - ACL-bounded filters and facets, recent searches, typeahead suggestions
-- **`SemanticProvider` seam** — semantic ranking is a pluggable interface with an `unavailableSemantic` default; see the gap note below
+- **Semantic search over Vectorize + Workers AI**: documents are chunked (target 1200
+  chars, 200 overlap, ≤60 chunks), embedded with `@cf/baai/bge-base-en-v1.5` (768d) and
+  upserted into the `artifact-library-embeddings` index (cosine). Lexical search is
+  **kept**, not replaced — results are merged and each hit reports how it matched.
+- **`semantic: true` only when the semantic query genuinely ran.** It is set from a
+  `SemanticRun.ran` flag that requires *both* the query embedding and the Vectorize
+  query to complete. An index outage, a failed embedding or an empty scope reports
+  `semantic: false` with a reason and falls back to lexical-only results.
+- **Two-layer tenant isolation.** Every vector carries `workspaceId`; `filterByScope()`
+  drops any match whose workspace is not in the caller's readable set (failing closed on
+  missing or empty metadata), and every semantic-only candidate is then re-loaded through
+  SQL bounded by the same workspace ids. Semantic search can never surface an artifact
+  outside the caller's authorization.
 
 **Sharing**
 - `PUBLIC_LINK` / `EMAIL` / `DOMAIN` access, optional expiry, view/download permissions
@@ -77,12 +91,33 @@ There is no server process and no filesystem.
 - Grants are hashed at rest and revocable; a connector can never exceed the granting user's own access
 - AI provenance recorded on every AI-created artifact and version
 
-**Mobile-first UI** (PRD §71–§93)
-- Locked **430px** shell even on desktop, global `overflow-x-hidden`, safe-area padding
-- 44–48px touch targets, thumb-zone sticky actions, 5-slot bottom navigation with an emphasised centre Add
+**Responsive UI — mobile-first, not mobile-only** (supersedes the old PRD §71 hard 430px lock)
+- **Mobile (<768px)**: bottom navigation, stacked cards, no horizontal scrolling, 44–48px
+  touch targets, centre Add button, safe-area padding. Usable from 320px.
+- **Tablet (≥768px)**: wider centred column (720px), 3-column artifact grid, 4-column stat
+  rows, docking bottom bar
+- **Desktop (≥1024px)**: the bottom bar becomes a **fixed left navigation rail** (232px) and
+  content widens to 1040px; 2-column artifact detail (`minmax(0,1.35fr) minmax(0,1fr)`), wider
+  analytics and search/filter layouts
+- **Wide (≥1440px)**: content caps at 1200px with a 4-column grid
+- Width is driven by `--nav-w` / `--content-max` / `--content-pad`, so cards grow into real
+  multi-column layouts instead of being stretched to full-screen width
 - **Bottom sheets instead of modals**, with focus move/restore, Escape dismissal, and reduced-motion respect
-- Cards, never wide tables; `text-2xl` maximum screen title; usable from 320px
+- Cards, never wide tables; `text-2xl` maximum screen title on mobile
 - Every dynamic value passes through `esc()`; `safeUrl()` gates href/src
+
+**Sharing HTML artifacts**
+- A shared HTML artifact's **Open** action opens `/s/:token/artifact/:artifactId`, which serves
+  **our own** wrapper document and frames the artifact in an **opaque-origin iframe**
+  (`sandbox="allow-scripts"`, deliberately **without** `allow-same-origin`, so it gets no origin
+  and no storage access to the app)
+- Executable HTML is **never served from the main application origin**: the artifact bytes keep
+  going out as `text/plain` from the delivery endpoint, and only the sandboxed preview response
+  is `text/html`, under a nonce CSP with `default-src 'none'`, `connect-src 'none'`, `frame-src 'none'`
+- The wrapper itself is locked down (`frame-ancestors 'none'`, `base-uri 'none'`), and
+  `X-Frame-Options: SAMEORIGIN` is applied **only** to the `/preview` path so our own pages may
+  frame our own preview documents — `DENY` blocked that and was why HTML shares showed source
+  instead of rendering. Every other route still sends `DENY`.
 
 ### Not implemented (and why)
 
@@ -90,9 +125,10 @@ These are honest capability gaps, not omissions:
 
 | Gap | Reason |
 |---|---|
+| **PDF extraction is BEST-EFFORT — not complete PDF support** | The hand-written parser decodes Flate/ASCII85/ASCIIHex filter chains and resolves per-font **ToUnicode CMaps**, which is what makes Word/LibreOffice output readable. It does **not** decode **object streams (`/ObjStm`)**, **encrypted** content, or fonts with **no ToUnicode map**, and it does not do full **CID/CMap or embedded-font-program** reconstruction. Those PDFs correctly report *no text layer* rather than guessed text. Title, filename, description and tags remain searchable. |
 | **Searchable document text** | PDF, DOCX, PPTX and HTML are parsed in-Worker (`DecompressionStream` + hand-rolled OOXML/PDF readers), stored on `artifact_versions.extracted_text` and indexed into FTS5. Per-format job status is `DONE` / `PARTIAL` / `SKIPPED` / `FAILED` with a human-readable note and a `via` provenance string. |
-| **Semantic / vector search** | Requires Vectorize + Workers AI bindings. The `SemanticProvider` interface is in place; `unavailableSemantic` is the default and search reports `semantic: false` with a reason instead of pretending. |
-| **Extraction is best-effort by design** | PDF, DOCX, PPTX and HTML text **are** extracted (pure web-platform parsers, no Node deps). Formats we have no parser for (images, archives) and documents with no recoverable text (scanned/image-only PDFs) report `SKIPPED` / `PARTIAL` respectively with an explicit note — never a silent failure or a fake success. |
+| **Semantic / vector search** | **Implemented** for Documents that yield text. Requires the `VECTORIZE` and `AI` bindings; with them absent the code reports `semantic: false` and a reason rather than pretending. |
+| **Extraction is best-effort by design** | PDF, DOCX, PPTX and HTML text **are** extracted (pure web-platform parsers, no Node deps). Formats we have no parser for (images, archives) and documents with no recoverable text (scanned/image-only PDFs) report `SKIPPED` / `PARTIAL` respectively with an explicit note — never a silent failure or a fake success. Validated against a 9-document set from 6 distinct generators (see below). |
 | **DOCX / PPTX generation** | Refused with `ConversionUnsupported` and an actionable message. Content can be rendered to **PDF and HTML** only. |
 | **Presigned R2 uploads** | Need dedicated S3 credentials. Uploads are worker-proxied instead. |
 | **Cron / scheduled jobs** | Not available on Pages. Expired sessions and OTPs are pruned opportunistically on the login path. |
@@ -106,6 +142,23 @@ These are honest capability gaps, not omissions:
 **Storage services**
 - **Cloudflare D1** — 27 tables: `users`, `auth_sessions`, `auth_otp`, `organizations`, `organization_members`, `workspaces`, `workspace_members`, `artifacts`, `artifact_versions`, `tags`, `artifact_tags`, `collections`, `collection_artifacts`, `shares`, `share_recipients`, `share_access_grants`, `integrations`, `integration_grants`, `artifact_events`, `artifact_daily_metrics`, `artifact_viewer_keys`, `audit_events`, `processing_jobs`, `search_history`, `artifact_favorites`, `artifact_embeddings`, `app_kv` + the `artifact_search` FTS5 virtual table
 - **Cloudflare R2** — artifact binaries under immutable per-version keys
+- **Cloudflare Vectorize** — `artifact-library-embeddings`, **768 dimensions, cosine**
+- **Workers AI** — `@cf/baai/bge-base-en-v1.5` embeddings
+
+**Vector index contract**
+
+The dimension count in `wrangler.jsonc`, `EMBEDDING_DIMENSIONS` in `src/lib/embeddings.ts` and
+the live index must all agree, or every upsert is rejected at runtime.
+
+- Vector id: `{artifactId}__{versionId}__{chunkIndex}`
+- Metadata per vector: `artifactId`, `versionId`, `workspaceId`, `organizationId`,
+  `ownerUserId`, `chunkIndex`, `chunkTotal` (`organizationId` is `''` and never null —
+  Vectorize metadata cannot hold null)
+- **Vectorize has no delete-by-metadata**, so D1's `artifact_embeddings` is the authoritative
+  mirror of every written vector id; stale vectors are deleted by id looked up from it
+- Indexing state per artifact: `PENDING` | `INDEXED` | `PARTIAL` | `FAILED` | `SKIPPED`,
+  exposed at `GET /api/v1/artifacts/:artifactId/index-state`. `PARTIAL` means the document was
+  understood but held nothing embeddable (an empty or scanned file).
 - **`app_kv` table** — used for rate-limit counters via `INSERT … ON CONFLICT … RETURNING` (no KV namespace, deliberately: `kv_namespaces` is rejected by hosted deploy, and this table works on both deployment paths)
 
 **Core models**
@@ -188,6 +241,14 @@ npm run deploy:prod
 |---|---|---|
 | `DB` | D1 | `artifact-library-production` |
 | `R2` | R2 bucket | `artifact-library-bucket` |
+| `VECTORIZE` | Vectorize index | `artifact-library-embeddings` (768d, cosine) |
+| `AI` | Workers AI | — |
+
+The Vectorize index must exist before deploying:
+
+```bash
+npx wrangler vectorize create artifact-library-embeddings --dimensions=768 --metric=cosine
+```
 
 `wrangler pages deploy` fails with `Failed to publish your Function. Got error: R2 bucket
 'artifact-library-bucket' not found.` whenever the bucket is missing — this is a downstream
@@ -242,4 +303,33 @@ Hono 4 · TypeScript · Vite 8 · Wrangler 4 · Cloudflare Pages / Workers · D1
 Web Crypto · vanilla ES-module frontend (no framework) · Tailwind CDN for layout utilities only,
 with the palette owned by CSS custom properties so the preview iframe and share page match.
 
-**Last updated**: 2026-09-27
+## Extraction validation set
+
+`scripts/gen-extraction-fixtures.py` builds 9 real documents from 6 distinct generators;
+`scripts/validate-extraction.mjs` runs the **shipped** extractor against them and reports what was
+actually recovered, including failures. It exits non-zero only when a document that must yield text
+yields none, or a scan invents text. `expect: "maybe"` cases are reported but never fail the run.
+
+| Fixture | Generator | Result |
+|---|---|---|
+| `finance-reportlab.pdf` | reportlab (base-14) | PASS 317 chars |
+| `legal-pymupdf.pdf` | PyMuPDF | PASS 256 chars |
+| `onboarding-libreoffice.pdf` | LibreOffice | PASS 331 chars (via ToUnicode CMaps) |
+| `unicode-embedded-ttf.pdf` | reportlab (embedded TTF / CID) | RECOVERED 270 chars (best-effort) |
+| `onboarding-python-docx.docx` | python-docx | PASS 311 chars |
+| `spec-raw-ooxml.docx` | hand-built OOXML zip | PASS 313 chars |
+| `roadmap-python-pptx.pptx` | python-pptx (slides + notes) | PASS 552 chars |
+| `sales-table-pptx.pptx` | python-pptx (table) | PASS 103 chars |
+| `scanned-finance.pdf` | PIL image-only | PASS — correctly reports **0 chars**, no invented text |
+
+```bash
+python3 scripts/gen-extraction-fixtures.py /tmp/val
+node scripts/validate-extraction.mjs /tmp/val
+node scripts/test-semantic.mjs      # 90 assertions over chunking, isolation, stale vectors, outages
+node scripts/test-extract.mjs
+node scripts/check-imports.mjs
+```
+
+---
+
+**Last updated**: 2026-09-28
