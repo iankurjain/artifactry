@@ -48,12 +48,32 @@ export const previewSurfaceGate: MiddlewareHandler<AppEnv> = async (c, next) => 
       await next()
       return
     }
-    return c.notFound()
+    return surfaceNotFound()
   }
 
-  if (c.req.path.startsWith('/p/')) return c.notFound()
+  if (c.req.path.startsWith('/p/')) return surfaceNotFound()
 
   await next()
+}
+
+/**
+ * A hard 404 for a path that does not exist on this surface.
+ *
+ * Deliberately NOT `c.notFound()`: the application has a notFound handler that
+ * renders the SPA shell for deep links, and on the application origin that would
+ * answer /p/* with 200 + HTML. Falling through to the shell would make a path
+ * that must not exist look like a working route. A bare 404 keeps the two
+ * origins genuinely disjoint.
+ */
+function surfaceNotFound(): Response {
+  return new Response('Not Found', {
+    status: 404,
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Cache-Control': 'private, no-store, max-age=0',
+      'X-Content-Type-Options': 'nosniff'
+    }
+  })
 }
 
 /** Resolve the caller once per request and expose it as c.get('principal'). */

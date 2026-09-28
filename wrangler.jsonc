@@ -66,7 +66,29 @@
     "EMAIL_FROM": "Artifact Library <onboarding@resend.dev>",
     // Server-side enforced upload ceilings (PRD §9). Worker-proxied uploads,
     // so this is bounded by the Workers request body limit.
-    "MAX_UPLOAD_BYTES": "26214400"
+    "MAX_UPLOAD_BYTES": "26214400",
+
+    // ---------------------------------------------------------------
+    // Interactive HTML preview origin
+    //
+    // The isolated origin that serves script-executing HTML artifacts. It MUST
+    // be a different hostname from the application: cookies are host-only and
+    // localStorage is per-origin, so a distinct host is what actually isolates
+    // an artifact from the session.
+    //
+    // Enabling Interactive Preview additionally requires the matching signing
+    // secret, which is NOT here — it is set out-of-band:
+    //
+    //   wrangler pages secret put PREVIEW_TOKEN_SECRET --project-name artifact-library
+    //
+    // With the secret unset, Interactive Preview is UNAVAILABLE and every HTML
+    // artifact renders in Safe Preview (JavaScript disabled). That is the
+    // intended fail-closed default: the architecture ships wired, and turning
+    // script execution on is a deliberate operator action.
+    //
+    // The Preview origin must also have DNS + a Pages custom domain pointed at
+    // this project before the value below can resolve.
+    "PREVIEW_ORIGIN": "https://preview.artifactry.app"
   }
 
   // NOTE (BYOK path only): kv_namespaces and triggers are permitted here,
