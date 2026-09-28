@@ -12,9 +12,15 @@
  * cleanly to lexical-only. No code path depends on it existing.
  */
 
-import type { ArtifactRow, Principal } from '../types'
+import type { ArtifactRow, Env, Principal } from '../types'
 import { all, first } from './db'
 import { readableWorkspaces } from './principal'
+import {
+  EMBEDDING_DIMENSIONS,
+  EMBEDDING_MODEL,
+  isSemanticConfigured,
+  semanticQuery
+} from './embeddings'
 
 export interface SearchFilters {
   workspaceIds?: string[]
@@ -52,49 +58,67 @@ export interface SearchResponse {
 // Semantic provider abstraction (§31)
 // ---------------------------------------------------------------
 
+export interface SemanticRun {
+  /**
+   * True only when a genuine vector query executed: the query was embedded AND
+   * the Vectorize lookup completed. A degraded or skipped path returns false so
+   * the API can never report `semantic:true` for work that did not happen (§32).
+   */
+  ran: boolean
+  results: Array<{ artifactId: string; score: number }>
+  reason: string
+}
+
 export interface SemanticProvider {
   name: string
   available: boolean
   reason: string
-  search(
-    query: string,
-    scopeWorkspaceIds: string[],
-    limit: number
-  ): Promise<Array<{ artifactId: string; score: number }>>
+  search(query: string, scopeWorkspaceIds: string[], limit: number): Promise<SemanticRun>
 }
 
 /**
- * Default provider. Vectorize is not part of the BYOK Pages deployment by
- * default, so this reports itself unavailable and the merge step simply
- * skips it — the search API shape stays identical when it is later enabled.
+ * Default provider for deployments without Vectorize/Workers AI bindings.
+ * Reports itself unavailable; the merge step then skips it entirely and the
+ * search API shape stays identical.
  */
 export const unavailableSemantic: SemanticProvider = {
   name: 'NONE',
   available: false,
   reason: 'Semantic index not provisioned (requires Vectorize + Workers AI bindings)',
   async search() {
-    return []
+    return { ran: false, results: [], reason: 'Semantic index not provisioned' }
   }
 }
 
-export function resolveSemanticProvider(env: {
-  VECTORIZE?: unknown
-  AI?: unknown
-}): SemanticProvider {
-  if (env.VECTORIZE && env.AI) {
-    return {
-      name: 'WORKERS_AI',
-      available: true,
-      reason: 'Vectorize + Workers AI active',
-      async search() {
-        // Intentionally not implemented in this build: embedding + upsert
-        // pipelines belong with the processing queue, and misreporting
-        // semantic results would be worse than lexical-only.
-        return []
+/**
+ * Real provider: Workers AI embeddings + Vectorize ANN lookup.
+ *
+ * Scope safety is layered, not single-point:
+ *   1. `semanticQuery` drops any match whose metadata workspaceId is outside
+ *      the caller's readable workspaces (fails closed on missing metadata).
+ *   2. `searchArtifacts` re-loads every semantic-only candidate through a SQL
+ *      query bounded by the same workspace ids.
+ * A vector belonging to another tenant therefore cannot become a hit even if
+ * the metadata filter were wrong or the index were shared.
+ */
+export function resolveSemanticProvider(env: Pick<Env, 'VECTORIZE' | 'AI'>): SemanticProvider {
+  const configured = isSemanticConfigured(env)
+
+  return {
+    name: configured ? 'WORKERS_AI_VECTORIZE' : 'NONE',
+    available: configured,
+    reason: configured
+      ? `Vectorize (${EMBEDDING_MODEL}, ${EMBEDDING_DIMENSIONS}d) + Workers AI`
+      : 'Semantic index not provisioned (requires Vectorize + Workers AI bindings)',
+    async search(query, scopeWorkspaceIds, limit) {
+      const result = await semanticQuery(env, query, scopeWorkspaceIds, limit)
+      return {
+        ran: result.ran,
+        results: result.results.map((hit) => ({ artifactId: hit.artifactId, score: hit.score })),
+        reason: result.reason
       }
     }
   }
-  return unavailableSemantic
 }
 
 // ---------------------------------------------------------------
@@ -173,7 +197,8 @@ export async function searchArtifacts(
   const emptyResponse: SearchResponse = {
     hits: [],
     total: 0,
-    engine: { lexical: true, semantic: semantic.available, semanticReason: semantic.reason }
+    // No readable workspaces means no query ran — never report semantic:true.
+    engine: { lexical: true, semantic: false, semanticReason: 'No readable workspaces in scope' }
   }
 
   if (!workspaceIds.length) return emptyResponse
@@ -235,13 +260,21 @@ export async function searchArtifacts(
     rows = await browseQuery(db, where, params, limit, offset, request.sort)
   }
 
-  // Semantic augmentation (no-op while the provider is unavailable)
+  // Semantic augmentation. Lexical results are already in hand, so any failure
+  // here degrades to lexical-only rather than failing the request (§32).
   let semanticIds: Array<{ artifactId: string; score: number }> = []
+  let semanticRan = false
+  let semanticReason = semantic.reason
+
   if (semantic.available && request.query.trim()) {
     try {
-      semanticIds = await semantic.search(request.query, workspaceIds, limit)
+      const run = await semantic.search(request.query, workspaceIds, limit)
+      semanticIds = run.results
+      semanticRan = run.ran
+      semanticReason = run.reason
     } catch (err) {
       console.error('[search] semantic provider failed, using lexical only', err)
+      semanticReason = 'Vector search failed — lexical results only'
     }
   }
 
@@ -282,7 +315,9 @@ export async function searchArtifacts(
   return {
     hits: hits.slice(0, limit),
     total: await countResults(db, matchExpr, orExpr, where, params),
-    engine: { lexical: true, semantic: semantic.available, semanticReason: semantic.reason }
+    // `semantic` reflects whether the vector query actually ran for this
+    // request — not merely whether the bindings exist.
+    engine: { lexical: true, semantic: semanticRan, semanticReason }
   }
 }
 

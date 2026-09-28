@@ -62,6 +62,14 @@ const DESIGN_TOKENS = `
     --nav-h: 62px;
     --safe-top: env(safe-area-inset-top, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+    /* Responsive layout system.
+       Mobile-first: no sidebar, full-bleed content, bottom navigation.
+       The breakpoints below progressively introduce a centred content
+       column, denser grids and a persistent left rail. */
+    --nav-w: 0px;          /* width reserved for a left rail (desktop only) */
+    --content-max: none;   /* max width of the content column */
+    --content-pad: 16px;   /* horizontal page padding */
   }
 
   * { -webkit-tap-highlight-color: transparent; }
@@ -78,11 +86,15 @@ const DESIGN_TOKENS = `
   /* Global guard: nothing in the app may introduce horizontal scrolling (PRD §73) */
   html, body { overflow-x: hidden; max-width: 100vw; }
 
-  /* Desktop presentation: a centred 430px application shell on a neutral
-     backdrop, rather than a stretched interface (PRD §72, §93). */
+  /* Application shell.
+     Mobile: full-bleed, bottom navigation, no reserved rail.
+     Tablet/desktop: the content column is centred and bounded (widened by the
+     breakpoints below), and on desktop a fixed left rail replaces the bottom
+     bar so the layout uses the screen rather than stretching phone cards.
+     (Supersedes the former hard 430px desktop lock.) */
   #shell {
     width: 100%;
-    max-width: 430px;
+    max-width: 100%;
     margin-left: auto;
     margin-right: auto;
     box-sizing: border-box;
@@ -91,19 +103,16 @@ const DESIGN_TOKENS = `
     min-height: 100dvh;
     position: relative;
     overflow-x: hidden;
-  }
-
-  @media (min-width: 480px) {
-    body { background: #eceef2; }
-    #shell {
-      box-shadow: 0 0 0 1px rgba(16,24,40,0.06), 0 24px 60px rgba(16,24,40,0.10);
-    }
+    padding-left: var(--nav-w);
   }
 
   .app-main {
-    padding: 0 16px calc(var(--nav-h) + var(--safe-bottom) + 20px);
+    padding: 0 var(--content-pad) calc(var(--nav-h) + var(--safe-bottom) + 20px);
     box-sizing: border-box;
     width: 100%;
+    max-width: var(--content-max);
+    margin-left: auto;
+    margin-right: auto;
   }
 
   .app-header {
@@ -387,6 +396,10 @@ const DESIGN_TOKENS = `
 
   .thumbs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 
+  /* Metric tiles. 2-up on phones; the breakpoints below widen the row so an
+     analytics or admin view reads as a dashboard rather than a stacked list. */
+  .stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+
   .stat-tile {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -515,6 +528,114 @@ const DESIGN_TOKENS = `
   .app-footer .footer-copy {
     flex-basis: 100%; text-align: center; font-size: 11.5px; color: var(--text-3);
     line-height: 1.6;
+  }
+
+  /* ---------------------------------------------------------------
+     Responsive breakpoints
+     --------------------------------------------------------------- */
+
+  /* Tablet — bounded, centred column; denser grids; no rail yet. */
+  @media (min-width: 768px) {
+    :root {
+      --content-max: 720px;
+      --content-pad: 24px;
+    }
+    .thumbs { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .preview-frame { height: 560px; }
+    .toast-host { max-width: 520px; }
+    /* Keep the bottom bar centred over the content column, rounded so it
+       reads as a dock rather than a phone edge. */
+    .bottom-nav {
+      max-width: min(600px, calc(100% - 48px));
+      border-radius: 16px 16px 0 0;
+      border-left: 1px solid var(--border);
+      border-right: 1px solid var(--border);
+    }
+    .app-footer { max-width: var(--content-max); margin-left: auto; margin-right: auto; }
+  }
+
+  /* Desktop — persistent left rail replaces the bottom bar; wide content. */
+  @media (min-width: 1024px) {
+    :root {
+      --nav-w: 232px;
+      --content-max: 1040px;
+      --content-pad: 32px;
+      /* No bottom bar on desktop, so reclaim its reserved space. */
+      --nav-h: 0px;
+    }
+
+    .bottom-nav {
+      top: 0;
+      bottom: 0;
+      left: 0;
+      right: auto;
+      transform: none;
+      width: var(--nav-w);
+      max-width: var(--nav-w);
+      height: 100vh;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: flex-start;
+      gap: 2px;
+      padding: 18px 12px;
+      border-top: 0;
+      border-radius: 0;
+      border-left: 0;
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+    }
+    .nav-item {
+      flex-direction: row;
+      justify-content: flex-start;
+      gap: 12px;
+      min-height: 44px;
+      padding: 0 14px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 560;
+    }
+    .nav-item:hover { background: var(--surface-2); }
+    .nav-item[aria-current="page"] { background: var(--accent-weak); color: #1d4ed8; }
+    .nav-item svg { width: 18px; height: 18px; }
+    /* The Add action becomes an inline labelled row, not a floating disc. */
+    .nav-add {
+      width: 26px;
+      height: 26px;
+      margin: 0;
+      box-shadow: none;
+    }
+    .nav-add svg { width: 16px; height: 16px; }
+    /* Ordering: the Add button sits mid-bar on mobile; on the rail it reads
+       better last, after the four destinations. */
+    .bottom-nav #nav-add { order: 9; }
+
+    .app-main { padding-bottom: 56px; }
+    .app-header { padding-top: 0; }
+    .sheet { max-width: 560px; }
+
+    /* Two-column reading layout for the artifact detail screen, where there
+       is genuinely independent content to place side by side. */
+    .detail-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+      gap: 18px;
+      align-items: start;
+    }
+    .detail-grid > * { margin-top: 0 !important; }
+  }
+
+  /* Wide desktop — more column for dense views, more tiles per row. */
+  @media (min-width: 1440px) {
+    :root { --content-max: 1200px; }
+    .thumbs { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
+
+  /* Touch devices keep chunky targets regardless of width. */
+  @media (hover: none) {
+    .nav-item { min-height: 48px; }
   }
 
   /* Respect reduced-motion preferences (PRD §113) */

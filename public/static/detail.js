@@ -257,7 +257,7 @@ export function renderAnalytics(ctx) {
       html: `
         ${screenHeader({ title: 'Analytics', onBackId: 'analytics-back' })}
         <main class="app-main">
-          <div class="thumbs" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+          <div class="stats">
             ${Array.from({ length: 4 })
               .map(() => '<div class="skeleton" style="height:74px;border-radius:14px"></div>')
               .join('')}
@@ -327,7 +327,7 @@ export function renderAnalytics(ctx) {
           ${icon('back', 16, 'rotate-270')}
         </button>
 
-        <div class="thumbs" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+        <div class="stats">
           <div class="stat-tile">
             <div class="stat-value">${data.views}</div>
             <div class="stat-label">Views</div>

@@ -41,7 +41,15 @@ export const securityHeaders: MiddlewareHandler<AppEnv> = async (c, next) => {
 
   const headers = c.res.headers
   headers.set('X-Content-Type-Options', 'nosniff')
-  headers.set('X-Frame-Options', 'DENY')
+
+  // HTML previews are framed by our own pages inside an opaque-origin sandbox
+  // iframe, so they must remain frameable *by us*. `DENY` blocks framing even
+  // same-origin, which is why the artifact preview could not render. SAMEORIGIN
+  // narrows framing to our own documents only — combined with the sandbox
+  // attribute (no allow-same-origin) and previewCsp() the artifact still never
+  // runs on the application origin.
+  const isPreviewDocument = /\/preview$/.test(c.req.path)
+  headers.set('X-Frame-Options', isPreviewDocument ? 'SAMEORIGIN' : 'DENY')
   headers.set('Referrer-Policy', 'no-referrer')
   headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), interest-cohort=()')
   headers.set(

@@ -26,6 +26,30 @@
     }
   ],
 
+  // ---------------------------------------------------------------
+  // Vectorize — semantic search index (PRD §31, §32)
+  //
+  // Index contract:
+  //   name        artifact-library-embeddings
+  //   dimensions  768
+  //   metric      cosine
+  //   model       @cf/baai/bge-base-en-v1.5   (see EMBEDDING_MODEL)
+  //
+  // The dimension count here MUST match EMBEDDING_DIMENSIONS in
+  // src/lib/embeddings.ts, or every upsert is rejected at runtime.
+  // ---------------------------------------------------------------
+  "vectorize": [
+    {
+      "binding": "VECTORIZE",
+      "index_name": "artifact-library-embeddings"
+    }
+  ],
+
+  // Workers AI — embedding generation (PRD §31)
+  "ai": {
+    "binding": "AI"
+  },
+
   "vars": {
     "APP_NAME": "Artifact Library",
     // Sender identity for transactional email (Resend).

@@ -27,9 +27,11 @@ import {
   restoreVersion,
   tagsForArtifact,
   softDeleteArtifact,
-  getVersion
+  getVersion,
+  runEmbeddingStage
 } from '../lib/artifacts'
 import { artifactAccess, assertArtifactPermission, mayReadAnalytics, workspaceRefOf } from '../lib/access'
+import { indexStateFor, isSemanticConfigured } from '../lib/embeddings'
 import { assertWorkspaceAccess, effectiveWorkspaceRole } from '../lib/principal'
 import { getObject, buildDeliveryHeaders, previewCsp } from '../lib/storage'
 import {
@@ -516,7 +518,7 @@ artifacts.delete(
       'artifact.delete'
     )
 
-    await softDeleteArtifact(c.env.DB, artifactId)
+    await softDeleteArtifact(c.env, artifactId)
 
     await recordAudit(c.env.DB, {
       organizationId: artifact.organization_id,
@@ -958,6 +960,68 @@ artifacts.get(
         detail: safeParse(j.detail_json),
         updatedAt: j.updated_at
       }))
+    })
+  })
+)
+
+// ---------------------------------------------------------------
+// Semantic indexing state + manual re-index (PRD §94)
+// ---------------------------------------------------------------
+
+/**
+ * Per-artifact indexing state.
+ *
+ * Reports what is actually in the index (derived from chunk bookkeeping plus
+ * the latest EMBED job), not an optimistic flag — so PENDING / INDEXED /
+ * PARTIAL / FAILED / SKIPPED always reflects reality.
+ */
+artifacts.get(
+  '/:artifactId/index-state',
+  guarded(async (c) => {
+    const principal = requirePrincipal(c)
+    const artifactId = c.req.param('artifactId')
+    await artifactAccess(c.env.DB, principal, artifactId)
+
+    const state = await indexStateFor(c.env.DB, artifactId)
+
+    return ok(c, {
+      ...state,
+      semanticConfigured: isSemanticConfigured(c.env),
+      model: 'bge-base-en-v1.5'
+    })
+  })
+)
+
+/**
+ * Re-index an artifact's semantic embeddings.
+ *
+ * Owner/admin only (the same permission that gates re-versioning). Useful
+ * after a model or index change, and for backfilling artifacts that were
+ * uploaded before semantic search was provisioned.
+ */
+artifacts.post(
+  '/:artifactId/reindex',
+  rateLimit({ bucket: 'artifact:reindex', limit: 60, windowSeconds: 300 }),
+  guarded(async (c) => {
+    const principal = requirePrincipal(c)
+    const artifactId = c.req.param('artifactId')
+
+    const artifact = await assertArtifactPermission(
+      c.env.DB,
+      principal,
+      artifactId,
+      'artifact.version.create'
+    )
+    if (!artifact.current_version_id) throw badRequest('Artifact has no current version')
+
+    const outcome = await runEmbeddingStage(c.env, artifactId, artifact.current_version_id)
+
+    return ok(c, {
+      artifactId,
+      state: outcome.state,
+      chunks: outcome.chunks,
+      vectors: outcome.vectors,
+      reason: outcome.reason
     })
   })
 )

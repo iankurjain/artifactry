@@ -26,9 +26,15 @@ import integrationRoutes from './routes/integrations'
 
 import { renderShell } from './renderer'
 import { first } from './lib/db'
-import { evaluateShareAccess, findShareByToken, shareEffectiveStatus } from './lib/sharing'
+import {
+  evaluateShareAccess,
+  findShareByToken,
+  shareCoversArtifact,
+  shareEffectiveStatus
+} from './lib/sharing'
 import { loadArtifact } from './lib/artifacts'
 import { verifiedEmailFor } from './routes/shares'
+import { recordEvent } from './lib/analytics'
 
 const app = new Hono<AppEnv>()
 
@@ -133,6 +139,174 @@ app.get(
         reason: evaluation.reason ?? null,
         accessType: share.access_type,
         effectiveStatus: shareEffectiveStatus(share)
+      }
+    })
+  })
+)
+
+// ---------------------------------------------------------------
+// Secure viewer for a shared HTML artifact (§42, §68)
+//
+// The raw delivery endpoint (/content) forces text/plain for HTML so an
+// artifact can never execute on the application origin — correct, but it means
+// a recipient who opens an HTML share sees source code. This route is the
+// user-facing "open the artifact" URL instead:
+//
+//   * it serves our own trusted wrapper document, so the URL is a normal,
+//     bookmarkable page that renders in any browser;
+//   * the artifact itself is loaded into an iframe with `sandbox="allow-scripts"`
+//     and NO `allow-same-origin`, giving it an opaque origin — it cannot read
+//     cookies, call authenticated APIs or touch app storage;
+//   * previewCsp() keeps the artifact's own document locked to
+//     default-src 'none' with no connect/frame/object sources.
+//
+// The security model is unchanged: the artifact never executes on the
+// application origin. Only the framing target differs.
+// ---------------------------------------------------------------
+
+function escapeHtml(value: string): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function viewerMessage(title: string, message: string): Response {
+  return new Response(
+    `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>${escapeHtml(title)}</title></head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:48px 20px;background:#f6f7f9;color:#16181d">
+<div style="max-width:420px;margin:0 auto;background:#fff;border:1px solid #e4e7ec;border-radius:14px;padding:22px">
+<h1 style="font-size:19px;margin:0 0 8px">${escapeHtml(title)}</h1>
+<p style="font-size:14px;color:#5b6472;margin:0;line-height:1.55">${escapeHtml(message)}</p>
+</div></body></html>`,
+    { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+  )
+}
+
+app.get(
+  '/s/:token/artifact/:artifactId',
+  guarded(async (c) => {
+    const token = c.req.param('token')
+    const artifactId = c.req.param('artifactId')
+
+    const share = await findShareByToken(c.env.DB, token)
+    if (!share) return viewerMessage('Link not valid', 'This share link does not exist or has been removed.')
+
+    const verifiedEmail = await verifiedEmailFor(c as never, share)
+    const evaluation = await evaluateShareAccess(c.env.DB, share, verifiedEmail)
+    if (!evaluation.allowed) {
+      return viewerMessage('This share is not available', 'It may have expired, been revoked, or not be addressed to you.')
+    }
+    if (!share.allow_view) {
+      return viewerMessage('Viewing is not permitted', 'The sender has disabled viewing for this share.')
+    }
+
+    const covered =
+      share.target_type === 'ARTIFACT'
+        ? share.target_id === artifactId
+        : await shareCoversArtifact(c.env.DB, share, artifactId)
+    if (!covered) return viewerMessage('Item unavailable', 'That item is not part of this share.')
+
+    const artifact = await loadArtifact(c.env.DB, artifactId)
+    if (!artifact?.current_version_id) {
+      return viewerMessage('Item unavailable', 'The shared item is no longer available.')
+    }
+
+    // Only HTML needs the wrapper. Everything else renders or downloads
+    // correctly from the delivery endpoint, so send the visitor there.
+    if (artifact.mime_type !== 'text/html') {
+      return c.redirect(
+        `/api/v1/shares/${encodeURIComponent(token)}/content?artifactId=${encodeURIComponent(artifactId)}`
+      )
+    }
+
+    const channel =
+      share.access_type === 'PUBLIC_LINK' ? 'PUBLIC_LINK' : share.access_type === 'EMAIL' ? 'EMAIL' : 'DOMAIN'
+
+    await recordEvent(c.env.DB, {
+      artifactId: artifact.id,
+      workspaceId: artifact.workspace_id,
+      organizationId: artifact.organization_id,
+      shareId: share.id,
+      eventType: 'artifact_viewed',
+      actorType: 'ANONYMOUS',
+      actorLabel: verifiedEmail,
+      accessChannel: channel,
+      sessionSeed: c.req.header('CF-Connecting-IP') ?? null
+    })
+
+    const title = artifact.title || artifact.filename || 'Shared artifact'
+    const frameSrc = `/api/v1/shares/${encodeURIComponent(token)}/preview?artifactId=${encodeURIComponent(artifactId)}`
+    const downloadSrc = `/api/v1/shares/${encodeURIComponent(token)}/content?artifactId=${encodeURIComponent(artifactId)}&download=1`
+
+    const body = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>${escapeHtml(title)}</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #eef0f4;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
+  .wrap { display: flex; flex-direction: column; height: 100dvh; }
+  .bar { display: flex; align-items: center; gap: 12px; padding: 10px 16px;
+    background: #fff; border-bottom: 1px solid #e4e7ec; flex: none; }
+  .bar h1 { font-size: 15px; font-weight: 640; margin: 0; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+  .meta { font-size: 12px; color: #5b6472; margin-top: 2px; }
+  .spacer { flex: 1; min-width: 0; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 16px;
+    border-radius: 10px; border: 1px solid #e4e7ec; background: #fff; color: #16181d;
+    font-size: 13.5px; font-weight: 560; text-decoration: none; white-space: nowrap; }
+  .btn-primary { background: #16181d; color: #fff; border-color: #16181d; }
+  .stage { flex: 1; min-height: 0; padding: 14px; }
+  iframe { width: 100%; height: 100%; border: 1px solid #e4e7ec; border-radius: 12px;
+    background: #fff; display: block; }
+  @media (max-width: 560px) { .bar { padding: 10px 12px; } .stage { padding: 10px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="bar">
+    <div class="spacer">
+      <h1>${escapeHtml(title)}</h1>
+      <div class="meta">Shared with you · renders in a secure sandbox</div>
+    </div>
+    ${
+      share.allow_download
+        ? `<a class="btn btn-primary" href="${downloadSrc}" download>Download</a>`
+        : ''
+    }
+  </header>
+  <div class="stage">
+    <iframe
+      title="${escapeHtml(title)}"
+      src="${frameSrc}"
+      sandbox="allow-scripts"
+      referrerpolicy="no-referrer"
+      loading="eager"></iframe>
+  </div>
+</div>
+</body>
+</html>`
+
+    return new Response(body, {
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        // The wrapper itself is locked down; it only needs to frame our own
+        // sandboxed preview document.
+        'Content-Security-Policy':
+          "default-src 'none'; frame-src 'self'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+        'Cache-Control': 'private, no-store, max-age=0',
+        'Referrer-Policy': 'no-referrer'
       }
     })
   })

@@ -712,7 +712,7 @@ export function renderProfile(ctx) {
           <button class="btn btn-ghost" id="profile-edit" style="min-width:44px;padding:0 8px" aria-label="Edit name">${icon('file', 19)}</button>
         </div>
 
-        <div class="thumbs" style="margin-top:12px;grid-template-columns:repeat(2,minmax(0,1fr))">
+        <div class="stats" style="margin-top:12px">
           <div class="stat-tile">
             <div class="stat-value">${usage.artifacts}</div>
             <div class="stat-label">Artifacts</div>
@@ -917,7 +917,7 @@ export function renderAdmin(ctx) {
       ${screenHeader({ title: 'Administration', subtitle: org.name, onBackId: 'admin-back', rightId: 'admin-menu' })}
 
       <main class="app-main" style="padding-top:8px">
-        <div class="thumbs" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+        <div class="stats">
           <div class="stat-tile">
             <div class="stat-value">${ctx.adminTotals?.artifacts ?? 0}</div>
             <div class="stat-label">Artifacts</div>
@@ -1201,7 +1201,8 @@ export function renderShareRecipient(ctx) {
 
           <div style="display:flex;gap:9px;margin-top:16px">
             <a class="btn btn-secondary" style="flex:1;text-decoration:none;color:var(--text)"
-               href="${safeUrl(ctx.shareContentUrl(item.id, false))}" target="_blank" rel="noopener noreferrer">Open</a>
+               href="${safeUrl(ctx.shareOpenUrl(item.id, item.mimeType === 'text/html'))}"
+               target="_blank" rel="noopener noreferrer">${item.mimeType === 'text/html' ? 'Open page' : 'Open'}</a>
             ${
               view.view.allowDownload
                 ? `<a class="btn btn-primary" style="flex:1;text-decoration:none;color:#fff"
@@ -1238,7 +1239,8 @@ export function renderShareRecipient(ctx) {
               .map(
                 (it) => `
               <a class="list-row" style="text-decoration:none;color:var(--text)"
-                 href="${safeUrl(ctx.shareContentUrl(it.id, false))}" target="_blank" rel="noopener noreferrer">
+                 href="${safeUrl(ctx.shareOpenUrl(it.id, it.extension === 'html' || it.mimeType === 'text/html'))}"
+                 target="_blank" rel="noopener noreferrer">
                 ${fileBadge(it.extension)}
                 <span style="flex:1;min-width:0">
                   <span style="display:block;font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(it.title)}</span>

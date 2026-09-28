@@ -360,11 +360,25 @@ function readPdfLiteral(src: string, start: number): { text: string; end: number
   return { text: out, end: i }
 }
 
+/** Read a hex string payload verbatim, so a font CMap can decode it later. */
+function readPdfHexRaw(src: string, start: number): { hex: string; end: number } {
+  const close = src.indexOf('>', start)
+  if (close < 0) return { hex: '', end: start }
+  return { hex: src.slice(start, close), end: close + 1 }
+}
+
 /** Decode a PDF hex string `<48656c6c6f>`, including UTF-16BE BOM forms. */
 function readPdfHex(src: string, start: number): { text: string; end: number } {
-  const close = src.indexOf('>', start)
-  if (close < 0) return { text: '', end: start }
-  let hex = src.slice(start, close).replace(/[^0-9a-fA-F]/g, '')
+  const { hex, end } = readPdfHexRaw(src, start)
+  return { text: decodePlainHex(hex), end }
+}
+
+/**
+ * Default decoding for a hex string with no font CMap available: PDF treats it
+ * as a byte string, with a UTF-16BE byte-order mark switching the meaning.
+ */
+function decodePlainHex(rawHex: string): string {
+  let hex = rawHex.replace(/[^0-9a-fA-F]/g, '')
   if (hex.length % 2) hex += '0'
 
   const bytes: number[] = []
@@ -378,12 +392,12 @@ function readPdfHex(src: string, start: number): { text: string; end: number } {
     for (let i = 2; i + 1 < bytes.length; i += 2) {
       out += String.fromCharCode((bytes[i] << 8) | bytes[i + 1])
     }
-    return { text: out, end: close + 1 }
+    return out
   }
 
   let out = ''
   for (const b of bytes) out += String.fromCharCode(b)
-  return { text: out, end: close + 1 }
+  return out
 }
 
 /**
@@ -393,13 +407,26 @@ function readPdfHex(src: string, start: number): { text: string; end: number } {
  * `'` / `"`, and treats `Td`/`TD`/`T*`/`ET` as line breaks so words from
  * different lines do not run together.
  */
-function pdfContentText(content: string, out: string[]): void {
+function pdfContentText(
+  content: string,
+  out: string[],
+  fonts?: Map<string, PdfCMap> | null
+): void {
   let i = 0
   const len = content.length
   let line: string[] = []
+  let current: PdfCMap | null = null
 
   const flush = () => {
-    const text = line.join('').replace(/\s+/g, ' ').trim()
+    // Control characters are never extractable text. A font that addresses
+    // glyphs by code leaves a few of them behind (e.g. `\001n\002c\003d`), and
+    // letting them through used to sink an entire page at the plausibility
+    // gate — 330 characters of real prose discarded over a handful of bytes.
+    const text = line
+      .join('')
+      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
     if (text) out.push(text)
     line = []
   }
@@ -414,9 +441,11 @@ function pdfContentText(content: string, out: string[]): void {
       continue
     }
 
+    // Hex strings carry the interesting case: a CID/TrueType font addresses
+    // glyphs by code, and only its ToUnicode CMap says what those codes mean.
     if (ch === '<' && content[i + 1] !== '<') {
-      const { text, end } = readPdfHex(content, i + 1)
-      line.push(text)
+      const { hex, end } = readPdfHexRaw(content, i + 1)
+      line.push(current ? applyCMap(hex, current) : decodePlainHex(hex))
       i = end
       continue
     }
@@ -424,6 +453,13 @@ function pdfContentText(content: string, out: string[]): void {
     // Array form: [(a) -1 (b)] TJ — concatenation, spacing handled by kerning.
     if (ch === '[') {
       i++
+      continue
+    }
+
+    // Font selection decides how every following hex string is decoded.
+    if (ch === 'T' && content[i + 1] === 'f') {
+      current = fonts?.get(fontNameBefore(content, i)) ?? null
+      i += 2
       continue
     }
 
@@ -450,39 +486,162 @@ function pdfContentText(content: string, out: string[]): void {
 }
 
 /**
+ * The operand of a `Tf` operator, read backwards from the operator itself.
+ *
+ * `Tf` takes `(/Name) size Tf`, e.g. `/F1 14 Tf`, so the token immediately
+ * before the size is the resource name.
+ */
+function fontNameBefore(content: string, at: number): string {
+  const window = content.slice(Math.max(0, at - 80), at)
+  const match = /([A-Za-z0-9._+-]+)\s+[-\d.]*\s*$/.exec(window)
+  return match ? match[1] : ''
+}
+
+/**
+ * Plausibility check for assembled PDF text.
+ *
+ * Decompressed font programs, XMP packets and image payloads are full of bytes
+ * that look like PDF string literals, so a "did we find parentheses?" test is
+ * not enough — the scanned-image fixture previously yielded 75k characters of
+ * noise that was reported as a successful extraction. Real text has a high
+ * printable ratio, almost no control bytes, and looks like words.
+ */
+function looksLikeExtractedText(text: string): boolean {
+  if (!text) return false
+  const len = text.length
+  if (len < 2) return false
+
+  let printable = 0
+  let alnum = 0
+  let control = 0
+
+  for (const ch of text) {
+    const code = ch.codePointAt(0) ?? 0
+    if (code === 9 || code === 10 || code === 13) {
+      printable++
+      continue
+    }
+    if (code < 32 || code === 0xfffd) {
+      control++
+      continue
+    }
+    printable++
+    if (/[\p{L}\p{N}]/u.test(ch)) alnum++
+  }
+
+  // Binary noise is dense in control bytes; prose almost never is.
+  if (control / len > 0.02) return false
+  if (printable / len < 0.9) return false
+
+  // Short strings (a title, a label) pass on legibility alone.
+  if (len < 80) return alnum / len >= 0.25
+
+  // Longer text must read like language. Numeric tables are allowed through on
+  // their digit density so a data-only page is not discarded.
+  const digits = (text.match(/\p{N}/gu) ?? []).length
+  const letters = (text.match(/\p{L}/gu) ?? []).length
+  const density = Math.max(letters / len, digits / len)
+  if (density < 0.3) return false
+
+  const words = text.split(/\s+/).filter((w) => w.length >= 3 && /\p{L}/u.test(w))
+  return words.length >= 3
+}
+
+/**
  * Extract the text layer from a PDF.
  *
- * Streams are located by `stream … endstream` delimiters and inflated with the
- * zlib format. Both the declared `/Length` and a scan-to-keyword fallback are
- * attempted, because `/Length` is frequently an indirect reference.
+ * Two passes, both conservative:
+ *
+ * 1. **ToUnicode pass** — resolve each page's active font and decode its
+ *    character codes through that font's `ToUnicode` CMap. This is what makes
+ *    Word/LibreOffice output readable: such PDFs address glyphs by code
+ *    (`[<01>1<020304>]TJ`), so the CMap is the only thing that maps `<01>` to
+ *    `E`. Without it those bytes decode to control characters and the page
+ *    looks empty.
+ * 2. **Operator pass** — no usable CMaps, so scan content streams directly,
+ *    skipping embedded font programs, which are binary and dense with
+ *    string-like byte sequences.
+ *
+ * In both passes a stream must decode cleanly under its declared filter chain
+ * and contain real PDF text operators, and the assembled result must pass
+ * `looksLikeExtractedText`.
+ *
+ * Anything else reports "no text layer". That is the correct answer for a scan,
+ * and the honest answer for a PDF this parser cannot read — object streams
+ * (`/ObjStm`), encrypted content, or fonts with no ToUnicode map. Those are not
+ * claimed as supported.
  */
 async function extractPdf(bytes: Uint8Array): Promise<ExtractionResult> {
   const raw = latin1(bytes)
   const streams = locatePdfStreams(raw)
-  const textBlocks: string[] = []
-  let inflated = 0
+  const objs = parsePdfObjects(raw)
 
-  for (const stream of streams) {
-    const out = await inflate(stream, 'deflate')
-    if (out) {
-      inflated++
-      pdfContentText(latin1(out), textBlocks)
-    } else {
-      // Some generators emit uncompressed content streams; try them as-is.
-      pdfContentText(latin1(stream), textBlocks)
+  const textBlocks: string[] = []
+  let scanned = 0
+  let viaCMap = false
+  let fontCount = 0
+
+  // Pass 1: resolve character codes through per-font ToUnicode CMaps.
+  if (objs.size && streams.length) {
+    const fonts = await collectPdfFonts(objs, streams)
+    fontCount = fonts.size
+
+    if (fonts.size) {
+      for (const stream of streams) {
+        if (isNonContent(stream.dict)) continue
+        const decoded = await decodeStream(stream)
+        if (!decoded) continue
+        const content = latin1(decoded)
+        // A page content stream opens a text object. Requiring this is what
+        // stops font programs and image data from being scanned as pages.
+        if (!/\bBT\b/.test(content) && !/\bTj\b/.test(content) && !/\bTJ\b/.test(content)) continue
+        scanned++
+        pdfContentText(content, textBlocks, fonts)
+      }
+
+      if (looksLikeExtractedText(textBlocks.join('\n'))) {
+        viaCMap = true
+      } else {
+        // The CMaps resolved too little to be meaningful — discard this attempt
+        // rather than reporting a document that is actually readable as empty.
+        textBlocks.length = 0
+        scanned = 0
+      }
     }
   }
 
-  const text = normalise(textBlocks.join('\n'))
+  // Pass 2: no usable CMaps, so scan content streams directly.
+  if (!viaCMap) {
+    const fontPrograms = findFontProgramStreams(objs)
 
-  if (text.length >= 1) {
-    return {
-      text: cap(text),
-      supported: true,
-      ok: true,
-      note: 'PDF text layer extracted',
-      chars: text.length,
-      via: `pdf-content-streams(${inflated}/${streams.length})`
+    for (const stream of streams) {
+      if (fontPrograms.has(stream.objNum)) continue
+      if (isNonContent(stream.dict)) continue
+      const decoded = await decodeStream(stream)
+      if (!decoded) continue
+      const content = latin1(decoded)
+      if (!/\bBT\b/.test(content) && !/\bTj\b/.test(content) && !/\bTJ\b/.test(content)) continue
+      scanned++
+      pdfContentText(content, textBlocks, null)
+    }
+  }
+
+  const joined = textBlocks.join('\n')
+  const via = viaCMap
+    ? `pdf-tounicode(fonts=${fontCount},text=${scanned}/${streams.length})`
+    : `pdf-content-streams(text=${scanned}/${streams.length})`
+
+  if (looksLikeExtractedText(joined)) {
+    const text = normalise(joined)
+    if (text.length >= 1) {
+      return {
+        text: cap(text),
+        supported: true,
+        ok: true,
+        note: 'PDF text layer extracted',
+        chars: text.length,
+        via
+      }
     }
   }
 
@@ -491,8 +650,8 @@ async function extractPdf(bytes: Uint8Array): Promise<ExtractionResult> {
     supported: true,
     ok: false,
     note:
-      'No text layer found — this PDF is likely scanned or image-only, so it is searchable by title, filename, description and tags',
-    via: `pdf-content-streams(${inflated}/${streams.length})`
+      'No decodable text layer — this PDF is likely scanned, or uses structures this parser does not support (object streams, encrypted content, or fonts with no ToUnicode map). Searchable by title, filename, description and tags',
+    via
   }
 }
 
@@ -506,18 +665,49 @@ function latin1(bytes: Uint8Array): string {
   return out
 }
 
-/** Locate every `stream … endstream` payload in a PDF by scanning bytes. */
-function locatePdfStreams(raw: string): Uint8Array[] {
-  const found: Uint8Array[] = []
-  const marker = 'stream'
-  let from = 0
+/**
+ * One `stream … endstream` payload plus its dictionary and owning object.
+ * The dictionary matters because a stream's filters decide whether its bytes
+ * can be decoded at all — and encoding is not a detail that can be guessed.
+ * The object number matters because font programs are looked up by it.
+ */
+interface PdfStream {
+  bytes: Uint8Array
+  dict: string
+  objNum: number
+}
 
-  while (found.length < 512) {
-    const at = raw.indexOf(marker, from)
-    if (at < 0) break
+/**
+ * Locate every `stream … endstream` payload, capturing its dictionary.
+ *
+ * The walk is driven by object headers rather than by searching for the five
+ * bytes `stream`: compressed payloads routinely contain that sequence, and a
+ * naive search produced phantom streams (a font program and an XMP packet were
+ * each counted twice in a real LibreOffice PDF, which is why the earlier
+ * "text streams / total streams" ratio was misleading).
+ */
+function locatePdfStreams(raw: string): PdfStream[] {
+  const found: PdfStream[] = []
+  const re = /(\d+)\s+\d+\s+obj\b/g
+  let m: RegExpExecArray | null
+
+  while ((m = re.exec(raw)) !== null) {
+    const num = parseInt(m[1], 10)
+    if (!Number.isFinite(num)) continue
+
+    const sIdx = raw.indexOf('stream', re.lastIndex)
+    if (sIdx < 0) break
+
+    // If the object closes before any `stream` appears, that keyword belongs to
+    // a later object — not this one.
+    const eObj = raw.indexOf('endobj', re.lastIndex)
+    if (eObj >= 0 && sIdx > eObj) continue
+
+    const dict = raw.slice(re.lastIndex, sIdx)
+    if (!dict.includes('<<')) continue
 
     // Step over 'stream' plus its EOL (CRLF or LF).
-    let start = at + marker.length
+    let start = sIdx + 'stream'.length
     if (raw[start] === '\r') start++
     if (raw[start] === '\n') start++
 
@@ -528,17 +718,354 @@ function locatePdfStreams(raw: string): Uint8Array[] {
     let stop = end
     if (raw[stop - 1] === '\n') stop--
     if (raw[stop - 1] === '\r') stop--
+    if (stop <= start) continue
 
-    if (stop > start) {
-      const slice = new Uint8Array(stop - start)
-      for (let i = start; i < stop; i++) slice[i - start] = raw.charCodeAt(i) & 0xff
-      found.push(slice)
-    }
+    const slice = new Uint8Array(stop - start)
+    for (let i = start; i < stop; i++) slice[i - start] = raw.charCodeAt(i) & 0xff
+    found.push({ bytes: slice, dict, objNum: num })
 
-    from = end + 'endstream'.length
+    if (found.length >= 512) break
   }
 
   return found
+}
+
+/** Filter names declared by a stream dictionary, in application order. */
+function streamFilters(dict: string): string[] {
+  const match = /\/Filter\s*(\[[^\]]*\]|\/[A-Za-z0-9]+)/.exec(dict)
+  if (!match) return []
+  return (match[1].match(/\/[A-Za-z0-9]+/g) ?? []).map((name) => name.slice(1))
+}
+
+// ---------------------------------------------------------------
+// ToUnicode CMaps
+// ---------------------------------------------------------------
+
+/**
+ * A font's character-code → Unicode mapping, parsed from its ToUnicode CMap.
+ *
+ * `bytes` is the code width: 1 for simple fonts, 2 for Type0/CID fonts whose
+ * codes are multi-byte.
+ */
+interface PdfCMap {
+  codes: Map<number, string>
+  bytes: number
+}
+
+/**
+ * Indirect-object bodies, keyed by object number.
+ *
+ * Only the dictionary head of each object is captured (from the first `<<` to
+ * `endobj`), which is all that is needed to follow `/ToUnicode`, `/Font` and
+ * `/Length1` references.
+ */
+function parsePdfObjects(raw: string): Map<number, string> {
+  const out = new Map<number, string>()
+  const re = /(\d+)\s+\d+\s+obj\b/g
+  let m: RegExpExecArray | null
+
+  while ((m = re.exec(raw)) !== null) {
+    const num = parseInt(m[1], 10)
+    const stop = raw.indexOf('endobj', re.lastIndex)
+    const body = raw.slice(re.lastIndex, stop < 0 ? raw.length : stop)
+    out.set(num, dictStartOf(body))
+  }
+
+  return out
+}
+
+/** The dictionary portion of an object body, ignoring any trailing stream. */
+function dictStartOf(body: string): string {
+  const open = body.indexOf('<<')
+  if (open < 0) return ''
+  const end = body.indexOf('endobj')
+  return body.slice(open, end < 0 ? body.length : end)
+}
+
+/** Follow an indirect reference such as `/ToUnicode 41 0 R` to its object id. */
+function resolveObjNum(scope: string, key: string): number | null {
+  const re = new RegExp(`/${key}\\s+(\\d+)\\s+\\d+\\s+R\\b`)
+  const m = re.exec(scope)
+  return m ? parseInt(m[1], 10) : null
+}
+
+/** UTF-16BE hex payload (the ToUnicode target format) → string. */
+function hexToUnicode(hex: string): string {
+  if (hex.length <= 2) return String.fromCharCode(parseInt(hex, 16) || 0)
+  let out = ''
+  for (let i = 0; i + 4 <= hex.length; i += 4) {
+    out += String.fromCharCode(parseInt(hex.slice(i, i + 4), 16))
+  }
+  return out
+}
+
+/** First code point of a ToUnicode target, used as a bfrange base. */
+function firstCodePoint(hex: string): number {
+  if (hex.length <= 2) return parseInt(hex, 16) || 0
+  return parseInt(hex.slice(0, 4), 16)
+}
+
+/**
+ * Parse a ToUnicode CMap.
+ *
+ * Both mapping forms are read: `beginbfchar` pairs (`<01> <0045>` — glyph code
+ * to Unicode) and `beginbfrange` spans (`<01> <20> <0041>` — consecutive runs,
+ * which is how most subset fonts encode a whole alphabet compactly).
+ */
+function parseToUnicodeCMap(text: string): PdfCMap | null {
+  const codes = new Map<number, string>()
+  let bytes = 1
+  let m: RegExpExecArray | null
+
+  const charBlocks = /beginbfchar([\s\S]*?)endbfchar/g
+  while ((m = charBlocks.exec(text)) !== null) {
+    const pair = /<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>/g
+    let p: RegExpExecArray | null
+    while ((p = pair.exec(m[1])) !== null) {
+      if (p[1].length > 2) bytes = 2
+      const mapped = hexToUnicode(p[2])
+      // `<00> <0000>` entries are .notdef placeholders, not characters.
+      if (!mapped || mapped === '\u0000') continue
+      codes.set(parseInt(p[1].slice(0, 4), 16), mapped)
+    }
+  }
+
+  const rangeBlocks = /beginbfrange([\s\S]*?)endbfrange/g
+  while ((m = rangeBlocks.exec(text)) !== null) {
+    const range = /<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>\s*<([0-9a-fA-F]+)>/g
+    let p: RegExpExecArray | null
+    while ((p = range.exec(m[1])) !== null) {
+      const lo = parseInt(p[1].slice(0, 4), 16)
+      const hi = parseInt(p[2].slice(0, 4), 16)
+      const base = firstCodePoint(p[3])
+      if (p[1].length > 2) bytes = 2
+      // Bounded so a corrupt range cannot fan out into a huge loop.
+      const span = Math.min(hi - lo, 1024)
+      for (let k = 0; k <= span; k++) {
+        codes.set(lo + k, String.fromCharCode((base + k) & 0xffff))
+      }
+    }
+  }
+
+  return codes.size ? { codes, bytes } : null
+}
+
+/**
+ * Resolve a page's `Tf` resource name to a parsed CMap.
+ *
+ * Walks the real indirection chain — Resources → `/Font` → the font resource
+ * dictionary → `/Fx n 0 R` → that font object's `/ToUnicode` stream — instead
+ * of merging every CMap in the file into one table. Merging would be wrong:
+ * in a real Word PDF the code `<01>` means `E` in one font and `O` in another.
+ */
+async function collectPdfFonts(
+  objs: Map<number, string>,
+  streams: PdfStream[]
+): Promise<Map<string, PdfCMap>> {
+  const streamByObj = new Map(streams.map((s) => [s.objNum, s]))
+  const out = new Map<string, PdfCMap>()
+
+  for (const body of objs.values()) {
+    if (!/\/Font\b/.test(body)) continue
+
+    // The resource dictionary may inline the font map or reference it.
+    let fontDict = body
+    const viaRef = /\/Font\s+(\d+)\s+\d+\s+R\b/.exec(body)
+    if (viaRef) {
+      const target = objs.get(parseInt(viaRef[1], 10))
+      if (!target) continue
+      fontDict = target
+    }
+
+    const refRe = /\/([A-Za-z0-9._+-]+)\s+(\d+)\s+\d+\s+R\b/g
+    let m: RegExpExecArray | null
+    while ((m = refRe.exec(fontDict)) !== null) {
+      const name = m[1]
+      if (out.has(name)) continue
+      const fontObj = objs.get(parseInt(m[2], 10))
+      if (!fontObj) continue
+
+      const toUni = resolveObjNum(fontObj, 'ToUnicode')
+      if (toUni == null) continue
+      const stream = streamByObj.get(toUni)
+      if (!stream) continue
+
+      const decoded = await decodeStream(stream)
+      if (!decoded) continue
+      const cmap = parseToUnicodeCMap(latin1(decoded))
+      if (cmap) out.set(name, cmap)
+    }
+  }
+
+  return out
+}
+
+/**
+ * Decode one hex string of glyph codes through a font's CMap.
+ *
+ * Returns '' when nothing resolves — emitting the raw codes instead would put
+ * control characters into the extracted text as if they were content.
+ */
+function applyCMap(rawHex: string, cmap: PdfCMap): string {
+  const hex = rawHex.replace(/[^0-9a-fA-F]/g, '')
+  const width = cmap.bytes === 2 ? 4 : 2
+  let out = ''
+
+  for (let i = 0; i + width <= hex.length; i += width) {
+    const mapped = cmap.codes.get(parseInt(hex.slice(i, i + width), 16))
+    if (mapped !== undefined) out += mapped
+  }
+
+  return out
+}
+
+/**
+ * Streams holding embedded font programs.
+ *
+ * `/Length1` is the reliable tell: it is required on Type1/TrueType font
+ * streams (`FontFile`/`FontFile2`) and appears nowhere else. These payloads are
+ * binary, large, and full of parenthesised byte runs, so on the no-CMap path
+ * they must never be scanned as page content.
+ */
+function findFontProgramStreams(objs: Map<number, string>): Set<number> {
+  const out = new Set<number>()
+  for (const [num, body] of objs) {
+    if (/\/Length1\b/.test(body)) out.add(num)
+    if (/\/Type\s*\/FontFile/.test(body)) out.add(num)
+    if (/\/Subtype\s*\/(Type1C|CIDFontType0C|OpenType)\b/.test(body)) out.add(num)
+  }
+  return out
+}
+
+/**
+ * Encodings that carry raster/scan data. A stream using one of these is never
+ * text — feeding a JPEG through the text scanner is what previously produced
+ * tens of thousands of characters of noise for a scanned document.
+ */
+const NON_TEXT_FILTERS = new Set([
+  'DCTDecode',
+  'JPXDecode',
+  'CCITTFaxDecode',
+  'JBIG2Decode',
+  'RunLengthDecode'
+])
+
+/**
+ * Dictionaries describing fonts, images or metadata rather than page content.
+ * Font programs are especially dangerous: they are large, binary, and full of
+ * `(...)` byte sequences that resemble PDF string literals.
+ */
+const NON_CONTENT_DICT: RegExp[] = [
+  /\/Subtype\s*\/Image/,
+  /\/Type\s*\/Metadata/,
+  /\/Type\s*\/FontFile/,
+  /\/Subtype\s*\/XML/,
+  /\/Subtype\s*\/Type1C/,
+  /\/Subtype\s*\/CIDFontType0C/,
+  /\/Subtype\s*\/(Type1|TrueType|OpenType)\b/,
+  /\/Length1\b/
+]
+
+function isNonContent(dict: string): boolean {
+  if (!dict) return false
+  if (NON_CONTENT_DICT.some((re) => re.test(dict))) return true
+  return streamFilters(dict).some((f) => NON_TEXT_FILTERS.has(f))
+}
+
+/**
+ * Decode PDF ASCII85 (base-85). Whitespace is skipped, `z` is the all-zero
+ * group shortcut, and `~>` terminates. Returns null on malformed input rather
+ * than emitting a partially-correct buffer.
+ */
+function decodeAscii85(bytes: Uint8Array): Uint8Array | null {
+  const out: number[] = []
+  let tuple = 0
+  let count = 0
+  let i = 0
+
+  // PDF allows an optional '<~' introducer.
+  if (bytes[0] === 0x3c && bytes[1] === 0x7e) i = 2
+
+  for (; i < bytes.length; i++) {
+    const b = bytes[i]
+    if (b === 0x7e) break // '~>'
+    if (b === 0x20 || b === 0x0a || b === 0x0d || b === 0x09 || b === 0x0c || b === 0x00) continue
+
+    if (b === 0x7a && count === 0) {
+      out.push(0, 0, 0, 0)
+      continue
+    }
+    if (b < 0x21 || b > 0x75) return null
+
+    tuple = tuple * 85 + (b - 0x21)
+    count++
+    if (count === 5) {
+      // Math.floor rather than bit shifts: a 5-tuple can exceed 32 bits.
+      out.push(
+        Math.floor(tuple / 16777216) & 0xff,
+        Math.floor(tuple / 65536) & 0xff,
+        Math.floor(tuple / 256) & 0xff,
+        tuple & 0xff
+      )
+      tuple = 0
+      count = 0
+    }
+  }
+
+  if (count > 0) {
+    // Pad the final partial group with 'u' (84), emit count-1 bytes.
+    for (let k = count; k < 5; k++) tuple = tuple * 85 + 84
+    const padded = [
+      Math.floor(tuple / 16777216) & 0xff,
+      Math.floor(tuple / 65536) & 0xff,
+      Math.floor(tuple / 256) & 0xff,
+      tuple & 0xff
+    ]
+    for (let k = 0; k < count - 1; k++) out.push(padded[k])
+  }
+
+  return out.length ? Uint8Array.from(out) : null
+}
+
+/** Decode PDF ASCIIHex. Returns null on a truncated or malformed run. */
+function decodeAsciiHex(bytes: Uint8Array): Uint8Array | null {
+  const nibbles: number[] = []
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i]
+    if (b === 0x3e) break // '>'
+    if (b === 0x20 || b === 0x0a || b === 0x0d || b === 0x09 || b === 0x0c) continue
+    let v: number
+    if (b >= 0x30 && b <= 0x39) v = b - 0x30
+    else if (b >= 0x41 && b <= 0x46) v = b - 0x41 + 10
+    else if (b >= 0x61 && b <= 0x66) v = b - 0x61 + 10
+    else return null
+    nibbles.push(v)
+  }
+  if (nibbles.length % 2) nibbles.push(0)
+  const out = new Uint8Array(nibbles.length / 2)
+  for (let i = 0; i < out.length; i++) out[i] = (nibbles[i * 2] << 4) | nibbles[i * 2 + 1]
+  return out
+}
+
+/**
+ * Apply a stream's declared decode chain.
+ *
+ * An unrecognised filter yields null instead of falling back to treating the
+ * still-encoded bytes as text — guessing was the source of the garbage output.
+ */
+async function decodeStream(stream: PdfStream): Promise<Uint8Array | null> {
+  const filters = streamFilters(stream.dict)
+  if (!filters.length) return stream.bytes
+
+  let data: Uint8Array | null = stream.bytes
+  for (const filter of filters) {
+    if (!data) return null
+    if (filter === 'FlateDecode' || filter === 'Fl') data = await inflate(data, 'deflate')
+    else if (filter === 'ASCII85Decode' || filter === 'A85') data = decodeAscii85(data)
+    else if (filter === 'ASCIIHexDecode' || filter === 'AHx') data = decodeAsciiHex(data)
+    else return null
+  }
+  return data
 }
 
 // ---------------------------------------------------------------

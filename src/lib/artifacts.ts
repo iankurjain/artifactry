@@ -35,6 +35,7 @@ import {
 import { conflict, notFound, tooLarge, unsupported } from './http'
 import { recordAudit } from './audit'
 import { extractText, type ExtractionResult } from './extract'
+import { reindexVersion, removeArtifactVectors, type IndexState } from './embeddings'
 
 // ---------------------------------------------------------------
 // Processing job bookkeeping
@@ -395,6 +396,56 @@ export async function createArtifact(
   }
 }
 
+/**
+ * Semantic indexing stage (PRD §31, §94).
+ *
+ * Loads the tenant identifiers from the artifact row so every vector carries
+ * its own scope, embeds the version's extracted text in chunks, and records an
+ * explicit EMBED job state. Bounded and non-throwing: uploads must never fail
+ * because the vector index is unavailable.
+ */
+export async function runEmbeddingStage(
+  env: Env,
+  artifactId: string,
+  versionId: string
+): Promise<{ state: IndexState; chunks: number; vectors: number; reason: string }> {
+  const db = env.DB
+
+  try {
+    const artifact = await first<{
+      workspace_id: string
+      organization_id: string | null
+      owner_user_id: string
+    }>(
+      db,
+      `SELECT workspace_id, organization_id, owner_user_id FROM artifacts WHERE id = ?`,
+      [artifactId]
+    )
+    if (!artifact) {
+      return { state: 'FAILED', chunks: 0, vectors: 0, reason: 'Artifact not found' }
+    }
+
+    const outcome = await reindexVersion(env, {
+      artifactId,
+      versionId,
+      workspaceId: artifact.workspace_id,
+      organizationId: artifact.organization_id,
+      ownerUserId: artifact.owner_user_id
+    })
+
+    await recordJob(db, artifactId, versionId, 'EMBED', outcome.state, {
+      note: outcome.reason,
+      chunks: outcome.chunks,
+      vectors: outcome.vectors
+    })
+
+    return outcome
+  } catch (err) {
+    await recordJob(db, artifactId, versionId, 'EMBED', 'FAILED', {}, String(err)).catch(() => {})
+    return { state: 'FAILED', chunks: 0, vectors: 0, reason: String(err).slice(0, 200) }
+  }
+}
+
 /** Runs the post-storage stages of the §22 pipeline and records each job. */
 async function runPipeline(
   env: Env,
@@ -434,10 +485,9 @@ async function runPipeline(
     note: 'Thumbnail generation requires an image processing service'
   })
 
-  // Embeddings need Vectorize + Workers AI (PRD §31)
-  await recordJob(db, artifactId, versionId, 'EMBED', 'SKIPPED', {
-    note: 'Vector indexing not provisioned; lexical search only'
-  })
+  // Semantic indexing (PRD §31). Never throws: a failure here leaves lexical
+  // search fully working and is recorded as an explicit state.
+  await runEmbeddingStage(env, artifactId, versionId)
 
   const current = await first<{ status: string }>(db, `SELECT status FROM artifacts WHERE id = ?`, [
     artifactId
@@ -587,6 +637,10 @@ export async function createVersion(
 
   await indexArtifact(db, input.artifactId)
 
+  // Semantic re-index: replaces the previous version's vectors with this one's,
+  // so a superseded version can never surface in semantic results.
+  await runEmbeddingStage(env, input.artifactId, versionId)
+
   await recordAudit(db, {
     organizationId: artifact.organization_id,
     workspaceId: artifact.workspace_id,
@@ -660,7 +714,17 @@ export async function loadArtifact(db: D1Database, artifactId: string): Promise<
 }
 
 /** Soft delete preserves the audit trail and share history (§70, §104). */
-export async function softDeleteArtifact(db: D1Database, artifactId: string): Promise<void> {
+/**
+ * Soft-delete an artifact and purge its derived state.
+ *
+ * Delete is logical (the row is retained for audit and the canonical URL keeps
+ * resolving to a neutral state), but derived indexes are removed outright:
+ * the FTS row and every Vectorize vector. Leaving vectors behind would let a
+ * deleted artifact keep occupying semantic result slots, so their removal is
+ * part of the delete, not a background nicety (§94).
+ */
+export async function softDeleteArtifact(env: Env, artifactId: string): Promise<void> {
+  const db = env.DB
   const artifact = await first<ArtifactRow & { seq: number }>(
     db,
     `SELECT * FROM artifacts WHERE id = ?`,
@@ -675,6 +739,19 @@ export async function softDeleteArtifact(db: D1Database, artifactId: string): Pr
     [timestamp, timestamp, artifactId]
   )
   await run(db, `DELETE FROM artifact_search WHERE rowid = ?`, [artifact.seq])
+
+  // Purge semantic vectors. Never fatal: a delete must succeed even if the
+  // vector store is unavailable — the D1 bookkeeping rows go regardless, and a
+  // later reindex of the artifact reconciles any orphan.
+  try {
+    await removeArtifactVectors(env, artifactId)
+  } catch (err) {
+    console.error('[artifacts] vector purge failed during delete', err)
+    await run(db, `DELETE FROM artifact_embeddings WHERE artifact_id = ?`, [artifactId]).catch(
+      () => {}
+    )
+  }
+
   await run(db, `UPDATE shares SET status = 'REVOKED', revoked_at = ? WHERE target_type = 'ARTIFACT' AND target_id = ?`, [
     timestamp,
     artifactId

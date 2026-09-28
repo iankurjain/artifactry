@@ -872,6 +872,21 @@ ctx.sharePreviewUrl = (artifactId) =>
 ctx.shareContentUrl = (artifactId, download) =>
   `/api/v1/shares/${encodeURIComponent(ctx.shareToken)}/content?artifactId=${encodeURIComponent(artifactId)}${download ? '&download=1' : ''}`
 
+/**
+ * User-facing "open" URL for a shared artifact.
+ *
+ * HTML goes to the secure viewer route, which serves our own trusted wrapper
+ * and loads the artifact inside an opaque-origin sandbox iframe — so the
+ * recipient gets a rendered page instead of source code, and the artifact
+ * still never executes on the application origin. Everything else is served
+ * directly by the delivery endpoint.
+ */
+ctx.shareViewerUrl = (artifactId) =>
+  `/s/${encodeURIComponent(ctx.shareToken)}/artifact/${encodeURIComponent(artifactId)}`
+
+ctx.shareOpenUrl = (artifactId, isHtml) =>
+  isHtml ? ctx.shareViewerUrl(artifactId) : ctx.shareContentUrl(artifactId, false)
+
 ctx.openAnalyticsScreen = (artifactId) => navigate(`/a/${encodeURIComponent(artifactId)}/analytics`)
 
 // ---------------------------------------------------------------
