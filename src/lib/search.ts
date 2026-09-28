@@ -289,6 +289,12 @@ export async function searchArtifacts(
   }
 
   const semanticMap = new Map(semanticIds.map((s) => [s.artifactId, s.score]))
+
+  // Snapshot of what the lexical engine returned, taken *before* the semantic-only
+  // rows are appended below. This is what distinguishes a 'both' hit from a
+  // semantic-only one; deriving it from the score cannot work, because the
+  // appended rows carry their semantic score in the same field.
+  const lexicalIds = new Set(rows.map((r) => r.id))
   const seen = new Set(rows.map((r) => r.id))
 
   // Pull in the hits that only the vector search found.
@@ -317,8 +323,16 @@ export async function searchArtifacts(
 
   const hits: SearchHit[] = rows.map((row) => {
     const semScore = semanticMap.get(row.id) ?? 0
+    // Tracked by origin, not inferred from the score.
+    //
+    // Semantic-only rows are appended above with `score` set to their *semantic*
+    // score, so scoring them as `row.score > 0 && semScore > 0` always matched
+    // the first branch and labelled every vector-only hit 'both'. That made
+    // matchSource 'semantic' unreachable, so the UI could never show "Found by
+    // meaning" for the one case it is meant to describe.
+    const fromLexical = lexicalIds.has(row.id)
     const source: SearchHit['matchSource'] =
-      row.score > 0 && semScore > 0 ? 'both' : semScore > 0 ? 'semantic' : 'lexical'
+      fromLexical && semScore > 0 ? 'both' : semScore > 0 ? 'semantic' : 'lexical'
     return {
       artifact: row,
       tags: tagMap.get(row.id) ?? [],

@@ -105,7 +105,9 @@ function makeVectorize(mode = 'ok') {
     upserted: [],
     deleted: [],
     /** matches returned by query(), as Vectorize would after ANN lookup */
-    matches: []
+    matches: [],
+    /** last options handed to query(), so call shape is observable */
+    lastQueryOptions: null
   }
   return {
     state,
@@ -113,8 +115,24 @@ function makeVectorize(mode = 'ok') {
       if (mode === 'throw') throw new Error('Vectorize write outage')
       state.upserted.push(...vectors)
     },
-    async query() {
+    async query(_vector, options) {
       if (mode === 'throw') throw new Error('Vectorize query outage')
+      state.lastQueryOptions = options ?? null
+
+      // Enforce the real service's constraint instead of ignoring the options
+      // object. Production Vectorize rejects topK > 50 when metadata or values
+      // are requested (error 40025). Ignoring it here is exactly how a topK of
+      // 60 shipped and made every production semantic query fail — the suite
+      // stayed green because the double never looked at what it was sent.
+      if (
+        options &&
+        (options.returnMetadata === 'all' || options.returnValues === true) &&
+        options.topK > 50
+      ) {
+        throw new Error(
+          `Vectorize: max topK is 50 with returnMetadata=all, got ${options.topK}`
+        )
+      }
       return { matches: state.matches }
     },
     async deleteByIds(ids) {
@@ -385,6 +403,49 @@ check('happy path: returns the in-scope artifact', r.results.some((x) => x.artif
 check('happy path: EXCLUDES the out-of-scope vector', !r.results.some((x) => x.artifactId === 'art_other'))
 check('happy path: reason does NOT name the model', !/bge-base-en-v1\.5/.test(r.reason), r.reason)
 check('happy path: reason confirms semantic search ran', /semantic search ran/i.test(r.reason), r.reason)
+
+// ---------------------------------------------------------------
+// Vectorize topK ceiling (the bug that shipped to production)
+//
+// With returnMetadata:'all' Vectorize rejects topK > 50 (error 40025). At 60
+// every production semantic query threw, was swallowed by the catch inside
+// semanticQuery, and silently degraded to lexical-only — so semantic:true was
+// unreachable in production while this suite stayed green, because the old
+// double ignored the options object entirely.
+// ---------------------------------------------------------------
+section('Vectorize topK ceiling is respected')
+
+check(
+  `QUERY_TOP_K (${emb.QUERY_TOP_K}) is within Vectorize's metadata ceiling`,
+  emb.QUERY_TOP_K <= emb.MAX_TOP_K_WITH_METADATA,
+  `${emb.QUERY_TOP_K} > ${emb.MAX_TOP_K_WITH_METADATA}`
+)
+check(
+  'the double enforces the ceiling (so a regression here fails loudly)',
+  await (async () => {
+    try {
+      await makeVectorize().query([], { topK: 60, returnMetadata: 'all', returnValues: false })
+      return false // no throw => guard is not enforcing anything
+    } catch {
+      return true
+    }
+  })()
+)
+
+// The shape semanticQuery actually sends, at the largest page it can be asked
+// for. limit*4 is clamped to QUERY_TOP_K, so limit=100 must not exceed it.
+r = await semanticQuery({ VECTORIZE: vz, AI: makeAI() }, 'quarterly revenue', ['ws_1'], 100)
+check('a 100-result page does not exceed the metadata ceiling', r.ran === true, r.reason)
+check(
+  'query is sent with returnMetadata:all and a topK within the ceiling',
+  vz.state.lastQueryOptions?.returnMetadata === 'all' &&
+    vz.state.lastQueryOptions?.topK <= emb.MAX_TOP_K_WITH_METADATA,
+  JSON.stringify(vz.state.lastQueryOptions)
+)
+check(
+  'metadata is still requested (scope filtering depends on it)',
+  vz.state.lastQueryOptions?.returnMetadata === 'all'
+)
 
 // AI outage
 r = await semanticQuery({ VECTORIZE: makeVectorize(), AI: makeAI('throw') }, 'hello', ['ws_1'], 10)

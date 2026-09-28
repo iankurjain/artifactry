@@ -80,8 +80,29 @@ export const MAX_EMBED_INPUT_CHARS = 60_000
 /** Vectors per upsert call. Vectorize allows 1000; we stay well under it. */
 export const UPSERT_BATCH = 32
 
-/** Candidates pulled from Vectorize before ACL filtering. */
-export const QUERY_TOP_K = 60
+/**
+ * Candidates pulled from Vectorize before ACL filtering.
+ *
+ * **50 is a hard ceiling, not a tuning choice.** With `returnMetadata: 'all'`
+ * (or `returnValues: true`) Vectorize rejects a topK above 50 with error 40025.
+ * The metadata is not optional here: it carries the workspace id that
+ * `filterByScope` authorises on.
+ *
+ * `returnMetadata: 'indexed'` would permit 100, but it returns only the fields
+ * declared as metadata indexes at upsert time, and none are declared — scope
+ * filtering would then receive no workspaceId, fail closed, and silently return
+ * nothing for every query. Slightly less recall is the right trade against
+ * losing either the feature or the tenant filter.
+ *
+ * At 60 this made every production semantic query throw, get swallowed by the
+ * catch in `semanticQuery`, and degrade to lexical-only, so `semantic:true` was
+ * unreachable for real users. The unit double ignored the options object
+ * entirely, which is why the suite stayed green; it now enforces the same limit.
+ */
+export const QUERY_TOP_K = 50
+
+/** Highest topK Vectorize accepts when metadata or values are requested. */
+export const MAX_TOP_K_WITH_METADATA = 50
 
 /**
  * Per-artifact / per-chunk indexing state (PRD §94).
