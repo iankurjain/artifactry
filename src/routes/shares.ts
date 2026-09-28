@@ -306,6 +306,22 @@ shares.delete(
  * A grant cookie binds a short-lived session hash to a verified address.
  */
 async function verifiedEmailFor(c: { env: { DB: D1Database }; req: { header: (k: string) => string | undefined } }, share: ShareRow): Promise<string | null> {
+  const grant = await verifiedGrantFor(c as never, share)
+  return grant?.email ?? null
+}
+
+/**
+ * Resolve the visitor's proven email AND the grant row id behind it.
+ *
+ * The grant id matters for Interactive Preview: a preview token binds the grant
+ * rather than the email, so the preview origin can re-read the grant and inherit
+ * its expiry. Copying the address into the token instead would let a token
+ * outlive the recipient's verification.
+ */
+async function verifiedGrantFor(
+  c: { env: { DB: D1Database } },
+  share: ShareRow
+): Promise<{ email: string; grantId: string } | null> {
   const cookie = readShareGrantCookie(c as never)
   if (!cookie) return null
 
@@ -315,9 +331,9 @@ async function verifiedEmailFor(c: { env: { DB: D1Database }; req: { header: (k:
   if (shareId !== share.id) return null
 
   const sessionHash = await hashSessionToken(sessionToken)
-  const grant = await first<{ email_normalized: string; expires_at: string }>(
+  const grant = await first<{ id: string; email_normalized: string; expires_at: string }>(
     c.env.DB,
-    `SELECT email_normalized, expires_at FROM share_access_grants
+    `SELECT id, email_normalized, expires_at FROM share_access_grants
       WHERE share_id = ? AND session_hash = ?`,
     [share.id, sessionHash]
   )
@@ -329,7 +345,7 @@ async function verifiedEmailFor(c: { env: { DB: D1Database }; req: { header: (k:
     sessionHash
   ])
 
-  return grant.email_normalized
+  return { email: grant.email_normalized, grantId: grant.id }
 }
 
 /** Public metadata about a share — safe to show before verification. */
@@ -573,6 +589,22 @@ shares.get(
         view: {
           ...externalShareView(share, { kind: 'ARTIFACT', artifact }),
           contentUrl: `${origin}/api/v1/shares/${token}/content`,
+          /**
+           * How the recipient should render HTML: either a short-lived signed
+           * document URL on the isolated preview origin (Interactive), or a
+           * same-origin Safe Preview path. The token binds this share and the
+           * recipient grant, so it expires with the share and the verification
+           * and is re-checked on the preview origin.
+           */
+          preview:
+            artifact.mime_type === 'text/html'
+              ? await buildPreviewDescriptor(c.env.DB, c.env, artifact, {
+                  shareId: share.id,
+                  grantId: grant?.grantId ?? null,
+                  appOrigin: origin,
+                  shareToken: token
+                })
+              : null,
           expiresAt: share.expires_at
         }
       })
@@ -718,17 +750,20 @@ shares.get(
     )
     if (!version) throw notFound('Content unavailable')
 
-    const { getObject, previewCsp } = await import('../lib/storage')
+    const { getObject } = await import('../lib/storage')
     const object = await getObject(c.env, version.r2_object_key)
     if (!object) throw notFound('Content unavailable')
 
     const html = await object.text()
-    const nonce = ulid().replace(/[^A-Za-z0-9]/g, '').slice(0, 16)
 
+    // Safe Preview, unconditionally: this route is served from the application
+    // origin, so uploaded JavaScript must never execute here. Interactive
+    // artifacts are rendered on the isolated preview origin instead — see
+    // /p/:token in routes/preview.ts and previewDocumentHeaders().
     return new Response(html, {
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
-        'Content-Security-Policy': previewCsp(nonce),
+        'Content-Security-Policy': previewCspFor('SAFE', "'self'"),
         'Cache-Control': 'private, no-store, max-age=0',
         'X-Content-Type-Options': 'nosniff',
         'Referrer-Policy': 'no-referrer'

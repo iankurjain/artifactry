@@ -34,7 +34,14 @@ import { artifactAccess, assertArtifactPermission, mayReadAnalytics, workspaceRe
 import { indexStateFor, isSemanticConfigured } from '../lib/embeddings'
 import { reprocessVersion } from '../lib/reprocess'
 import { assertWorkspaceAccess, effectiveWorkspaceRole } from '../lib/principal'
-import { getObject, buildDeliveryHeaders, previewCsp } from '../lib/storage'
+import { getObject, buildDeliveryHeaders } from '../lib/storage'
+import {
+  interactiveAvailable,
+  previewCspFor,
+  previewSandbox,
+  resolvePreviewMode
+} from '../lib/htmlpreview'
+import { buildPreviewDescriptor } from '../lib/preview'
 import {
   artifactTotals,
   sourceBreakdown,
@@ -82,6 +89,12 @@ function presentArtifact(
     currentVersionId: row.current_version_id,
     versionCount: row.version_count,
     canonicalSlug: row.canonical_slug,
+    /**
+     * HTML rendering mode. Always exposed, and always as a boolean, so a client
+     * never has to know about the INTEGER storage form — and so the default is
+     * legible at the API boundary: absent row value reads as `false` (OFF).
+     */
+    interactiveHtml: Number(row.interactive_html ?? 0) === 1,
     metadata: safeParse(row.metadata_json),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -403,6 +416,17 @@ artifacts.get(
 
     const origin = new URL(c.req.url).origin
 
+    /**
+     * How this artifact's HTML may be rendered. Returned for every artifact so
+     * the client never has to guess a mode or construct a preview URL itself:
+     * when an isolated preview origin is provisioned this carries a
+     * short-lived signed `url` on that origin, and `fallbackUrl` is null.
+     */
+    const preview =
+      access.artifact.mime_type === 'text/html'
+        ? await buildPreviewDescriptor(c.env.DB, c.env, access.artifact, { appOrigin: origin })
+        : null
+
     return ok(c, {
       artifact: presentArtifact(access.artifact as unknown as Record<string, unknown>, {
         tags,
@@ -410,6 +434,7 @@ artifacts.get(
         isOwner: access.isOwner,
         canDownload: access.allowDownload,
         canWrite: access.allowWrite,
+        preview,
         workspace: workspace ? { name: workspace.name, type: workspace.workspace_type } : null
       }),
       versions: versions.map((v) => ({
@@ -605,6 +630,17 @@ artifacts.get(
 
 // ---------------------------------------------------------------
 // Sandboxed HTML preview (§67, §68)
+//
+// This route serves from the APPLICATION origin and therefore renders in Safe
+// Preview, unconditionally. That is the whole point of the mode split: uploaded
+// JavaScript never executes on the origin that holds the session cookie, so a
+// request here can never be upgraded to script execution no matter what the
+// artifact's Interactive HTML setting says.
+//
+// When an isolated preview origin is provisioned, Interactive artifacts get a
+// signed document URL on that origin from GET /:artifactId instead. This route
+// remains as the Safe-mode renderer and as the fallback for deployments with no
+// isolated origin configured.
 // ---------------------------------------------------------------
 
 artifacts.get(
@@ -627,21 +663,27 @@ artifacts.get(
     if (!object) throw notFound('Artifact content is unavailable')
 
     const html = await object.text()
-    const nonce = ulid().replace(/[^A-Za-z0-9]/g, '').slice(0, 16)
 
     /**
-     * The document is served with a strict CSP and is intended to be embedded
-     * in a sandboxed iframe without allow-same-origin, giving it an opaque
-     * origin: it cannot read parent cookies, reach app APIs, or touch storage.
+     * Always Safe Preview here: `script-src 'none'` plus an empty sandbox. The
+     * bytes are the artifact as uploaded — HTML and CSS still render, because
+     * inline styles are permitted — but nothing executes. The resolved mode is
+     * attached for observability only; it never relaxes this response.
      */
+    const resolved = resolvePreviewMode(access.artifact, c.env)
+
     const headers: Record<string, string> = {
       'Content-Type': 'text/html; charset=utf-8',
-      'Content-Security-Policy': previewCsp(nonce),
+      'Content-Security-Policy': previewCspFor('SAFE', "'self'"),
       'Cache-Control': 'private, no-store, max-age=0',
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer',
-      // Allowed to be framed by the app shell, but nothing else
-      'Content-Security-Policy-Frame-Ancestors': "'self'"
+      // Allowed to be framed by the app shell, but nothing else.
+      'Content-Security-Policy-Frame-Ancestors': "'self'",
+      // Reported so an operator can see, without reading the database, which
+      // artifacts are interactive and where their preview is actually served.
+      'X-Artifact-Preview-Mode': resolved.mode,
+      'X-Artifact-Preview-Sandbox': previewSandbox('SAFE')
     }
 
     await recordEvent(c.env.DB, {
@@ -657,6 +699,109 @@ artifacts.get(
     })
 
     return new Response(html, { headers })
+  })
+)
+
+// ---------------------------------------------------------------
+// Interactive HTML setting (owner-governed)
+//
+// The ONLY way to turn script execution on for an artifact. Owner-only, audited,
+// and re-validated against the deployment's preview configuration on every
+// read, so a flag that cannot be honoured safely is reported as OFF rather than
+// silently served as Interactive.
+// ---------------------------------------------------------------
+
+artifacts.get(
+  '/:artifactId/preview-settings',
+  guarded(async (c) => {
+    const principal = requirePrincipal(c)
+    const artifactId = c.req.param('artifactId')
+
+    const access = await artifactAccess(c.env.DB, principal, artifactId)
+    const resolved = resolvePreviewMode(access.artifact, c.env)
+
+    return ok(c, {
+      // The persisted flag (what the owner asked for).
+      interactiveHtml: Number(access.artifact.interactive_html ?? 0) === 1,
+      // The mode that will actually be used, after availability is considered.
+      effectiveMode: resolved.mode,
+      requested: resolved.requested,
+      /** True when the owner asked for Interactive but it cannot be served. */
+      unavailable: resolved.requested && resolved.mode !== 'INTERACTIVE',
+      reason: resolved.reason,
+      /** Whether this deployment can serve Interactive Preview at all. */
+      interactiveAvailable: interactiveAvailable(c.env),
+      isOwner: access.isOwner,
+      eligible: access.artifact.mime_type === 'text/html',
+      warning:
+        'Interactive HTML runs the uploaded JavaScript. It executes only inside an isolated, credential-free sandbox on a separate origin, with no access to your session, this library, or site data — but scripts in the file will run. Enable it only for artifacts you trust. Use Safe Preview if you are unsure.'
+    })
+  })
+)
+
+artifacts.put(
+  '/:artifactId/preview-settings',
+  rateLimit({ bucket: 'artifact:preview-mode', limit: 60, windowSeconds: 300 }),
+  guarded(async (c) => {
+    const principal = requirePrincipal(c)
+    const artifactId = c.req.param('artifactId')
+
+    const artifact = await assertArtifactPermission(
+      c.env.DB,
+      principal,
+      artifactId,
+      'artifact.update'
+    )
+
+    if (artifact.mime_type !== 'text/html') {
+      throw unsupported('Interactive HTML applies to HTML artifacts only')
+    }
+
+    const body = await readJson<{ interactiveHtml?: unknown }>(c)
+    if (typeof body.interactiveHtml !== 'boolean') {
+      throw badRequest('Provide "interactiveHtml" as true or false')
+    }
+
+    const next = body.interactiveHtml ? 1 : 0
+    const previous = Number(artifact.interactive_html ?? 0) === 1
+
+    if (next !== (previous ? 1 : 0)) {
+      await run(c.env.DB, `UPDATE artifacts SET interactive_html = ?, updated_at = ? WHERE id = ?`, [
+        next,
+        nowIso(),
+        artifactId
+      ])
+
+      await recordAudit(c.env.DB, {
+        organizationId: artifact.organization_id,
+        workspaceId: artifact.workspace_id,
+        actorUserId: principal.userId,
+        actorType: principal.kind === 'AI_GRANT' ? 'AI' : 'USER',
+        action: 'ARTIFACT_PREVIEW_MODE',
+        targetType: 'artifact',
+        targetId: artifactId,
+        metadata: {
+          interactiveHtml: next === 1,
+          previousInteractiveHtml: previous,
+          versionId: artifact.current_version_id,
+          // Recorded so the trail shows the setting was honoured (or not) at
+          // the moment it changed, not merely what was requested.
+          effectiveMode: resolvePreviewMode({ interactive_html: next }, c.env).mode
+        }
+      })
+    }
+
+    const updated = await loadArtifact(c.env.DB, artifactId)
+    const resolved = resolvePreviewMode(updated ?? artifact, c.env)
+
+    return ok(c, {
+      interactiveHtml: Number(updated?.interactive_html ?? 0) === 1,
+      effectiveMode: resolved.mode,
+      requested: resolved.requested,
+      unavailable: resolved.requested && resolved.mode !== 'INTERACTIVE',
+      reason: resolved.reason,
+      changed: next !== (previous ? 1 : 0)
+    })
   })
 )
 

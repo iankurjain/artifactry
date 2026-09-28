@@ -3,17 +3,19 @@
  *
  * Route order matters and is deliberate:
  *   1. security headers on everything
- *   2. principal resolution once per request
- *   3. JSON API surface under /api/v1
- *   4. the external recipient surface under /s/:token
- *   5. the /a/:id canonical artifact URL
- *   6. the SPA shell for everything else
+ *   2. surface gate: keep the app origin and the isolated preview origin disjoint
+ *   3. principal resolution once per request
+ *   4. the isolated preview document surface (/p/:token)
+ *   5. JSON API surface under /api/v1
+ *   6. the external recipient surface under /s/:token
+ *   7. the /a/:id canonical artifact URL
+ *   8. the SPA shell for everything else
  */
 
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import type { AppEnv } from './middleware'
-import { securityHeaders, withPrincipal, guarded } from './middleware'
+import { securityHeaders, withPrincipal, previewSurfaceGate, guarded } from './middleware'
 import { ok, fail, HttpError, notFound } from './lib/http'
 
 import authRoutes from './routes/auth'
@@ -23,6 +25,7 @@ import shareRoutes from './routes/shares'
 import taxonomyRoutes from './routes/taxonomy'
 import workspaceRoutes from './routes/workspaces'
 import integrationRoutes from './routes/integrations'
+import previewRoutes from './routes/preview'
 
 import { renderShell } from './renderer'
 import { first } from './lib/db'
@@ -33,6 +36,8 @@ import {
   shareEffectiveStatus
 } from './lib/sharing'
 import { loadArtifact } from './lib/artifacts'
+import { buildPreviewDescriptor } from './lib/preview'
+import { previewOrigin, previewSandbox } from './lib/htmlpreview'
 import { verifiedEmailFor } from './routes/shares'
 import { recordEvent } from './lib/analytics'
 
@@ -43,6 +48,9 @@ const app = new Hono<AppEnv>()
 // ---------------------------------------------------------------
 
 app.use('*', securityHeaders)
+// After securityHeaders so a gated 404 still carries them, before withPrincipal
+// so the preview origin never resolves a session.
+app.use('*', previewSurfaceGate)
 app.use('*', withPrincipal)
 
 // The API is same-origin only. CORS is opened narrowly so an AI connector or
@@ -69,6 +77,15 @@ app.get('/api/health', (c) =>
     time: new Date().toISOString()
   })
 )
+
+// ---------------------------------------------------------------
+// Isolated preview origin (§67, §68)
+//
+// Only reachable on the configured preview origin — previewSurfaceGate serves
+// the /p/ prefix exclusively there and 404s it everywhere else.
+// ---------------------------------------------------------------
+
+app.route('/', previewRoutes)
 
 // ---------------------------------------------------------------
 // API surface

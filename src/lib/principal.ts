@@ -149,8 +149,7 @@ async function resolveAiGrant(db: D1Database, rawToken: string): Promise<Princip
   }
 }
 
-async function loadRoles(db: D1Database, userId: string) {
-  const orgRows = await all<{ organization_id: string; role: OrgRole }>(
+async function loadRoles(db: D1Database, userId: string) {  const orgRows = await all<{ organization_id: string; role: OrgRole }>(
     db,
     `SELECT organization_id, role FROM organization_members
       WHERE user_id = ? AND status = 'ACTIVE'`,

@@ -19,6 +19,23 @@ export interface Env {
   EMAIL_API_KEY?: string
   EMAIL_FROM?: string
   DEV_LOGIN_MODE?: string
+
+  // Interactive HTML preview on an isolated origin.
+  //
+  // PREVIEW_ORIGIN is the origin that serves script-executing HTML artifacts,
+  // e.g. https://preview.artifactry.app. It must be a DIFFERENT hostname from
+  // the application: cookies here are host-only, and localStorage is
+  // per-origin, so a distinct host is what actually isolates an artifact.
+  //
+  // PREVIEW_TOKEN_SECRET signs the short-lived access tokens that origin
+  // accepts. It is a secret (wrangler secret / .dev.vars), never a committed
+  // var.
+  //
+  // BOTH are required before Interactive Preview can serve. If either is
+  // missing the mode degrades to Safe Preview (JavaScript disabled) rather
+  // than serving executing HTML unauthenticated — see lib/htmlpreview.ts.
+  PREVIEW_ORIGIN?: string
+  PREVIEW_TOKEN_SECRET?: string
 }
 
 // ---------------------------------------------------------------
@@ -175,6 +192,15 @@ export interface ArtifactRow {
   status: ArtifactStatus
   status_detail: string | null
   metadata_json: string
+  /**
+   * HTML rendering mode — migration 0005.
+   *   0 (default) — Safe Preview: HTML + CSS render, JavaScript never executes.
+   *   1           — Interactive Preview: JavaScript executes, but only on the
+   *                 isolated preview origin.
+   * Default 0 is a security posture, not a preference; only an explicit,
+   * audited owner action sets it to 1.
+   */
+  interactive_html?: number
   created_at: string
   updated_at: string
   deleted_at: string | null

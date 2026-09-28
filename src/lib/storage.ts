@@ -106,27 +106,13 @@ export function buildDeliveryHeaders(opts: {
   return headers
 }
 
-/**
- * CSP applied to the sandboxed HTML preview (PRD §68).
- *
- * The preview runs in an iframe with `sandbox="allow-scripts"` and *without*
- * `allow-same-origin`, so the frame has an opaque origin: it cannot read
- * parent cookies, call app-authenticated APIs, or touch app storage — the
- * practical equivalent of the separate preview origin the PRD asks for.
- */
-export function previewCsp(nonce: string): string {
-  return [
-    "default-src 'none'",
-    `script-src 'nonce-${nonce}' 'unsafe-inline'`,
-    "style-src 'unsafe-inline'",
-    "img-src data: blob:",
-    "font-src data:",
-    "media-src 'none'",
-    "connect-src 'none'",
-    "frame-src 'none'",
-    "object-src 'none'",
-    "base-uri 'none'",
-    "form-action 'none'",
-    "frame-ancestors 'self'"
-  ].join('; ')
-}
+// NOTE: the CSP applied to an HTML preview now lives in lib/htmlpreview.ts
+// (safePreviewCsp / interactivePreviewCsp / previewDocumentCsp).
+//
+// The previous helper here built a `nonce-…` policy. It was removed on purpose:
+// the nonce was never injected into the uploaded document, and because a nonce
+// causes browsers to ignore `'unsafe-inline'`, the policy's stated intent
+// ("inline scripts allowed") disagreed with its behaviour. The replacement
+// states `script-src 'none'` for Safe Preview, which is unambiguous, and moves
+// script-executing HTML to its own origin rather than trying to express safety
+// through an allow-list over untrusted inline script.

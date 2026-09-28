@@ -1,16 +1,22 @@
 /**
- * Cross-cutting middleware: security headers, principal resolution, rate
- * limiting and cache policy.
+ * Cross-cutting middleware: security headers, surface gating, principal
+ * resolution, rate limiting and cache policy.
  *
  * Note on caching: every response under /api carries `no-store` because
  * responses are authorization-scoped. A shared cache holding one user's
  * artifact list and serving it to another would be a cross-tenant leak
  * (PRD §64) — so caching is disabled rather than carefully keyed.
+ *
+ * Note on surfaces: one deployment answers on two origins. The application
+ * origin serves the app; the isolated preview origin serves only HTML preview
+ * documents. `previewSurfaceGate` keeps those disjoint, so an artifact document
+ * can never be requested from the application origin.
  */
 
 import type { Context, MiddlewareHandler, Next } from 'hono'
 import type { Env, Principal } from './types'
 import { resolvePrincipal, EMPTY_PRINCIPAL } from './lib/principal'
+import { classifyRequest } from './lib/htmlpreview'
 import { fail, HttpError, unauthorized } from './lib/http'
 
 export type AppEnv = {
@@ -18,8 +24,50 @@ export type AppEnv = {
   Variables: { principal: Principal }
 }
 
+/**
+ * Keep the two origins disjoint.
+ *
+ * The isolated origin exists so that script-executing HTML never shares an
+ * origin with the application. Page routes are compiled into one Worker and
+ * both hostnames reach it, so the separation has to be enforced here rather
+ * than by DNS alone:
+ *
+ *   * on the preview origin, only /p/* (and a liveness probe) exist — no app
+ *     shell, no API, no auth surface, so there is nothing there to abuse;
+ *   * on the application origin, /p/* does not exist at all, so a preview
+ *     document cannot be fetched from the origin that holds the session cookie.
+ *
+ * With no PREVIEW_ORIGIN configured, `classifyRequest` reports 'APP' for every
+ * request and /p/* is uniformly 404 — the isolated surface simply is not there.
+ */
+export const previewSurfaceGate: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const surface = classifyRequest(c.env, c.req.url, c.req.header('Host'))
+
+  if (surface === 'PREVIEW') {
+    if (c.req.path.startsWith('/p/') || c.req.path === '/api/health') {
+      await next()
+      return
+    }
+    return c.notFound()
+  }
+
+  if (c.req.path.startsWith('/p/')) return c.notFound()
+
+  await next()
+}
+
 /** Resolve the caller once per request and expose it as c.get('principal'). */
 export const withPrincipal: MiddlewareHandler<AppEnv> = async (c, next) => {
+  // The preview origin has no credentials by construction: cookies are
+  // host-only, so none are sent. Skip resolution entirely rather than run it
+  // and rely on that — it makes the isolation explicit and keeps any future
+  // credential-accepting change from silently applying there.
+  if (classifyRequest(c.env, c.req.url, c.req.header('Host')) === 'PREVIEW') {
+    c.set('principal', EMPTY_PRINCIPAL)
+    await next()
+    return
+  }
+
   let principal: Principal = EMPTY_PRINCIPAL
   try {
     principal = await resolvePrincipal(c)
@@ -40,14 +88,38 @@ export const securityHeaders: MiddlewareHandler<AppEnv> = async (c, next) => {
   await next()
 
   const headers = c.res.headers
+  const surface = classifyRequest(c.env, c.req.url, c.req.header('Host'))
+
   headers.set('X-Content-Type-Options', 'nosniff')
 
-  // HTML previews are framed by our own pages inside an opaque-origin sandbox
-  // iframe, so they must remain frameable *by us*. `DENY` blocks framing even
+  if (surface === 'PREVIEW') {
+    // The preview document MUST be frameable by the application origin; that is
+    // its only reason to exist. Framing is narrowed by the document's own
+    // `frame-ancestors`, which travels with the bytes and is checked per
+    // request, so no X-Frame-Options is set here — the one value that would
+    // allow a single cross-origin framer (ALLOW-FROM) is obsolete and ignored
+    // by current browsers, so setting it could only break the legitimate case.
+    headers.set('Referrer-Policy', 'no-referrer')
+    headers.set(
+      'Permissions-Policy',
+      'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()'
+    )
+    headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+    headers.set('X-Robots-Tag', 'noindex, nofollow')
+    headers.set('Cache-Control', 'private, no-store, max-age=0')
+    return
+  }
+
+  // HTML previews are framed by our own pages inside a sandboxed iframe, so
+  // they must remain frameable *by us*. `DENY` blocks framing even
   // same-origin, which is why the artifact preview could not render. SAMEORIGIN
   // narrows framing to our own documents only — combined with the sandbox
-  // attribute (no allow-same-origin) and previewCsp() the artifact still never
-  // runs on the application origin.
+  // attribute (no allow-same-origin) and the document CSP the artifact still
+  // never runs on the application origin.
+  //
+  // This branch now only applies to the fallback path where no isolated preview
+  // origin is configured; when one is, the document is served from there and
+  // this middleware never sees it.
   const isPreviewDocument = /\/preview$/.test(c.req.path)
   headers.set('X-Frame-Options', isPreviewDocument ? 'SAMEORIGIN' : 'DENY')
   headers.set('Referrer-Policy', 'no-referrer')
