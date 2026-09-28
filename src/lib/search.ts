@@ -508,9 +508,14 @@ export async function indexArtifact(db: D1Database, artifactId: string): Promise
       )
     : null
 
+  // ACTIVE tags only, matching loadTagsFor() (what renders on a hit) and the
+  // search facets (what the filter list offers). Denormalising an INACTIVE tag
+  // name here would make an artifact findable by a tag the UI no longer shows
+  // and no longer lets you filter by.
   const tagNames = await all<{ name: string }>(
     db,
-    `SELECT t.name FROM artifact_tags at JOIN tags t ON t.id = at.tag_id WHERE at.artifact_id = ?`,
+    `SELECT t.name FROM artifact_tags at JOIN tags t ON t.id = at.tag_id
+      WHERE at.artifact_id = ? AND t.status = 'ACTIVE'`,
     [artifactId]
   )
 
