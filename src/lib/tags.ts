@@ -26,6 +26,7 @@ import { prefixed, slugify, ulid } from './ids'
 import { badRequest, forbidden } from './http'
 import { recordAudit } from './audit'
 import { filterSuggestions, blockReason, suggestTags, MAX_TAGS } from './autotag'
+import type { SuggestStatus } from './autotag'
 
 export interface ArtifactTagView {
   tag_id: string
@@ -580,6 +581,17 @@ export interface AutoTagOutcome {
   skipped: string[]
   source: 'AI' | 'metadata' | 'unavailable'
   reason: string
+  /**
+   * The suggester's status, carried through so a model outage is visible in the
+   * API response instead of looking like an artifact with nothing to tag.
+   */
+  status: SuggestStatus
+  /** Provider message when tagging failed, for diagnostics. */
+  error?: string
+  /** True when the failure names a retired model. */
+  deprecatedModel?: boolean
+  /** The model that was used (or would have been used). */
+  model?: string
 }
 
 /**
@@ -622,7 +634,8 @@ export async function autoTagArtifact(
       proposed: [],
       skipped: [],
       source: 'unavailable',
-      reason: 'Artifact not found.'
+      reason: 'Artifact not found.',
+      status: 'NOT_FOUND'
     }
   }
 
@@ -652,8 +665,15 @@ export async function autoTagArtifact(
   const { kept } = filterSuggestions(outcome.suggestions.map((s) => s.name))
   const source: AutoTagOutcome['source'] = outcome.ran ? 'AI' : kept.length ? 'metadata' : 'unavailable'
 
+  const diagnostics = {
+    status: outcome.status,
+    ...(outcome.error ? { error: outcome.error } : {}),
+    ...(outcome.deprecatedModel ? { deprecatedModel: true } : {}),
+    ...(outcome.model ? { model: outcome.model } : {})
+  }
+
   if (!kept.length) {
-    return { created: [], proposed: [], skipped: [], source, reason: outcome.note }
+    return { created: [], proposed: [], skipped: [], source, reason: outcome.note, ...diagnostics }
   }
 
   const proposed: string[] = []
@@ -693,7 +713,7 @@ export async function autoTagArtifact(
     }).catch(() => {})
   }
 
-  return { created, proposed, skipped, source, reason: outcome.note }
+  return { created, proposed, skipped, source, reason: outcome.note, ...diagnostics }
 }
 
 export function tagView(row: ArtifactTagView) {

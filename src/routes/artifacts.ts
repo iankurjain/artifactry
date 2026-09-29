@@ -66,6 +66,33 @@ import { autoTagArtifact, decideTags, tagsByState } from '../lib/tags'
 
 const artifacts = new Hono<AppEnv>()
 
+/**
+ * The tagging block attached to upload / version / reprocess responses.
+ *
+ * `status` is the important new field. Previously a caller could only see
+ * `source` and a free-text `reason`, so a retired model produced the same
+ * response shape as a document that genuinely had nothing to tag. Exposing the
+ * status (and, on failure, the provider message) makes a broken model visible in
+ * the API rather than only in logs.
+ */
+function taggingReport(outcome: {
+  source: string
+  reason: string
+  status?: string
+  error?: string
+  deprecatedModel?: boolean
+  model?: string
+}) {
+  return {
+    source: outcome.source,
+    reason: outcome.reason,
+    ...(outcome.status ? { status: outcome.status } : {}),
+    ...(outcome.model ? { model: outcome.model } : {}),
+    ...(outcome.error ? { error: outcome.error } : {}),
+    ...(outcome.deprecatedModel ? { deprecatedModel: true } : {})
+  }
+}
+
 /** Normalise an artifact row for API responses (never leaks object keys). */
 function presentArtifact(
   row: Record<string, unknown>,
@@ -307,7 +334,7 @@ artifacts.post(
         workspace: { id: workspace.id, name: workspace.name },
         tags: tagState,
         suggestedTags: suggestions.created,
-        tagging: { source: suggestions.source, reason: suggestions.reason },
+        tagging: taggingReport(suggestions),
         ...(tagWarning ? { tagWarning } : {})
       },
       status
@@ -986,7 +1013,7 @@ artifacts.post(
         versionCount: versions.length,
         tags: tagState,
         suggestedTags: suggestions.created,
-        tagging: { source: suggestions.source, reason: suggestions.reason }
+        tagging: taggingReport(suggestions)
       },
       result.status === 'READY' ? 201 : 200
     )
@@ -1219,7 +1246,7 @@ artifacts.post(
       ...outcome,
       tags: tagState,
       suggestedTags: suggestions.created,
-      tagging: { source: suggestions.source, reason: suggestions.reason }
+      tagging: taggingReport(suggestions)
     })
   })
 )

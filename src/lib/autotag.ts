@@ -20,13 +20,42 @@
  */
 
 import type { Env } from '../types'
-import { all } from './db'
 
 /**
  * Text model used for suggestion. Small and fast because this runs inline on
  * the upload path — a slow tagger would delay the artifact from becoming READY.
+ *
+ * `@cf/meta/llama-3.1-8b-instruct` was deprecated on 2026-05-30 and now fails
+ * at runtime (Workers AI error 5028), which silently disabled content-derived
+ * tagging. Llama 3.2 3B is the current generation of the same small instruct
+ * family and is listed as active in the catalog.
+ *
+ * This constant is checked against `DEPRECATED_TAGGING_MODELS` by the
+ * regression test, so a future deprecation fails the gate instead of quietly
+ * turning tagging off in production.
  */
-export const TAGGING_MODEL = '@cf/meta/llama-3.1-8b-instruct'
+export const TAGGING_MODEL = '@cf/meta/llama-3.2-3b-instruct'
+
+/**
+ * Models that have been retired by Workers AI and must not be selected here.
+ *
+ * Kept as data rather than a comment so `scripts/test-autotag.mjs` can assert
+ * the configured model is not in it: the failure mode being guarded against is
+ * not an exception, it is tagging quietly returning nothing.
+ */
+export const DEPRECATED_TAGGING_MODELS = new Set([
+  '@cf/meta/llama-3.1-8b-instruct',
+  '@cf/meta/llama-3.1-8b-instruct-awq',
+  '@cf/meta/llama-3.1-8b-instruct-fast',
+  '@cf/meta/llama-3.1-70b-instruct',
+  '@cf/meta/llama-3-8b-instruct',
+  '@cf/meta/llama-3-8b-instruct-awq',
+  '@cf/meta/llama-2-7b-chat-int8',
+  '@cf/meta/llama-2-7b-chat-fp16',
+  '@cf/mistral/mistral-7b-instruct-v0.1',
+  '@cf/google/gemma-3-12b-it',
+  '@cf/facebook/bart-large-cnn'
+])
 
 export const MIN_TAGS = 3
 export const MAX_TAGS = 7
@@ -71,12 +100,50 @@ export interface TagSuggestion {
   reason: string
 }
 
+/**
+ * Why suggestion did or did not produce content-derived tags.
+ *
+ * This exists so a broken model is *visible*. The original failure mode was
+ * silent: a deprecated model threw, the catch returned an empty list, and the
+ * upload response merely showed no tags — indistinguishable from "this
+ * document legitimately had nothing to tag". A caller (and an operator reading
+ * a log) can now tell `MODEL_ERROR` apart from `NO_TEXT`.
+ */
+export type SuggestStatus =
+  | 'OK'
+  | 'NO_BINDING'
+  | 'NO_TEXT'
+  | 'NOT_FOUND'
+  | 'SKIPPED'
+  | 'MODEL_ERROR'
+  | 'EMPTY_OUTPUT'
+
 export interface SuggestOutcome {
   suggestions: TagSuggestion[]
   /** Explicit, honest statement of what happened. */
   note: string
   ran: boolean
+  status: SuggestStatus
+  /** Present when `status` is `MODEL_ERROR`: the provider's message. */
+  error?: string
+  /** True when the error names a retired model, so the cause is unambiguous. */
+  deprecatedModel?: boolean
   model?: string
+}
+
+/**
+ * Recognize a model-retirement failure.
+ *
+ * Workers AI answers a retired model with error 5028 and the word
+ * "deprecated"; other shapes mention "no such model" or a 404. Matching text is
+ * unavoidable here because the binding surfaces the provider's prose, but the
+ * point is only to label the failure for an operator — the status is already
+ * `MODEL_ERROR` either way, so a mismatch degrades to a less specific message
+ * rather than to a missed failure.
+ */
+export function isDeprecatedModelError(err: unknown): boolean {
+  const text = String((err as { message?: string })?.message ?? err ?? '')
+  return /deprecat|5028|no such model|model not found|does not exist/i.test(text)
 }
 
 /** Normalize for comparison: lowercase, strip punctuation, collapse spaces. */
@@ -252,7 +319,8 @@ export async function suggestTags(
       note: meta.kept.length
         ? 'Suggested from title and workspace only — content-based tagging needs the AI binding.'
         : 'No AI binding is configured, so no content-based suggestions were generated.',
-      ran: false
+      ran: false,
+      status: 'NO_BINDING'
     }
   }
 
@@ -269,7 +337,8 @@ export async function suggestTags(
       note: meta.kept.length
         ? 'No text layer was recoverable, so tags were suggested from title and workspace only.'
         : 'No text layer was recoverable, so no tags could be suggested.',
-      ran: false
+      ran: false,
+      status: 'NO_TEXT'
     }
   }
 
@@ -302,11 +371,15 @@ export async function suggestTags(
     })) as unknown
 
     const text = extractModelText(response)
-    if (!text) {
+    // Whitespace-only counts as no output: a model that answers with spaces has
+    // not succeeded, and reporting it as a normal run is the same silent
+    // failure this status exists to prevent.
+    if (!text || !text.trim()) {
       return {
         suggestions: [],
         note: 'The tagging model returned no usable output; no tags were suggested.',
         ran: true,
+        status: 'EMPTY_OUTPUT',
         model: TAGGING_MODEL
       }
     }
@@ -321,6 +394,7 @@ export async function suggestTags(
           `were offered but not treated as a complete set.` +
           (dropped.length ? ` Filtered out: ${dropped.join(', ')}.` : ''),
         ran: true,
+        status: 'OK',
         model: TAGGING_MODEL
       }
     }
@@ -331,14 +405,26 @@ export async function suggestTags(
         ? `Suggested from document content. ${dropped.length} generic or sensitive candidate(s) were dropped.`
         : 'Suggested from document content.',
       ran: true,
+      status: 'OK',
       model: TAGGING_MODEL
     }
   } catch (err) {
-    // Never fatal: an artifact is not less valid because tagging failed.
+    // Never fatal: an artifact is not less valid because tagging failed. But it
+    // IS reported: `status: 'MODEL_ERROR'` plus the provider message makes a
+    // broken or retired model visible, instead of the empty list it used to
+    // return silently.
+    const deprecated = isDeprecatedModelError(err)
+    const detail = String((err as { message?: string })?.message ?? err).slice(0, 160)
     return {
       suggestions: [],
-      note: `Auto-tagging was unavailable (${String(err).slice(0, 120)}), so no tags were suggested.`,
+      note: deprecated
+        ? `Auto-tagging failed because the configured model (${TAGGING_MODEL}) is no longer available. ` +
+          `Content-derived tags are disabled until TAGGING_MODEL is updated. (${detail})`
+        : `Auto-tagging was unavailable (${detail}), so no tags were suggested.`,
       ran: false,
+      status: 'MODEL_ERROR',
+      error: detail,
+      deprecatedModel: deprecated,
       model: TAGGING_MODEL
     }
   }

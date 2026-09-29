@@ -54,16 +54,14 @@
     "APP_NAME": "Artifact Library",
     // Sender identity for transactional email (Resend).
     //
-    // Resend refuses to send from a domain that is not verified on the
-    // account. This account currently has NO verified domain, so the code's
-    // built-in fallback (noreply@artifactlibrary.dev) would be rejected with
-    // 403 and every sign-in would fail. The shared test sender below is the
-    // only identity this account can currently send as.
+    // artifactry.app is verified on the Resend account with sending enabled
+    // (DKIM at resend._domainkey, SPF via the rsend/send CNAMEs), so the
+    // library sends as no-reply@artifactry.app. Sign-in codes therefore reach
+    // any recipient, not only the address that owns the Resend account.
     //
-    // LIMITATION: with the test sender, Resend delivers only to the address
-    // that owns the Resend account (ajsignup51@gmail.com). Replace this with
-    // an address on a verified domain to open delivery to all recipients.
-    "EMAIL_FROM": "Artifact Library <onboarding@resend.dev>",
+    // Changing this line requires a redeploy: EMAIL_FROM is a build-time var,
+    // not a runtime secret.
+    "EMAIL_FROM": "Artifact Library <no-reply@artifactry.app>",
     // Server-side enforced upload ceilings (PRD §9). Worker-proxied uploads,
     // so this is bounded by the Workers request body limit.
     "MAX_UPLOAD_BYTES": "26214400",

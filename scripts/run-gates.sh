@@ -18,7 +18,7 @@ if ! flock -n 9; then
   exit 3
 fi
 
-ALL=(build check-imports check-undefined test-preview test-preview-security test-preview-ui test-authz test-index-sync test-semantic test-extract test-mcp-jobs)
+ALL=(build check-imports check-undefined test-preview test-preview-security test-preview-ui test-authz test-index-sync test-semantic test-extract test-autotag test-mcp-jobs)
 GATES=("$@")
 [ ${#GATES[@]} -eq 0 ] && GATES=("${ALL[@]}")
 
@@ -42,6 +42,10 @@ run_gate() {
     test-index-sync)       node scripts/test-index-sync.mjs ;;
     test-semantic)         node scripts/test-semantic.mjs ;;
     test-extract)          node scripts/test-extract.mjs ;;
+    # Headless: the tagging suggester is pure, so this needs no browser and no
+    # database. It also checks the configured model against the live Workers AI
+    # catalog, which is what catches a deprecation before production does.
+    test-autotag)          node scripts/test-autotag.mjs ;;
     # Headless: real service modules against a real SQLite built from the actual
     # migration files. No browser, so it needs no probe account and does not
     # contend with the serialised browser suites for one-time codes.
