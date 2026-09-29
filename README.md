@@ -15,11 +15,15 @@ no filesystem.
 
 | | |
 |---|---|
-| **Production (Cloudflare Pages)** | https://artifact-library.pages.dev — live (BYOK, user's own account) |
+| **Application (Cloudflare Pages)** | https://artifact-library.pages.dev — live (BYOK, user's own account) |
+| **Application custom domain** | `artifactry.app` — custom domain added to `artifact-library`; **pending DNS** (see *Outstanding setup*) |
+| **Isolated preview surface** | https://artifactry-preview.pages.dev — a **separate** Pages project that serves no app shell |
+| **Preview custom domain** | `preview.artifactry.app` — custom domain added to `artifactry-preview`; **pending DNS** |
 | **Canonical artifact URL** | `/a/:artifactId` — permanent identity, survives renames, re-versioning and moves |
 | **Share link** | `/s/:token` — external recipient surface |
-| **Shared HTML viewer** | `/s/:token/artifact/:artifactId` — renders HTML shares as a page in a secure sandbox |
-| **Health** | `/api/health` |
+| **Shared HTML viewer** | `/s/:token/artifact/:artifactId` — renders HTML shares as a page, not source |
+| **Preview document (internal)** | `<PREVIEW_ORIGIN>/p/:token` — short-lived signed URL, inert on any other hostname |
+| **Health** | `/api/health` (application) · `/api/health` (preview: liveness only) |
 | **MCP endpoint** | `/api/v1/mcp` (JSON-RPC 2.0 over HTTP, protocol `2025-06-18`, 17 tools) |
 
 ---
@@ -106,18 +110,45 @@ no filesystem.
 - Cards, never wide tables; `text-2xl` maximum screen title on mobile
 - Every dynamic value passes through `esc()`; `safeUrl()` gates href/src
 
-**Sharing HTML artifacts**
-- A shared HTML artifact's **Open** action opens `/s/:token/artifact/:artifactId`, which serves
-  **our own** wrapper document and frames the artifact in an **opaque-origin iframe**
-  (`sandbox="allow-scripts"`, deliberately **without** `allow-same-origin`, so it gets no origin
-  and no storage access to the app)
-- Executable HTML is **never served from the main application origin**: the artifact bytes keep
-  going out as `text/plain` from the delivery endpoint, and only the sandboxed preview response
-  is `text/html`, under a nonce CSP with `default-src 'none'`, `connect-src 'none'`, `frame-src 'none'`
-- The wrapper itself is locked down (`frame-ancestors 'none'`, `base-uri 'none'`), and
-  `X-Frame-Options: SAMEORIGIN` is applied **only** to the `/preview` path so our own pages may
-  frame our own preview documents — `DENY` blocked that and was why HTML shares showed source
-  instead of rendering. Every other route still sends `DENY`.
+**HTML artifacts — two preview modes on two origins**
+
+An HTML artifact is rendered in one of two explicit modes. The mode is enforced by a
+`Content-Security-Policy` that **travels with the bytes**, so the restriction holds even if a caller
+embeds the URL without a sandbox attribute of its own.
+
+| | **Safe Preview** (default) | **Interactive Preview** (owner opt-in, per artifact) |
+|---|---|---|
+| HTML + CSS render | yes | yes |
+| JavaScript executes | **no** | yes |
+| `frame` sandbox | (none granted) | `allow-scripts allow-forms` |
+| `connect-src` | `'none'` | `'none'` |
+| Allowed framer | the app origin | the app origin |
+
+- **Default is OFF and fail-closed.** Interactive Preview requires **both** `PREVIEW_ORIGIN` and
+  `PREVIEW_TOKEN_SECRET`. Missing either one means the mode is unavailable and every artifact falls
+  back to Safe Preview. An artifact may *lower* its own mode; a token can never *raise* it.
+- **The document-level CSP carries a `sandbox` directive.** `allow-same-origin` is never emitted, by
+  either the iframe attribute or the document policy, which is what makes the framed document's
+  origin **opaque** — no cookies, no `localStorage`, no `sessionStorage`, no parent DOM.
+- **Top navigation and popups cannot escape.** Neither `allow-top-navigation` nor `allow-popups` is
+  granted, and the probe suite asserts the top-level URL never changes and no extra tab opens.
+- **No network egress by default.** `connect-src 'none'` blocks `fetch`, `XMLHttpRequest`,
+  WebSocket and beacon. This is asserted by a **real HTTP sink receiving nothing** (a rejected
+  promise would be ambiguous, and `sendBeacon` resolves `true` even when CSP then blocks the send).
+- **Short-lived signed tokens.** HMAC-SHA256 `v1.<payload>.<sig>`, 600 s TTL clamped to a 900 s
+  ceiling, constant-time compare. The payload carries the artifact, version, mode, share and grant
+  ids — the **recipient's email is never in the token**. `share_access_grants.id` is an opaque
+  reference re-checked against live state on every load, so **share expiry, revocation and
+  recipient authorization are all preserved** (a revoked share's live token stops working).
+- **The token is pinned to one hostname.** It signs the framing origin; the preview surface refuses
+  a token whose signed origin is not `APP_ORIGIN`, and refuses any request whose hostname is not
+  `PREVIEW_ORIGIN`. A signed URL is therefore **inert on `artifactry-preview.pages.dev`**.
+- **The preview surface is a separate Worker.** `artifactry-preview` routes only `/p/:token` and
+  `/api/health`; everything else is a plain-text 404. The reason is measured, not theoretical: on a
+  shared runtime the preview hostname answered `/p/` with the **22,056-byte SPA shell** (containing
+  `id="app"` and `boot-data`). A hostname that exists to be isolated must never serve the app, so it
+  is its own Worker with no shell, no static assets and no API.
+- **The main origin is unchanged.** The app still sends `X-Frame-Options: DENY` on every route.
 
 ### Not implemented (and why)
 
@@ -132,7 +163,8 @@ These are honest capability gaps, not omissions:
 | **DOCX / PPTX generation** | Refused with `ConversionUnsupported` and an actionable message. Content can be rendered to **PDF and HTML** only. |
 | **Presigned R2 uploads** | Need dedicated S3 credentials. Uploads are worker-proxied instead. |
 | **Cron / scheduled jobs** | Not available on Pages. Expired sessions and OTPs are pruned opportunistically on the login path. |
-| **Custom domain for HTML preview** | The account has no zones. HTML preview isolation is instead an **opaque-origin sandboxed iframe** (`sandbox="allow-scripts"`, no `allow-same-origin`) plus a nonce CSP with `default-src 'none'`, `connect-src 'none'`, `frame-src 'none'`, `frame-ancestors 'self'`. |
+| **Custom domains not yet resolving** | Both Pages custom domains are registered (`artifactry.app` → `artifact-library`, `preview.artifactry.app` → `artifactry-preview`) but sit at `verification_data: "CNAME record not set"`. The two CNAME records are **not yet created** — the deploy token has Zone:Read but not DNS:Edit, so this is a manual step (exact records in *Outstanding setup*). The `pages.dev` hostnames are fully live and already enforce the whole isolation model. |
+| **Interactive Preview is off by default** | Deliberate. `PREVIEW_TOKEN_SECRET` *is* now set on both projects, so the mode is available, but each artifact is Safe until its owner opts in. |
 | **Email to arbitrary recipients** | Resend is configured (`EMAIL_API_KEY` set, dev-code mode off), but the Resend account has **no verified sending domain**. With the shared test sender, Resend delivers **only to the address that owns the Resend account**. Verify a domain and set `EMAIL_FROM` to an address on it to open delivery to all recipients. Non-deliverable addresses fail loudly (`400`) rather than silently. |
 
 ---
@@ -222,18 +254,67 @@ rebuilds the local database from scratch.
 
 ## Deployment
 
+Two **separate** Cloudflare Pages projects. The preview hostname is deliberately *not* a second
+domain on the app project, because a shared runtime answers unmatched paths with the app shell.
+
+| | Application | Preview surface |
+|---|---|---|
+| **Pages project** | `artifact-library` | `artifactry-preview` |
+| **Custom domain** | `artifactry.app` (pending DNS) | `preview.artifactry.app` (pending DNS) |
+| **Live hostname** | https://artifact-library.pages.dev | https://artifactry-preview.pages.dev |
+| **Build** | `vite build` → `dist/` (226.62 kB, gzip 65.34 kB) | `vite build -c vite.preview.config.ts` → `dist-preview/` (33.63 kB, gzip 12.83 kB) |
+| **Bindings** | D1 `DB`, R2 `R2`, Vectorize, Workers AI | D1 `DB`, R2 `R2` (**no** Vectorize/AI) |
+| **Origin vars** | `APP_ORIGIN`, `PREVIEW_ORIGIN`, `APP_NAME`, `EMAIL_FROM`, `MAX_UPLOAD_BYTES` | `APP_ORIGIN`, `PREVIEW_ORIGIN` |
+| **Secrets** | `EMAIL_API_KEY`, `PREVIEW_TOKEN_SECRET` | `PREVIEW_TOKEN_SECRET` |
+
 - **Platform**: Cloudflare Pages (BYOK — the user's own account via API token)
-- **Build**: `vite build` → `dist/` (Worker ~176 kB, ~50 kB gzip)
 - **Compatibility date**: 2026-09-17
-- **Pages project**: `artifact-library` (production branch `main`)
-- **Status**: ✅ **Live** at https://artifact-library.pages.dev
+- **Status**: ✅ **Both surfaces live** on their `pages.dev` hostnames; custom domains pending DNS
 
 Redeploy with:
 
 ```bash
 npx wrangler d1 migrations apply artifact-library-production --remote  # if new migrations
-npm run deploy:prod
+npm run deploy:prod        # application  → artifact-library
+npm run deploy:preview     # preview      → artifactry-preview (scripts/deploy-preview.sh)
 ```
+
+**Why the preview deploy has its own directory.** `wrangler pages deploy` has **no `--config`**
+flag: it always reads `wrangler.jsonc` from the *current working directory*. Deploying the preview
+worker from the repo root would read the **application's** config and target `artifact-library`.
+The preview deploy therefore runs with `deploy/preview/` as cwd, and `scripts/deploy-preview.sh`
+asserts the bundle is the minimal preview surface (size ceiling + no SPA-shell marker) before it
+uploads. No secrets live in that directory.
+
+**`PREVIEW_TOKEN_SECRET` must be byte-identical on both projects**, or every token the app mints is
+rejected by the preview surface. It is set out-of-band and never committed:
+
+```bash
+printf '%s' "$VALUE" | npx wrangler pages secret put PREVIEW_TOKEN_SECRET --project-name artifact-library
+printf '%s' "$VALUE" | npx wrangler pages secret put PREVIEW_TOKEN_SECRET --project-name artifactry-preview
+```
+
+### Outstanding setup (manual — needs DNS permission)
+
+The token used for this deploy has **Zone:Read** but **not DNS:Edit**
+(`GET /zones/{id}/dns_records` → `10000 Authentication error`), so the two records below could not
+be created and both custom domains remain unverified. Create them in **DNS → Records**:
+
+| Type | Name | Content | Proxy |
+|---|---|---|---|
+| `CNAME` | `artifactry.app` (apex) | `artifact-library.pages.dev` | **Proxied (orange cloud)** |
+| `CNAME` | `preview` | `artifactry-preview.pages.dev` | **Proxied (orange cloud)** |
+
+Both use Cloudflare-managed TLS; no certificate needs to be issued by hand. To let the token do this
+itself next time, add the narrow scope **Zone → DNS → Edit** for `artifactry.app` only — no broader
+account permission is required.
+
+> **Note on the apex.** `artifactry.app` and `www.artifactry.app` already resolve to Cloudflare
+> proxied addresses and return **`525` (SSL handshake failed)**, and the apex carries an
+> `MX → inbound-smtp.ap-northeast-1.amazonaws.com`. That means something other than this Pages
+> project is already bound to those hostnames. Adding the apex CNAME above **requires removing
+> whatever currently serves them** (a Worker route, or an existing record), or the Pages custom
+> domain will never validate. `preview.artifactry.app` has no record at all and is the clean half.
 
 **Resource bindings** (must exist on the account before deploying):
 
@@ -332,4 +413,42 @@ node scripts/check-imports.mjs
 
 ---
 
-**Last updated**: 2026-09-28
+---
+
+## Release gates
+
+All ten must pass before a deploy. `scripts/run-gates.sh` runs them strictly sequentially under a
+lock file — the browser suites share a probe account, and running two at once consumes each other's
+one-time code.
+
+```bash
+bash scripts/run-gates.sh
+```
+
+| Gate | What it proves |
+|---|---|
+| `build` (+ `build:preview`) | Both bundles compile |
+| `check-imports` | Every relative import resolves against a real export |
+| `check-undefined` | No project symbol is referenced without an import or local declaration |
+| `test-preview` | 101 assertions over mode resolution, CSP construction... |
+| `test-preview-security` | 89 real-browser, two-origin isolation assertions |
+| `test-preview-ui` | 32 real-DOM assertions over the owner-only toggle |
+| `test-authz` | 45 authorization assertions |
+| `test-index-sync` | 20 index reconciliation assertions |
+| `test-semantic` | 102 semantic-search and isolation assertions |
+| `test-extract` | Extraction against 9 real documents from 6 generators |
+
+`scripts/check-undefined.mjs` exists because a bundle that builds clean can still reference a symbol
+that was never imported — that caused three separate `500`s in the preview path, and the gate caught
+a fourth the moment it was introduced.
+
+**Production validation** (`node scripts/test-production.mjs`) runs against the deployed domains.
+It currently reports **27 passed, 0 failed, 11 blocked**. The blocked items are the
+*session-dependent* half of the checklist (Safe/Interactive render behaviour, storage and
+parent-DOM reachability, egress, token expiry/revocation, the owner toggle): a production OTP is
+**emailed**, so an unattended script cannot sign in. Those are reported as **BLOCKED, never as
+passing** — a skipped security assertion must not read as a verified one.
+
+---
+
+**Last updated**: 2026-09-29
