@@ -36,3 +36,4 @@ lerna-debug.log*
 .diag/
 .preview-dev/_worker.js
 dist-preview/
+deploy/preview/assets/

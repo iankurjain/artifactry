@@ -1,0 +1,55 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "artifactry-preview",
+  "compatibility_date": "2026-09-17",
+  "compatibility_flags": ["nodejs_compat"],
+  "pages_build_output_dir": "./assets",
+
+  // ---------------------------------------------------------------
+  // Dedicated preview surface — production deploy config
+  //
+  // WHY THIS DIRECTORY EXISTS
+  //
+  // `wrangler pages deploy` has no `--config` flag and always reads
+  // `wrangler.jsonc` from the CURRENT WORKING DIRECTORY. Deploying the preview
+  // worker from the repo root would therefore read the *application's* config
+  // and create/overwrite the app project instead of the preview one.
+  //
+  // So the preview deploy runs with this directory as cwd. It holds only what
+  // the preview surface needs. No secrets are stored here: PREVIEW_TOKEN_SECRET
+  // is set out-of-band with `wrangler pages secret put`, which stores it in
+  // Cloudflare, not on disk.
+  //
+  // The assets it uploads are a single `_worker.js` (copied from dist-preview/),
+  // which routes /p/:token and /api/health and answers everything else with a
+  // plain-text 404. There is no SPA shell to serve.
+  // ---------------------------------------------------------------
+
+  // Same D1 and R2 as the application project. The preview surface re-checks the
+  // artifact, version, share and recipient grant against live state on every
+  // load, so it must see the same rows the app writes.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "artifact-library-production",
+      "database_id": "10cb7bc6-41c5-4c9d-8788-6d1896531fd5"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "R2",
+      "bucket_name": "artifact-library-bucket"
+    }
+  ],
+
+  // No `vectorize` and no `ai`: this surface serves bytes and validates tokens.
+  // It has no AI capability at all.
+
+  "vars": {
+    // The only origin permitted to frame a preview document.
+    "APP_ORIGIN": "https://artifactry.app",
+    // This surface's own origin. A token is inert on any other hostname, so a
+    // signed URL cannot be replayed against artifactry-preview.pages.dev.
+    "PREVIEW_ORIGIN": "https://preview.artifactry.app"
+  }
+}
