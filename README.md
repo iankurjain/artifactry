@@ -16,9 +16,9 @@ no filesystem.
 | | |
 |---|---|
 | **Application (Cloudflare Pages)** | https://artifact-library.pages.dev — live (BYOK, user's own account) |
-| **Application custom domain** | `artifactry.app` — custom domain added to `artifact-library`; **pending DNS** (see *Outstanding setup*) |
+| **Application custom domain** | https://artifactry.app — **live** (Pages custom domain on `artifact-library`, Cloudflare-managed TLS) |
 | **Isolated preview surface** | https://artifactry-preview.pages.dev — a **separate** Pages project that serves no app shell |
-| **Preview custom domain** | `preview.artifactry.app` — custom domain added to `artifactry-preview`; **pending DNS** |
+| **Preview custom domain** | https://preview.artifactry.app — **live** (Pages custom domain on `artifactry-preview`) |
 | **Canonical artifact URL** | `/a/:artifactId` — permanent identity, survives renames, re-versioning and moves |
 | **Share link** | `/s/:token` — external recipient surface |
 | **Shared HTML viewer** | `/s/:token/artifact/:artifactId` — renders HTML shares as a page, not source |
@@ -163,7 +163,7 @@ These are honest capability gaps, not omissions:
 | **DOCX / PPTX generation** | Refused with `ConversionUnsupported` and an actionable message. Content can be rendered to **PDF and HTML** only. |
 | **Presigned R2 uploads** | Need dedicated S3 credentials. Uploads are worker-proxied instead. |
 | **Cron / scheduled jobs** | Not available on Pages. Expired sessions and OTPs are pruned opportunistically on the login path. |
-| **Custom domains not yet resolving** | Both Pages custom domains are registered (`artifactry.app` → `artifact-library`, `preview.artifactry.app` → `artifactry-preview`) but sit at `verification_data: "CNAME record not set"`. The two CNAME records are **not yet created** — the deploy token has Zone:Read but not DNS:Edit, so this is a manual step (exact records in *Outstanding setup*). The `pages.dev` hostnames are fully live and already enforce the whole isolation model. |
+| **Apex `MX` is a pre-existing record we preserved** | `artifactry.app` carries `MX → inbound-smtp.ap-northeast-1.amazonaws.com`, which predates this project. It was **left untouched** during the DNS change, so it is unrelated to Artifactry mail (which sends through Resend). Remove it only if you know it is stale — it does not affect the web surfaces. |
 | **Interactive Preview is off by default** | Deliberate. `PREVIEW_TOKEN_SECRET` *is* now set on both projects, so the mode is available, but each artifact is Safe until its owner opts in. |
 | **Email to arbitrary recipients** | Resend is configured (`EMAIL_API_KEY` set, dev-code mode off), but the Resend account has **no verified sending domain**. With the shared test sender, Resend delivers **only to the address that owns the Resend account**. Verify a domain and set `EMAIL_FROM` to an address on it to open delivery to all recipients. Non-deliverable addresses fail loudly (`400`) rather than silently. |
 
@@ -260,7 +260,7 @@ domain on the app project, because a shared runtime answers unmatched paths with
 | | Application | Preview surface |
 |---|---|---|
 | **Pages project** | `artifact-library` | `artifactry-preview` |
-| **Custom domain** | `artifactry.app` (pending DNS) | `preview.artifactry.app` (pending DNS) |
+| **Custom domain** | `artifactry.app` — active | `preview.artifactry.app` — active |
 | **Live hostname** | https://artifact-library.pages.dev | https://artifactry-preview.pages.dev |
 | **Build** | `vite build` → `dist/` (226.62 kB, gzip 65.34 kB) | `vite build -c vite.preview.config.ts` → `dist-preview/` (33.63 kB, gzip 12.83 kB) |
 | **Bindings** | D1 `DB`, R2 `R2`, Vectorize, Workers AI | D1 `DB`, R2 `R2` (**no** Vectorize/AI) |
@@ -269,7 +269,7 @@ domain on the app project, because a shared runtime answers unmatched paths with
 
 - **Platform**: Cloudflare Pages (BYOK — the user's own account via API token)
 - **Compatibility date**: 2026-09-17
-- **Status**: ✅ **Both surfaces live** on their `pages.dev` hostnames; custom domains pending DNS
+- **Status**: ✅ **Both surfaces live** on their `pages.dev` hostnames **and** on their custom domains
 
 Redeploy with:
 
@@ -294,27 +294,50 @@ printf '%s' "$VALUE" | npx wrangler pages secret put PREVIEW_TOKEN_SECRET --proj
 printf '%s' "$VALUE" | npx wrangler pages secret put PREVIEW_TOKEN_SECRET --project-name artifactry-preview
 ```
 
-### Outstanding setup (manual — needs DNS permission)
+### Custom domains — completed
 
-The token used for this deploy has **Zone:Read** but **not DNS:Edit**
-(`GET /zones/{id}/dns_records` → `10000 Authentication error`), so the two records below could not
-be created and both custom domains remain unverified. Create them in **DNS → Records**:
+Both custom domains are attached and **active**; no manual DNS step remains.
 
-| Type | Name | Content | Proxy |
-|---|---|---|---|
-| `CNAME` | `artifactry.app` (apex) | `artifact-library.pages.dev` | **Proxied (orange cloud)** |
-| `CNAME` | `preview` | `artifactry-preview.pages.dev` | **Proxied (orange cloud)** |
+**What the `525` was.** `artifactry.app` was returning **`525` (SSL handshake failed)** because the
+apex carried two **proxied `A` records pointing at GoDaddy parking IPs**
+(`15.197.148.33`, `3.33.130.190`) — leftovers from domain registration. A Pages custom domain
+validates against a **`CNAME`**, so the parking `A` records had to be **removed**, not joined to.
+That was the whole blocker.
 
-Both use Cloudflare-managed TLS; no certificate needs to be issued by hand. To let the token do this
-itself next time, add the narrow scope **Zone → DNS → Edit** for `artifactry.app` only — no broader
-account permission is required.
+**What was done** (single scripted pass, via the Cloudflare REST API with **Zone → DNS → Edit** on
+`artifactry.app` only):
 
-> **Note on the apex.** `artifactry.app` and `www.artifactry.app` already resolve to Cloudflare
-> proxied addresses and return **`525` (SSL handshake failed)**, and the apex carries an
-> `MX → inbound-smtp.ap-northeast-1.amazonaws.com`. That means something other than this Pages
-> project is already bound to those hostnames. Adding the apex CNAME above **requires removing
-> whatever currently serves them** (a Worker route, or an existing record), or the Pages custom
-> domain will never validate. `preview.artifactry.app` has no record at all and is the clean half.
+1. Backed up **all 9** zone records to `.diag/dns-backup-artifactry.app.json` before touching anything.
+2. Deleted the two apex `A` records (`15.197.148.33`, `3.33.130.190`).
+3. Created both Pages `CNAME`s, **proxied**, TTL auto:
+
+   | Type | Name | Content | Proxy |
+   |---|---|---|---|
+   | `CNAME` | `artifactry.app` (apex) | `artifact-library.pages.dev` | Proxied |
+   | `CNAME` | `preview` | `artifactry-preview.pages.dev` | Proxied |
+
+4. Polled Pages domain status until both reported `status: active`.
+
+Cloudflare-managed TLS covers both hostnames; no certificate was issued by hand. An apex `CNAME` is
+legal here — Cloudflare flattens it at the zone apex, and it coexists with the pre-existing apex `MX`.
+The script that performed this is `.diag/point-domains.py`, which is **gitignored**: it is a one-shot
+operator tool for a change that only ever needs to happen once, not part of the deploy path.
+
+**Mail records preserved.** Nothing in the mail path was modified: apex `MX` (pre-existing AWS
+inbound), `_dmarc`, `resend._domainkey`, `send`, `rsend`, `_domainconnect` and `www` all remain.
+The apex `MX` is **not** Artifactry mail — Artifactry sends through Resend. It is flagged in
+*Known limitations* in case it is a stale mailbox you no longer want.
+
+**Verification.** After propagation, all four checks pass against the real domains:
+
+```
+https://artifactry.app/                 -> 200
+https://artifactry.app/api/health       -> 200
+https://preview.artifactry.app/api/health -> 200
+https://preview.artifactry.app/         -> 404   (no app shell served)
+```
+
+The preview custom domain serves **no SPA shell on any path** — that is the design, not a fault.
 
 **Resource bindings** (must exist on the account before deploying):
 
