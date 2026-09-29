@@ -271,6 +271,20 @@ domain on the app project, because a shared runtime answers unmatched paths with
 - **Compatibility date**: 2026-09-17
 - **Status**: ✅ **Both surfaces live** on their `pages.dev` hostnames **and** on their custom domains
 
+**Git-connected builds.** `artifact-library` is connected to this GitHub repo, so a push to `main`
+builds and deploys automatically. The project was originally created with an **empty
+`build_command`**, which made every push fail at the build stage — with no build step, Cloudflare
+published `destination_dir: dist`, and `dist/` is gitignored build output that is not in the
+repository. The setting is now `npm run build` / `dist`, and a GitHub-triggered build has been
+verified end to end (build **and** deploy `success`). Direct `wrangler pages deploy` was unaffected
+throughout, because it uploads an already-built `dist/` from the sandbox — which is why production
+stayed healthy while the push builds failed.
+
+`artifactry-preview` is **not** git-connected (it is deployed only by `npm run deploy:preview`).
+That is deliberate: the preview surface is a purpose-built minimal Worker, and letting the default
+build settings publish a repo root would risk serving the application shell from the isolated
+hostname. A push therefore never deploys the preview surface.
+
 Redeploy with:
 
 ```bash
