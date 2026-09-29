@@ -443,11 +443,21 @@ that was never imported — that caused three separate `500`s in the preview pat
 a fourth the moment it was introduced.
 
 **Production validation** (`node scripts/test-production.mjs`) runs against the deployed domains.
-It currently reports **27 passed, 0 failed, 11 blocked**. The blocked items are the
-*session-dependent* half of the checklist (Safe/Interactive render behaviour, storage and
-parent-DOM reachability, egress, token expiry/revocation, the owner toggle): a production OTP is
-**emailed**, so an unattended script cannot sign in. Those are reported as **BLOCKED, never as
-passing** — a skipped security assertion must not read as a verified one.
+It currently reports **32 passed, 0 failed, 11 blocked**.
+
+The blocked items are the *session-dependent* half of the checklist (Safe/Interactive render
+behaviour, storage and parent-DOM reachability, egress, token expiry/revocation, the owner toggle):
+a production OTP is **emailed**, so an unattended script cannot sign in. Those are reported as
+**BLOCKED, never as passing** — a skipped security assertion must not read as a verified one.
+
+The 32 that do run cover, on the live deployment: which hostname serves the shell and which refuses
+to (five paths on the preview surface, each asserted to carry **no** `id="app"` / `boot-data` / `/static/app.js`
+bytes), that the preview surface **never** sets a cookie on any path, that a malformed token is
+refused with a locked-down non-cacheable page, that a signed URL is **inert on the default
+`pages.dev` hostname** (the hostname pin), that a real browser holds **no cookie and no
+`localStorage`/`sessionStorage`** on the preview origin, and that the **minting surface is
+session-gated** — the artifact list, artifact detail, `preview-settings` (GET *and* PUT) and the
+app-origin Safe fallback all return `401` without a session.
 
 ---
 
