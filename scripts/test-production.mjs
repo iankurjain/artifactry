@@ -185,7 +185,56 @@ async function main() {
   }
 
   // ---------------------------------------------------------------
-  // 6. Blocked: requires a signed-in owner and an emailed OTP
+  // 6. The minting surface is auth-gated in production
+  //
+  //    Interactive Preview is only reachable via a signed token. If the
+  //    endpoints that read artifact state were open, the isolation work would be
+  //    moot, so their refusal is part of the security claim.
+  // ---------------------------------------------------------------
+  section('Minting surface requires a session')
+  {
+    const list = await get(`${APP}/api/v1/artifacts`)
+    check(
+      'artifact list without a session is refused (401)',
+      list.status === 401,
+      `status=${list.status}`
+    )
+
+    const detail = await get(`${APP}/api/v1/artifacts/art_does_not_exist`)
+    check(
+      'artifact detail without a session is refused (401)',
+      detail.status === 401,
+      `status=${detail.status}`
+    )
+
+    const settings = await get(`${APP}/api/v1/artifacts/art_does_not_exist/preview-settings`)
+    check(
+      'preview-settings without a session is refused (401)',
+      settings.status === 401,
+      `status=${settings.status}`
+    )
+
+    const appPreview = await get(`${APP}/api/v1/artifacts/art_does_not_exist/preview`)
+    check(
+      'the app-origin Safe fallback without a session is refused (401)',
+      appPreview.status === 401,
+      `status=${appPreview.status}`
+    )
+
+    const put = await get(`${APP}/api/v1/artifacts/art_does_not_exist/preview-settings`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ interactiveHtml: true })
+    })
+    check(
+      'enabling Interactive without a session is refused (401)',
+      put.status === 401,
+      `status=${put.status}`
+    )
+  }
+
+  // ---------------------------------------------------------------
+  // 7. Blocked: requires a signed-in owner and an emailed OTP
   // ---------------------------------------------------------------
   section('Authenticated security checklist')
   {
