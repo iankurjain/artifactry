@@ -37,7 +37,7 @@ import {
 } from './lib/sharing'
 import { loadArtifact } from './lib/artifacts'
 import { buildPreviewDescriptor } from './lib/preview'
-import { previewOrigin, previewSandbox } from './lib/htmlpreview'
+import { classifyRequest, previewOrigin, previewSandbox } from './lib/htmlpreview'
 import { verifiedEmailFor, verifiedGrantFor } from './routes/shares'
 import { recordEvent } from './lib/analytics'
 
@@ -400,6 +400,32 @@ app.notFound((c) => {
   if (c.req.path.startsWith('/api/')) {
     return fail(c, notFound('Endpoint not found'))
   }
+
+  /**
+   * The application shell is served ONLY on the application surface.
+   *
+   * This runtime is now deployed as its own Pages project bound only to
+   * artifactry.app; the isolated preview origin is a different project
+   * (src/preview-worker.ts). The guard remains because the failure mode if the
+   * two hostnames were ever bound to the same project is severe and silent:
+   * before the split, `GET <preview-origin>/p/` returned 200 and 22056 bytes of
+   * shell — markup, `/static/app.js` and the boot payload — i.e. the whole
+   * application served from the hostname that exists solely to be untrusted.
+   *
+   * So the shell is refused on the preview surface even though, correctly
+   * deployed, this Worker never sees that surface at all.
+   */
+  if (classifyRequest(c.env, c.req.url, c.req.header('Host')) === 'PREVIEW') {
+    return new Response('Not Found', {
+      status: 404,
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'private, no-store, max-age=0',
+        'X-Content-Type-Options': 'nosniff'
+      }
+    })
+  }
+
   // Client-side routes fall through to the shell so deep links work
   return renderShell(c, { route: 'home' })
 })

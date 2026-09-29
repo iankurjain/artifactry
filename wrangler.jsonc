@@ -88,7 +88,18 @@
     //
     // The Preview origin must also have DNS + a Pages custom domain pointed at
     // this project before the value below can resolve.
-    "PREVIEW_ORIGIN": "https://preview.artifactry.app"
+    "PREVIEW_ORIGIN": "https://preview.artifactry.app",
+
+    // ---------------------------------------------------------------
+    // Canonical application origin
+    //
+    // The app origin is what mints preview tokens, and each token carries the
+    // origin permitted to frame the document (`frame-ancestors`). The preview
+    // surface refuses a token whose signed origin does not match this value, so
+    // a request arriving with a spoofed Host header cannot choose an arbitrary
+    // framer. Set here (not derived from the request) so the expected value is
+    // fixed configuration rather than attacker-influenced input.
+    "APP_ORIGIN": "https://artifactry.app"
   }
 
   // NOTE (BYOK path only): kv_namespaces and triggers are permitted here,

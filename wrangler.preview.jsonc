@@ -1,0 +1,40 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Dedicated preview surface. Deployed as its OWN Pages project and bound only
+  // to preview.artifactry.app — never as a second hostname on the main project,
+  // which would let the preview hostname answer with the application's shell.
+  "name": "artifactry-preview",
+  "compatibility_date": "2026-09-17",
+  "pages_build_output_dir": "./dist-preview",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Same D1 and R2 as the app: the preview origin must re-check the artifact,
+  // version, share and recipient grant against live state on every load.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "artifact-library-production",
+      "database_id": "10cb7bc6-41c5-4c9d-8788-6d1896531fd5"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "R2",
+      "bucket_name": "artifact-library-bucket"
+    }
+  ],
+
+  // No `vectorize` and no `ai`: this surface serves bytes and validates tokens.
+  // Nothing here searches or embeds, so it holds no AI capability at all.
+
+  "vars": {
+    // The only origin permitted to frame a preview document.
+    "APP_ORIGIN": "https://artifactry.app",
+    // This surface's own origin; a token is inert on any other hostname.
+    "PREVIEW_ORIGIN": "https://preview.artifactry.app"
+    // PREVIEW_TOKEN_SECRET is NOT here. It is a secret, set with:
+    //   wrangler pages secret put PREVIEW_TOKEN_SECRET --project-name artifactry-preview
+    // It must be byte-identical to the app project's secret, or every token
+    // minted by the app is rejected here.
+  }
+}

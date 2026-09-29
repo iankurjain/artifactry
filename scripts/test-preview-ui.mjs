@@ -16,9 +16,12 @@
 import fs from 'node:fs'
 import { chromium } from 'playwright'
 import { resetRateLimits } from './lib/reset-rate-limits.mjs'
+import { loadDevPreviewOrigin } from './lib/preview-token-tools.mjs'
 
 const APP = process.env.APP_ORIGIN ?? 'http://localhost:3000'
-const PREVIEW = process.env.PREVIEW_ORIGIN ?? 'http://preview.localhost:3000'
+// Read from .dev.vars rather than hardcoding, so the suite follows the
+// configured preview origin (the dedicated worker runs on its own port).
+const PREVIEW = process.env.PREVIEW_ORIGIN ?? loadDevPreviewOrigin()
 const OWNER = process.env.UI_OWNER ?? 'previewtest@example.com'
 const VIEWER = process.env.UI_VIEWER ?? 'previewviewer@example.com'
 

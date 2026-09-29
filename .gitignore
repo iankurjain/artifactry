@@ -31,3 +31,8 @@ lerna-debug.log*
 
 # misc
 .DS_Store
+
+# Local preview-surface dev harness (build artifact + scratch diagnostics)
+.diag/
+.preview-dev/_worker.js
+dist-preview/

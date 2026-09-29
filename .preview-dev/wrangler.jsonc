@@ -1,0 +1,35 @@
+{
+  "$schema": "../node_modules/wrangler/config-schema.json",
+  "name": "artifactry-preview",
+  "compatibility_date": "2026-09-17",
+  "compatibility_flags": ["nodejs_compat"],
+  "pages_build_output_dir": "./",
+
+  // Same D1 database_id as the application project. Production binds both
+  // Pages projects to this one database, so the preview surface must resolve
+  // tokens against the same rows the app wrote. Declaring the ID (rather than
+  // letting a `--d1=BINDING=name` flag synthesise a key) is what makes local
+  // miniflare derive the SAME sqlite file as the app worker.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "artifact-library-production",
+      "database_id": "10cb7bc6-41c5-4c9d-8788-6d1896531fd5"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "R2",
+      "bucket_name": "artifact-library-bucket"
+    }
+  ],
+
+  // Deliberately NO vectorize and NO ai binding: the preview surface never
+  // embeds or searches anything, and omitting them keeps this local surface as
+  // minimal as the production `wrangler.preview.jsonc`.
+  "vars": {
+    "APP_ORIGIN": "http://localhost:3000",
+    "PREVIEW_ORIGIN": "http://preview.localhost:3001"
+  }
+}
