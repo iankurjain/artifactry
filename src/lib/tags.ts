@@ -183,10 +183,18 @@ export async function resolveOrCreateTag(
     if (orgWide) return { tag: orgWide, created: false }
   }
 
-  // Creating a tag requires the policy to permit it. Admin-defined tags are
-  // exempt: an admin is the policy.
+  // Creating a tag requires the policy to permit it.
+  //
+  // This defers to `mayCreateTag`, which is the single place the policy lives:
+  // an organization admin is the policy and is always allowed, everyone else
+  // depends on the organization's `allowUserTags` setting. An earlier version
+  // of this check exempted only `provenance === 'ADMIN'`, which meant an org
+  // admin adding a tag through the ordinary artifact path was still treated as
+  // a mere user — so an organization that disabled user tags could never
+  // extend its own canonical set again. The provenance of a *suggestion* has
+  // no bearing on whether the *person* may define a tag.
   if (context.provenance !== 'ADMIN') {
-    const allowed = await userTagsAllowed(db, organizationId)
+    const allowed = await mayCreateTag(db, principal, organizationId)
     if (!allowed) {
       throw forbidden(
         'This organization has disabled user-created tags. Apply an existing tag instead.'

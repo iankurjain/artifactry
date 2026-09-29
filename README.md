@@ -24,7 +24,7 @@ no filesystem.
 | **Shared HTML viewer** | `/s/:token/artifact/:artifactId` — renders HTML shares as a page, not source |
 | **Preview document (internal)** | `<PREVIEW_ORIGIN>/p/:token` — short-lived signed URL, inert on any other hostname |
 | **Health** | `/api/health` (application) · `/api/health` (preview: liveness only) |
-| **MCP endpoint** | `/api/v1/mcp` (JSON-RPC 2.0 over HTTP, protocol `2025-06-18`, 17 tools) |
+| **MCP endpoint** | `/api/v1/mcp` (JSON-RPC 2.0 over HTTP, protocol `2025-06-18`) — job-oriented: **Find → Save → Share** |
 
 ---
 
@@ -89,11 +89,66 @@ no filesystem.
 
 **Audit trail** — append-only `audit_events` for auth, artifact, share, taxonomy, member and AI actions
 
-**Universal Artifact API + remote MCP**
-- 17 MCP tools over JSON-RPC 2.0 (initialize, tools/list, tools/call, ping, batch support)
-- **Scoped OAuth-style grants**: `artifact.read`, `artifact.write`, `artifact.share`, `analytics.read`; per-tool `requiredScope` enforced server-side, so capability is decoupled from what the provider UI offers
+**Universal Artifact API + remote MCP — the Find → Save → Share surface**
+- **Nine job-oriented tools**, not storage primitives:
+  `search` · `get` · `save` · `create_version` · `share` · `revoke_share` ·
+  `list_workspaces` · `list_teams` · `list_tags` · `update_tags`
+  (`revoke_share` is the tenth, so a share can be withdrawn.)
+- The end-to-end flow the surface is designed around: *find the Q3 finance deck →
+  create a board Q&A → save the Word doc to Finance → share with Board prep for 7 days*.
+  Low-level primitives stay behind the service layer; they remain reachable as REST
+  but an agent is not invited to reason in them.
+- `search` reuses the **existing hybrid lexical + semantic engine and the existing RBAC**,
+  and takes natural language plus workspace, type, tags, owner, date range, collection/team,
+  sort and limit. It returns id, title, type, **canonical URL**, workspace, tags, updated date,
+  match type and an **authorized** excerpt — an excerpt is only ever read from rows that already
+  passed the ACL, so it can never widen visibility.
+- `save` accepts AI-produced bytes (base64) or structured text that Artifactry converts to a
+  supported format, and creates either a new artifact or a new version. It returns the artifact id,
+  canonical URL, workspace, **indexing state** and **proposed tags**.
+- `share` accepts an artifact id **or a canonical Artifactry URL**, and an audience of specific
+  emails, an email domain, a **named team**, a workspace, or a public link, with expiry and
+  view/download permission.
+- **Scoped OAuth-style grants**: `artifact.read`, `artifact.write`, `artifact.share`, `team.read`,
+  `workspace.read`, `tags.read`, `analytics.read`; per-tool `requiredScope` enforced server-side,
+  so capability is decoupled from what the provider UI offers
 - Grants are hashed at rest and revocable; a connector can never exceed the granting user's own access
-- AI provenance recorded on every AI-created artifact and version
+- AI provenance recorded on every AI-created artifact and version, including the **AI client name**
+  ("Claude Desktop") reported in the `initialize` handshake, so "which AI did what, on whose
+  behalf" is answerable rather than inferred
+
+**Teams — reusable named audiences**
+- A team is an organization- or workspace-scoped audience: name, members, owner/admin, active/inactive
+- `artifactry.share(url, team="Board prep")` resolves the name to a reusable audience instead of
+  repeating individual addresses
+- **Ambiguous names are never guessed.** Two organizations may each have a "Board prep"; matching
+  more than one team returns `AMBIGUOUS` **with the candidates** and requires disambiguation, because
+  picking one would be a coin flip on a confidential document
+- Membership is **live**: member addresses are materialised into the share at creation time, and a
+  current active member of a linked team also passes `evaluateShareAccess`, so adding someone to
+  "Board prep" grants them access without re-issuing the link
+- A team cannot be used for an artifact in a personal workspace, or across organizations; a team with
+  no active members refuses; the last admin cannot be removed
+
+**AI-suggested, human-decided tags**
+- **Every artifact is tagged automatically** on upload, save and reprocess: extract → suggest from the
+  artifact's own content and metadata → attach as **SUGGESTED** → show the user
+- Three states — **SUGGESTED / CONFIRMED / REJECTED** — and three provenances — **AI / USER / ADMIN**.
+  The decision lives on the *association*, so the same tag can be confirmed on one artifact and
+  rejected on another
+- **Rejection is remembered.** A rejected tag is not re-offered against unchanged content; it may only
+  be proposed again when a materially new version changes the basis for the judgement
+- Guardrails: **3–7 tags**, preferring subject, customer/company, project, geography, document purpose
+  and domain/topic; generic words (Document, File, PDF, Presentation, report, draft) are dropped
+  **unless the user typed them deliberately**; sensitive personal attributes are refused even when
+  entered manually, because the tag itself would be the leak. Whole-word matching, so "Gaylord"
+  never trips the "gay" rule
+- **Only CONFIRMED tags enter the search index.** A machine guess cannot silently change what the
+  library can find, and a rejected tag leaves the index
+- Names are de-duplicated case-insensitively: "AI", "ai" and "Ai" are one tag
+- **Users may create tags** (this supersedes the earlier admin-only rule). An organization may keep an
+  admin-managed canonical set and may disable user-created tags via `settings.allowUserTags === false`
+  — but that blocks *invention*, never the use of existing tags, and never an org admin
 
 **Responsive UI — mobile-first, not mobile-only** (supersedes the old PRD §71 hard 430px lock)
 - **Mobile (<768px)**: bottom navigation, stacked cards, no horizontal scrolling, 44–48px
@@ -165,6 +220,8 @@ These are honest capability gaps, not omissions:
 | **Cron / scheduled jobs** | Not available on Pages. Expired sessions and OTPs are pruned opportunistically on the login path. |
 | **Apex `MX` is a pre-existing record we preserved** | `artifactry.app` carries `MX → inbound-smtp.ap-northeast-1.amazonaws.com`, which predates this project. It was **left untouched** during the DNS change, so it is unrelated to Artifactry mail (which sends through Resend). Remove it only if you know it is stale — it does not affect the web surfaces. |
 | **Interactive Preview is off by default** | Deliberate. `PREVIEW_TOKEN_SECRET` *is* now set on both projects, so the mode is available, but each artifact is Safe until its owner opts in. |
+| **Sharing beyond the organization requires explicit human confirmation** | Deliberate, not a gap: a public link, raw email/domain audience or anything else that takes content outside the tenant returns a **confirmation request** and shares **nothing** until the user agrees. The confirmation is bound to a hash of the exact normalised request, so consent for one audience cannot execute a different one, and it is single-use with a 15-minute TTL. Internal audiences (a team or workspace in the same organization) proceed without a prompt. |
+| **Auto-tagging needs the AI binding for content-derived tags** | Without the `AI` binding, or when a document has no recoverable text layer, the suggester reports honestly that it ran **metadata-only** (title, type, workspace) and says so in its note. It never fabricates subject matter it did not read. |
 | **Email to arbitrary recipients** | Resend is configured (`EMAIL_API_KEY` set, dev-code mode off), but the Resend account has **no verified sending domain**. With the shared test sender, Resend delivers **only to the address that owns the Resend account**. Verify a domain and set `EMAIL_FROM` to an address on it to open delivery to all recipients. Non-deliverable addresses fail loudly (`400`) rather than silently. |
 
 ---
@@ -172,7 +229,7 @@ These are honest capability gaps, not omissions:
 ## Data architecture
 
 **Storage services**
-- **Cloudflare D1** — 27 tables: `users`, `auth_sessions`, `auth_otp`, `organizations`, `organization_members`, `workspaces`, `workspace_members`, `artifacts`, `artifact_versions`, `tags`, `artifact_tags`, `collections`, `collection_artifacts`, `shares`, `share_recipients`, `share_access_grants`, `integrations`, `integration_grants`, `artifact_events`, `artifact_daily_metrics`, `artifact_viewer_keys`, `audit_events`, `processing_jobs`, `search_history`, `artifact_favorites`, `artifact_embeddings`, `app_kv` + the `artifact_search` FTS5 virtual table
+- **Cloudflare D1** — 31 tables: `users`, `auth_sessions`, `auth_otp`, `organizations`, `organization_members`, `workspaces`, `workspace_members`, `artifacts`, `artifact_versions`, `tags`, `artifact_tags`, `collections`, `collection_artifacts`, `shares`, `share_recipients`, `share_access_grants`, `share_teams`, `teams`, `team_members`, `mcp_confirmations`, `integrations`, `integration_grants`, `artifact_events`, `artifact_daily_metrics`, `artifact_viewer_keys`, `audit_events`, `processing_jobs`, `search_history`, `artifact_favorites`, `artifact_embeddings`, `app_kv` + the `artifact_search` FTS5 virtual table
 - **Cloudflare R2** — artifact binaries under immutable per-version keys
 - **Cloudflare Vectorize** — `artifact-library-embeddings`, **768 dimensions, cosine**
 - **Workers AI** — `@cf/baai/bge-base-en-v1.5` embeddings
@@ -198,6 +255,11 @@ the live index must all agree, or every upsert is rejected at runtime.
 - `artifact_versions` is append-only; `artifacts.current_version_id` points at the live one
 - `shares` stores `token_hash` + `token_prefix`; the prefix is what the management UI displays
 - `artifact_daily_metrics` is a rollup maintained incrementally by `applyDelta`, so analytics reads never scan the raw event table
+- `artifact_tags` carries `state` (SUGGESTED / CONFIRMED / REJECTED), `provenance` (AI / USER / ADMIN) and `source_version_id` — the association is a **decision record**, which is why a rejection is a stored state rather than a deleted row. `UNIQUE(artifact_id, tag_id)` makes a decision an update, so accept-after-reject cannot accumulate duplicates.
+- `teams` is scoped `ORGANIZATION` | `WORKSPACE` and `organization_id` is **NOT NULL** by design: a team with no tenant would be unscopeable. Membership is keyed by `email_normalized`, because a named audience must be expressible before every member has an account; `user_id` is filled in when one exists.
+- `mcp_confirmations` stores a hash of the exact normalised request (`request_hash`) alongside `params_json`, plus `status` and `expires_at`. That binding is the whole point: without it a model could obtain consent for one audience and execute another.
+- `integration_grants` records `client_name` / `client_version`, reported by the client during `initialize` and written onto every artifact the connection produces.
+- Tag and team reads never widen access: search indexes **CONFIRMED tags only**, and a team share is bounded by its `organization_id` at evaluation time.
 
 **Authorization**
 `ROLE_PERMISSIONS` → `can()` → assert helpers. Every read path starts from `readableWorkspaces()`; an artifact the caller may not read returns **404, not 403**, so artifact ids cannot be probed.
@@ -216,6 +278,13 @@ the live index must all agree, or every upsert is rejected at runtime.
 8. **Profile** — usage totals, workspaces, organizations, connected AI apps, active shares, tag management, activity feed, and a **Help** card linking to the user guide.
 9. **Admin** — organization totals, members, workspaces and AI-created breakdown, as cards.
 10. **Connect an AI app** — connect from Profile/Add, pick the least privilege you need, then paste the **MCP endpoint** and **access token** into the AI app. The token is shown once.
+11. **Let the AI work in jobs, not primitives** — once connected, an agent can *find* (`search`), *save*
+    (`save` / `create_version`) and *share* (`share`). A share that reaches outside your organization
+    returns a **confirmation request** and shares nothing until you agree; an internal team or
+    workspace share just happens. Every artifact it saves is auto-tagged, and you get to accept,
+    reject or add tags yourself.
+12. **Reusable audiences** — keep a team ("Board prep") instead of retyping addresses. If a name
+    matches more than one team you will be asked which one, never guessed at.
 
 ### The in-app user guide
 
@@ -454,7 +523,7 @@ node scripts/check-imports.mjs
 
 ## Release gates
 
-All ten must pass before a deploy. `scripts/run-gates.sh` runs them strictly sequentially under a
+All eleven must pass before a deploy. `scripts/run-gates.sh` runs them strictly sequentially under a
 lock file — the browser suites share a probe account, and running two at once consumes each other's
 one-time code.
 
@@ -474,10 +543,16 @@ bash scripts/run-gates.sh
 | `test-index-sync` | 20 index reconciliation assertions |
 | `test-semantic` | 102 semantic-search and isolation assertions |
 | `test-extract` | Extraction against 9 real documents from 6 generators |
+| `test-mcp-jobs` | 89 assertions over the MCP job surface, teams, tag states and the confirmation gate |
 
 `scripts/check-undefined.mjs` exists because a bundle that builds clean can still reference a symbol
 that was never imported — that caused three separate `500`s in the preview path, and the gate caught
 a fourth the moment it was introduced.
+
+`test-mcp-jobs` is headless (no browser, so it needs no probe account) and builds its schema by
+**replaying the real migration files** into `node:sqlite`. A hand-written fixture schema would be a
+second source of truth, and the first thing to drift would be exactly the columns these features
+depend on. It is the gate that caught both tag-policy defects described above.
 
 **Production validation** (`node scripts/test-production.mjs`) runs against the deployed domains.
 It currently reports **32 passed, 0 failed, 11 blocked**.

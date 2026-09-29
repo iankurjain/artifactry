@@ -106,11 +106,43 @@ export const GUIDE_SECTIONS = [
   S(
     'tags',
     'Tags',
-    'tag taxonomy admin governed personal organization color slug',
+    'tag taxonomy suggested confirmed rejected ai automatic auto-tag accept reject personal organization duplicate case sensitive',
     `
-    <p>Tags are a shared vocabulary, not free-form labels. That keeps one person's "invoice" from becoming another's "Invoices" or "billing".</p>
-    <p>Tags can be scoped to a whole organization or kept personal to your own workspace, and each has a name, a description and a colour.</p>
-    <p>You can attach any number of tags to an artifact and filter the library by them. Tag management lives in <strong>Profile → Tag management</strong>.</p>`
+    <p><strong>Tags are suggested for you automatically.</strong> Every time you upload, save or reprocess an artifact, the library reads its content and metadata and proposes a small set of tags — normally three to seven. They appear as <strong>suggested</strong> until you act on them.</p>
+    <p><strong>You decide.</strong> For each suggestion you can <strong>accept</strong> it or <strong>delete (reject)</strong> it, and you can add your own tags at any time. Accepting and adding produce a <strong>confirmed</strong> tag; rejecting records the decision so the same tag is not offered to you again unless the document actually changes. A new version is a new basis, so a tag you rejected on the old content may be offered again on the new one.</p>
+    <p><strong>Only confirmed tags are searchable.</strong> A suggestion the machine made is not yet part of the library's vocabulary, so it will not change what a search can find until you confirm it.</p>
+    <p><strong>You can create tags.</strong> Earlier versions of the library limited new tags to administrators; that rule is gone. An organization can still keep an administrator-managed set of canonical tags, and can switch user-created tags off entirely — but if it does, you can still apply the tags that already exist.</p>
+    <p>Names are matched case-insensitively, so "AI", "ai" and "Ai" are the same tag rather than three near-duplicates. Tag management lives in <strong>Profile → Tag management</strong>.</p>`
+  ),
+
+  S(
+    'teams',
+    'Teams and shared audiences',
+    'team group audience board prep members reusable share address ai agent',
+    `
+    <p>A <strong>team</strong> is a reusable named audience — "Board prep", "Finance reviews" — that you can share with by name instead of typing addresses every time.</p>
+    <p>A team can be scoped to a whole organization or to a single workspace, and it has members, an owner, and an active or inactive state. You can add and remove members at any time.</p>
+    <p><strong>Membership stays live.</strong> When you share with a team, the people on it at that moment are recorded on the share, <em>and</em> someone added to the team later also gets access — without you re-issuing the link. Removing someone withdraws it.</p>
+    <p><strong>Ambiguous names are never guessed.</strong> If two teams you belong to share a name, the library asks you which one rather than picking. Sharing a confidential document is not a place for a coin flip.</p>
+    <p>A team only works within its own organization: it cannot be used for an artifact in a personal workspace or in a different organization, and a team with no active members has nobody to share with.</p>`
+  ),
+
+  S(
+    'ai-agents',
+    'Connecting an AI agent (MCP)',
+    'mcp ai agent chatgpt claude gemini connector token scope search save share find confirmation prompt tool',
+    `
+    <p>You can connect an AI application to your library so it can work with your artifacts directly. Connect from <strong>Profile</strong> or the <strong>Add</strong> menu, choose the least privilege you need, and paste the MCP endpoint and access token into the AI app. <strong>The token is shown once.</strong></p>
+    <p>The agent works in three jobs rather than low-level operations:</p>
+    <ul>
+      <li><strong>Find</strong> — search by natural language, with filters for workspace, type, tags, collection, owner and date range.</li>
+      <li><strong>Save</strong> — store what it produced, as a new artifact or a new version of an existing one.</li>
+      <li><strong>Share</strong> — put it in front of an audience: a team, a workspace, specific people, an email domain, or a public link, with an optional expiry and view-only or download permission.</li>
+    </ul>
+    <p>An agent can only ever see and do what you can. Its permissions are never wider than your own, and every call is recorded with the AI application's name, the operation, the artifact and the time.</p>
+    <div class="guide-note">
+      <strong>Sharing beyond your organization needs your explicit confirmation.</strong> If the agent tries to create a public link, or share with individual addresses or an email domain, it cannot proceed on its own: it must ask, and <em>nothing is shared until you agree</em>. The confirmation is tied to that exact request, so an approval for one audience cannot be reused for a different one, and it expires. Sharing with a team or workspace inside your organization proceeds without a prompt.
+    </div>`
   ),
 
   S(

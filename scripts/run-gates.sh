@@ -18,7 +18,7 @@ if ! flock -n 9; then
   exit 3
 fi
 
-ALL=(build check-imports check-undefined test-preview test-preview-security test-preview-ui test-authz test-index-sync test-semantic test-extract)
+ALL=(build check-imports check-undefined test-preview test-preview-security test-preview-ui test-authz test-index-sync test-semantic test-extract test-mcp-jobs)
 GATES=("$@")
 [ ${#GATES[@]} -eq 0 ] && GATES=("${ALL[@]}")
 
@@ -42,6 +42,10 @@ run_gate() {
     test-index-sync)       node scripts/test-index-sync.mjs ;;
     test-semantic)         node scripts/test-semantic.mjs ;;
     test-extract)          node scripts/test-extract.mjs ;;
+    # Headless: real service modules against a real SQLite built from the actual
+    # migration files. No browser, so it needs no probe account and does not
+    # contend with the serialised browser suites for one-time codes.
+    test-mcp-jobs)         node scripts/test-mcp-jobs.mjs ;;
     *) echo "unknown gate: $g" >&2; return 1 ;;
   esac > "$log" 2>&1
   rc=$?
