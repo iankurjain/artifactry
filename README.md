@@ -90,10 +90,11 @@ no filesystem.
 **Audit trail** — append-only `audit_events` for auth, artifact, share, taxonomy, member and AI actions
 
 **Universal Artifact API + remote MCP — the Find → Save → Share surface**
-- **Nine job-oriented tools**, not storage primitives:
+- **Ten job-oriented tools**, not storage primitives:
   `search` · `get` · `save` · `create_version` · `share` · `revoke_share` ·
   `list_workspaces` · `list_teams` · `list_tags` · `update_tags`
-  (`revoke_share` is the tenth, so a share can be withdrawn.)
+  (`revoke_share` exists so a share can be withdrawn, and the three `list_*`
+  lookups exist because no agent can name an audience it cannot see.)
 - The end-to-end flow the surface is designed around: *find the Q3 finance deck →
   create a board Q&A → save the Word doc to Finance → share with Board prep for 7 days*.
   Low-level primitives stay behind the service layer; they remain reachable as REST
