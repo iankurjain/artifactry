@@ -20,7 +20,7 @@ import {
   listIntegrations,
   validateScopes
 } from '../lib/ai'
-import { handleMcpRequest, MCP_TOOLS, type McpRequest } from '../lib/mcp'
+import { handleMcpRequest, MCP_TOOLS, type McpRequest } from '../lib/mcp-jobs'
 import { all, first, nowIso, run } from '../lib/db'
 import { badRequest, notFound, ok, readJson } from '../lib/http'
 import { AI_SCOPES } from '../types'

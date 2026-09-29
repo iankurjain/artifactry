@@ -31,6 +31,14 @@ export interface CreateShareInput {
   recipients?: Array<{ type: 'EMAIL' | 'DOMAIN'; value: string }>
   title?: string | null
   note?: string | null
+  /**
+   * Named audiences this share is addressed to. Member addresses are ALSO
+   * written into share_recipients (so the existing EMAIL path works unchanged),
+   * while these links additionally keep access live: a current active member of
+   * a linked team is accepted by evaluateShareAccess(), so adding someone to
+   * "Board prep" grants them access without re-issuing the link.
+   */
+  teamIds?: string[]
 }
 
 export interface CreatedShare {
@@ -124,6 +132,14 @@ export async function createShare(
     )
   }
 
+  for (const teamId of [...new Set(input.teamIds ?? [])]) {
+    await run(
+      db,
+      `INSERT OR IGNORE INTO share_teams (id, share_id, team_id, created_at) VALUES (?, ?, ?, ?)`,
+      [prefixed('sht', ulid()), shareId, teamId, timestamp]
+    )
+  }
+
   const share = await first<ShareRow>(db, `SELECT * FROM shares WHERE id = ?`, [shareId])
   if (!share) throw new Error('Failed to create share')
 
@@ -141,7 +157,8 @@ export async function createShare(
       allowView: input.allowView,
       allowDownload: input.allowDownload,
       expiresAt: input.expiresAt ?? null,
-      recipientCount: normalizedRecipients.length
+      recipientCount: normalizedRecipients.length,
+      teamIds: input.teamIds ?? []
     }
   })
 
@@ -288,8 +305,17 @@ export async function evaluateShareAccess(
         WHERE share_id = ? AND recipient_type = 'EMAIL' AND recipient_value = ?`,
       [share.id, normalized]
     )
-    if (!match) return { allowed: false, reason: 'EMAIL_MISMATCH', share }
-    return { allowed: true, share, verifiedEmail: normalized }
+    if (match) return { allowed: true, share, verifiedEmail: normalized }
+
+    // Named-audience membership. The share may have been addressed to a team
+    // whose membership has changed since; a person who is on that team now is a
+    // legitimate recipient, and one who has been removed is not. Access is
+    // therefore evaluated against current membership rather than a snapshot.
+    if (await isActiveMemberOfLinkedTeam(db, share.id, normalized)) {
+      return { allowed: true, share, verifiedEmail: normalized }
+    }
+
+    return { allowed: false, reason: 'EMAIL_MISMATCH', share }
   }
 
   if (share.access_type === 'DOMAIN') {
@@ -305,6 +331,31 @@ export async function evaluateShareAccess(
   }
 
   return { allowed: false, reason: 'NOT_FOUND', share }
+}
+
+/**
+ * Is this verified address a current active member of a team linked to the share?
+ *
+ * Only ACTIVE teams count: deactivating an audience must withdraw the access it
+ * conferred, which is the whole point of making membership live.
+ */
+async function isActiveMemberOfLinkedTeam(
+  db: D1Database,
+  shareId: string,
+  emailNormalized: string
+): Promise<boolean> {
+  const row = await first<{ id: string }>(
+    db,
+    `SELECT m.id FROM share_teams st
+       JOIN teams t ON t.id = st.team_id AND t.status = 'ACTIVE'
+       JOIN team_members m ON m.team_id = t.id
+      WHERE st.share_id = ?
+        AND m.email_normalized = ?
+        AND m.status = 'ACTIVE'
+      LIMIT 1`,
+    [shareId, emailNormalized]
+  )
+  return !!row
 }
 
 export async function listShares(

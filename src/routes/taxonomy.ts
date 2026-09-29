@@ -1,10 +1,18 @@
 /**
  * Taxonomy and collections — PRD §23–§26, §110.
  *
- * Tags are admin-governed (§24): users may apply and remove existing tags but
- * cannot create new ones. That rule is enforced here, not in the UI — a
- * regular user calling POST /tags is rejected regardless of what the client
- * sends.
+ * TAGS ARE NO LONGER ADMIN-ONLY (migration 0006). Users may create tags on
+ * their own artifacts; the previous rule that only admins could define a tag
+ * has been superseded. What remains enforced here, not in the UI:
+ *
+ *   - an organization may disable user-created tags through policy
+ *     (`settings.allowUserTags === false`), in which case non-admins may still
+ *     apply the existing canonical set but cannot invent new names;
+ *   - organization-scoped tag *management* (rename, deactivate, delete) is still
+ *     an admin act, because it changes a shared vocabulary rather than one
+ *     person's filing;
+ *   - duplicate names are de-duplicated case-insensitively, so "AI", "ai" and
+ *     "Ai" are one tag.
  */
 
 import { Hono } from 'hono'
@@ -17,6 +25,8 @@ import { badRequest, conflict, forbidden, notFound, ok, readJson } from '../lib/
 import { assignTags } from '../lib/artifacts'
 import { recordAudit } from '../lib/audit'
 import { indexArtifact } from '../lib/search'
+import { decideTags, mayCreateTag } from '../lib/tags'
+import { loadArtifact } from '../lib/artifacts'
 
 const taxonomy = new Hono<AppEnv>()
 
@@ -97,19 +107,24 @@ taxonomy.post(
 
     if (scope === 'ORGANIZATION') {
       if (!organizationId) throw badRequest('organizationId is required for an organization tag')
+      // An organization's shared vocabulary is still administered. Users create
+      // tags on their artifacts through the artifact tag endpoints (which is
+      // where the taxonomy change applies); defining a canonical org tag is a
+      // deliberate act on the shared list.
       const role = principal.orgRoles[organizationId]
       if (role !== 'ORG_OWNER' && role !== 'ORG_ADMIN') {
-        throw forbidden('Only organization admins can manage organization tags')
+        throw forbidden(
+          'Only organization admins can define organization-wide tags. Add a tag directly to an artifact to classify your own work.'
+        )
       }
     } else {
-      // Personal taxonomy is platform-governed; allow it for org admins so a
-      // team can standardise its own classification without waiting on us.
-      const isAnyAdmin = Object.values(principal.orgRoles).some(
-        (r) => r === 'ORG_OWNER' || r === 'ORG_ADMIN'
-      )
-      if (!isAnyAdmin) {
+      // SUPERSEDED RULE: this previously required an organization admin. Users
+      // may now create their own tags. An organization can still switch that off
+      // via policy, which removes the ability to invent names but not the
+      // ability to apply the existing canonical set.
+      if (!(await mayCreateTag(c.env.DB, principal, organizationId))) {
         throw forbidden(
-          'Tags are admin-governed. Ask an organization admin to create new tags, or apply an existing one.'
+          'This organization restricts new tags to administrators. You can still apply existing tags.'
         )
       }
     }
@@ -165,9 +180,14 @@ taxonomy.patch(
     const principal = requirePrincipal(c)
     const tagId = c.req.param('tagId')
 
-    const tag = await first<{ id: string; scope: string; organization_id: string | null }>(
+    const tag = await first<{
+      id: string
+      scope: string
+      organization_id: string | null
+      created_by: string | null
+    }>(
       c.env.DB,
-      `SELECT id, scope, organization_id FROM tags WHERE id = ?`,
+      `SELECT id, scope, organization_id, created_by FROM tags WHERE id = ?`,
       [tagId]
     )
     if (!tag) throw notFound('Tag not found')
@@ -176,10 +196,22 @@ taxonomy.patch(
       const role = tag.organization_id ? principal.orgRoles[tag.organization_id] : null
       if (role !== 'ORG_OWNER' && role !== 'ORG_ADMIN') throw forbidden()
     } else {
+      // SUPERSEDED RULE (migration 0006): personal tags are no longer
+      // admin-governed. Users may now create tags, so they must be able to
+      // rename, recolour or retire the ones they created — otherwise the tag
+      // they just made would be frozen outside their control.
+      //
+      // Note the deliberate asymmetry: a PERSONAL tag row is platform-wide
+      // (`UNIQUE(scope, organization_id, slug)` with both null), so the
+      // creator-or-admin rule is also what stops one user renaming or deleting
+      // another user's personal tag.
       const isAnyAdmin = Object.values(principal.orgRoles).some(
         (r) => r === 'ORG_OWNER' || r === 'ORG_ADMIN'
       )
-      if (!isAnyAdmin) throw forbidden('Tags are admin-governed')
+      const ownedByCaller = !!tag.created_by && tag.created_by === principal.userId
+      if (!isAnyAdmin && !ownedByCaller) {
+        throw forbidden('You can only manage tags you created.')
+      }
     }
 
     const body = await readJson<{
@@ -240,9 +272,15 @@ taxonomy.delete(
     const principal = requirePrincipal(c)
     const tagId = c.req.param('tagId')
 
-    const tag = await first<{ id: string; scope: string; organization_id: string | null; name: string }>(
+    const tag = await first<{
+      id: string
+      scope: string
+      organization_id: string | null
+      name: string
+      created_by: string | null
+    }>(
       c.env.DB,
-      `SELECT id, scope, organization_id, name FROM tags WHERE id = ?`,
+      `SELECT id, scope, organization_id, name, created_by FROM tags WHERE id = ?`,
       [tagId]
     )
     if (!tag) throw notFound('Tag not found')
@@ -251,10 +289,22 @@ taxonomy.delete(
       const role = tag.organization_id ? principal.orgRoles[tag.organization_id] : null
       if (role !== 'ORG_OWNER' && role !== 'ORG_ADMIN') throw forbidden()
     } else {
+      // SUPERSEDED RULE (migration 0006): personal tags are no longer
+      // admin-governed. Users may now create tags, so they must be able to
+      // rename, recolour or retire the ones they created — otherwise the tag
+      // they just made would be frozen outside their control.
+      //
+      // Note the deliberate asymmetry: a PERSONAL tag row is platform-wide
+      // (`UNIQUE(scope, organization_id, slug)` with both null), so the
+      // creator-or-admin rule is also what stops one user renaming or deleting
+      // another user's personal tag.
       const isAnyAdmin = Object.values(principal.orgRoles).some(
         (r) => r === 'ORG_OWNER' || r === 'ORG_ADMIN'
       )
-      if (!isAnyAdmin) throw forbidden('Tags are admin-governed')
+      const ownedByCaller = !!tag.created_by && tag.created_by === principal.userId
+      if (!isAnyAdmin && !ownedByCaller) {
+        throw forbidden('You can only manage tags you created.')
+      }
     }
 
     const usage = await first<{ n: number }>(
@@ -299,21 +349,24 @@ taxonomy.post(
     const slugs = Array.isArray(body.tags) ? body.tags.map(String) : []
     if (!slugs.length) throw badRequest('Provide at least one tag slug')
 
-    const allTags = await all<{ id: string; slug: string; name: string }>(
+    // SUPERSEDED RULE: this previously rejected any slug that was not already in
+    // the admin-governed taxonomy. Users may now name their own tags, so an
+    // unrecognised slug is created rather than refused. decideTags applies the
+    // organization policy, case-insensitive de-duplication and the
+    // sensitive-attribute guardrail in one place.
+    const artifact = await loadArtifact(c.env.DB, artifactId)
+    const outcome = await decideTags(
       c.env.DB,
-      `SELECT id, slug, name FROM tags WHERE status = 'ACTIVE'`
+      principal,
+      {
+        id: artifactId,
+        organization_id: artifact?.organization_id ?? null,
+        current_version_id: artifact?.current_version_id ?? null
+      },
+      { add: slugs }
     )
-    const unknown = slugs.filter((s) => !allTags.some((t) => t.slug === s))
-    if (unknown.length) {
-      throw badRequest(
-        `Unknown tag(s): ${unknown.join(', ')}. Tags are admin-governed — only existing tags can be applied.`
-      )
-    }
 
-    const ids = allTags.filter((t) => slugs.includes(t.slug)).map((t) => t.id)
-    const outcome = await assignTags(c.env.DB, artifactId, ids, principal.userId!)
-
-    return ok(c, { applied: slugs, added: outcome.added })
+    return ok(c, { applied: slugs, added: outcome.added.length })
   })
 )
 

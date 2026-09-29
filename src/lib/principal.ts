@@ -48,6 +48,8 @@ interface GrantRow {
   user_id: string
   scopes: string
   status: string
+  client_name: string | null
+  client_version: string | null
 }
 
 /**
@@ -106,7 +108,7 @@ async function resolveAiGrant(db: D1Database, rawToken: string): Promise<Princip
   const tokenHash = await hashGrantToken(rawToken)
   const grant = await first<GrantRow>(
     db,
-    `SELECT id, integration_id, user_id, scopes, status
+    `SELECT id, integration_id, user_id, scopes, status, client_name, client_version
        FROM integration_grants WHERE token_hash = ?`,
     [tokenHash]
   )
@@ -145,7 +147,11 @@ async function resolveAiGrant(db: D1Database, rawToken: string): Promise<Princip
     scopes,
     integrationId: grant.integration_id,
     grantId: grant.id,
-    provider: (integration?.provider as Principal['provider']) ?? undefined
+    provider: (integration?.provider as Principal['provider']) ?? undefined,
+    // Reported by the client during `initialize`; null until it has connected
+    // once. Only ever what the client says about itself.
+    clientName: grant.client_name ?? undefined,
+    clientVersion: grant.client_version ?? undefined
   }
 }
 
@@ -250,6 +256,12 @@ function aiScopeAllows(principal: Principal, permission: Permission): boolean {
       return scopes.includes('workspace.read')
     case 'tag.manage':
       return scopes.includes('tags.read')
+    // Teams are readable by a connector so it can address an audience by name
+    // ("share with Board prep"); managing an audience is a UI/administrative act
+    // and is deliberately NOT reachable from an AI grant (there is no team.write
+    // scope), so this falls through to false.
+    case 'team.read':
+      return scopes.includes('team.read')
     default:
       return false
   }

@@ -62,6 +62,7 @@ import {
 } from '../lib/http'
 import { extensionOf, isSupportedExtension, sanitizeFilename } from '../lib/validate'
 import { ulid } from '../lib/ids'
+import { autoTagArtifact, decideTags, tagsByState } from '../lib/tags'
 
 const artifacts = new Hono<AppEnv>()
 
@@ -259,17 +260,37 @@ artifacts.post(
       origin
     )
 
+    // Explicitly supplied tags become CONFIRMED immediately: a person naming a
+    // tag is the decision, not a suggestion. decideTags also handles the
+    // taxonomy change (a user may create a tag), so an unknown slug is created
+    // rather than silently dropped as it was when tags were admin-governed.
+    let tagWarning: string | null = null
     if (tagSlugs.length) {
-      const tags = await all<{ id: string; slug: string }>(
-        c.env.DB,
-        `SELECT id, slug FROM tags WHERE status = 'ACTIVE'`
-      )
-      const ids = tags.filter((t) => tagSlugs.includes(t.slug)).map((t) => t.id)
-      if (ids.length) await assignTags(c.env.DB, result.artifactId, ids, principal.userId!)
+      try {
+        await decideTags(
+          c.env.DB,
+          principal,
+          {
+            id: result.artifactId,
+            organization_id: workspace.organization_id,
+            current_version_id: (await loadArtifact(c.env.DB, result.artifactId))?.current_version_id ?? null
+          },
+          { add: tagSlugs }
+        )
+      } catch (err) {
+        // The artifact exists and is usable; a tag refusal must not turn a
+        // successful upload into an error response.
+        tagWarning = err instanceof Error ? err.message : 'Tags could not be applied'
+      }
     }
 
+    // Automatic tagging: generate a small set of suggestions from the artifact's
+    // own extracted content and metadata and attach them as SUGGESTED. Bounded
+    // and non-throwing, so an AI outage never fails an upload that succeeded.
+    const suggestions = await autoTagArtifact(c.env, principal, result.artifactId)
+
     const artifact = await loadArtifact(c.env.DB, result.artifactId)
-    const tags = await tagsForArtifact(c.env.DB, result.artifactId)
+    const tagState = await tagsByState(c.env.DB, result.artifactId)
 
     const status = result.status === 'READY' ? 201 : 200
 
@@ -277,11 +298,17 @@ artifacts.post(
       c,
       {
         artifact: artifact
-          ? presentArtifact(artifact as unknown as Record<string, unknown>, { tags })
+          ? presentArtifact(artifact as unknown as Record<string, unknown>, {
+              tags: tagState.confirmed
+            })
           : { id: result.artifactId, status: result.status },
         canonicalUrl: result.canonicalUrl,
         detail: result.detail,
-        workspace: { id: workspace.id, name: workspace.name }
+        workspace: { id: workspace.id, name: workspace.name },
+        tags: tagState,
+        suggestedTags: suggestions.created,
+        tagging: { source: suggestions.source, reason: suggestions.reason },
+        ...(tagWarning ? { tagWarning } : {})
       },
       status
     )
@@ -930,8 +957,19 @@ artifacts.post(
       accessChannel: principal.kind === 'AI_GRANT' ? 'AI' : 'INTERNAL'
     })
 
+    // A new version is materially new content, which is the one case in which a
+    // previously rejected tag may legitimately be proposed again: the rejection
+    // was a judgement about the old content. suggestTagsForArtifact keys that
+    // decision to the version it was made against, so this call re-proposes only
+    // where the basis has actually changed.
+    const suggestions =
+      result.status === 'READY'
+        ? await autoTagArtifact(c.env, principal, artifactId, result.versionId)
+        : { created: [], source: 'unavailable' as const, reason: 'Version was not accepted' }
+
     const updated = await loadArtifact(c.env.DB, artifactId)
     const versions = await listVersions(c.env.DB, artifactId)
+    const tagState = await tagsByState(c.env.DB, artifactId)
 
     return ok(
       c,
@@ -940,8 +978,15 @@ artifacts.post(
         versionNumber: result.versionNumber,
         status: result.status,
         detail: result.detail,
-        artifact: updated ? presentArtifact(updated as unknown as Record<string, unknown>) : null,
-        versionCount: versions.length
+        artifact: updated
+          ? presentArtifact(updated as unknown as Record<string, unknown>, {
+              tags: tagState.confirmed
+            })
+          : null,
+        versionCount: versions.length,
+        tags: tagState,
+        suggestedTags: suggestions.created,
+        tagging: { source: suggestions.source, reason: suggestions.reason }
       },
       result.status === 'READY' ? 201 : 200
     )
@@ -1149,6 +1194,11 @@ artifacts.post(
 
     const outcome = await reprocessVersion(c.env, artifactId, artifact.current_version_id)
 
+    // Re-processing re-extracts the content, which can change what the artifact
+    // is about, so tagging is re-run here for the same reason it runs on upload.
+    // Existing decisions are respected: only genuinely new suggestions are added.
+    const suggestions = await autoTagArtifact(c.env, principal, artifactId)
+
     await recordAudit(c.env.DB, {
       organizationId: artifact.organization_id,
       workspaceId: artifact.workspace_id,
@@ -1163,7 +1213,14 @@ artifacts.post(
       }
     }).catch(() => {})
 
-    return ok(c, outcome)
+    const tagState = await tagsByState(c.env.DB, artifactId)
+
+    return ok(c, {
+      ...outcome,
+      tags: tagState,
+      suggestedTags: suggestions.created,
+      tagging: { source: suggestions.source, reason: suggestions.reason }
+    })
   })
 )
 

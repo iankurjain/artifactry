@@ -762,28 +762,63 @@ export async function softDeleteArtifact(env: Env, artifactId: string): Promise<
 // Tag assignment (§25)
 // ---------------------------------------------------------------
 
+/**
+ * Set the artifact's CONFIRMED tags to exactly `tagIds`.
+ *
+ * Previously this replaced every association, which is no longer correct: with
+ * the tag decision model (migration 0006) an association carries a state, and a
+ * full replace would silently delete SUGGESTED proposals and — far worse —
+ * REJECTED rows. A deleted rejection is a forgotten decision, so the same tag
+ * would be re-suggested on the next pass, which is precisely the behaviour the
+ * rejection exists to prevent.
+ *
+ * So this function owns the CONFIRMED set only. Suggestions and rejections are
+ * left exactly as they are.
+ */
 export async function assignTags(
   db: D1Database,
   artifactId: string,
   tagIds: string[],
-  assignedBy: string
+  assignedBy: string,
+  options: { provenance?: 'AI' | 'USER' | 'ADMIN'; sourceVersionId?: string | null } = {}
 ): Promise<{ added: number; removed: number }> {
   const existing = await all<{ tag_id: string }>(
     db,
-    `SELECT tag_id FROM artifact_tags WHERE artifact_id = ?`,
+    `SELECT tag_id FROM artifact_tags WHERE artifact_id = ? AND state = 'CONFIRMED'`,
     [artifactId]
   )
   const existingIds = new Set(existing.map((r) => r.tag_id))
   const desired = new Set(tagIds)
+  const timestamp = nowIso()
 
   let added = 0
   for (const tagId of desired) {
     if (existingIds.has(tagId)) continue
+    // Upsert: the same tag may already carry a SUGGESTED or REJECTED row, and a
+    // confirmation is a change of state on that row rather than a second row.
     await run(
       db,
-      `INSERT OR IGNORE INTO artifact_tags (id, artifact_id, tag_id, assigned_by, assigned_at)
-       VALUES (?, ?, ?, ?, ?)`,
-      [prefixed('atg', ulid()), artifactId, tagId, assignedBy, nowIso()]
+      `INSERT INTO artifact_tags
+         (id, artifact_id, tag_id, assigned_by, assigned_at, state, provenance, source_version_id, decided_by, decided_at)
+       VALUES (?, ?, ?, ?, ?, 'CONFIRMED', ?, ?, ?, ?)
+       ON CONFLICT(artifact_id, tag_id) DO UPDATE SET
+         state = 'CONFIRMED',
+         provenance = excluded.provenance,
+         assigned_by = excluded.assigned_by,
+         assigned_at = excluded.assigned_at,
+         decided_by = excluded.decided_by,
+         decided_at = excluded.decided_at`,
+      [
+        prefixed('atg', ulid()),
+        artifactId,
+        tagId,
+        assignedBy,
+        timestamp,
+        options.provenance ?? 'USER',
+        options.sourceVersionId ?? null,
+        assignedBy,
+        timestamp
+      ]
     )
     added++
   }
@@ -791,10 +826,11 @@ export async function assignTags(
   let removed = 0
   for (const tagId of existingIds) {
     if (desired.has(tagId)) continue
-    await run(db, `DELETE FROM artifact_tags WHERE artifact_id = ? AND tag_id = ?`, [
-      artifactId,
-      tagId
-    ])
+    await run(
+      db,
+      `DELETE FROM artifact_tags WHERE artifact_id = ? AND tag_id = ? AND state = 'CONFIRMED'`,
+      [artifactId, tagId]
+    )
     removed++
   }
 

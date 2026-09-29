@@ -155,7 +155,12 @@ function makeDB() {
     );
     CREATE TABLE artifact_tags (
       id TEXT PRIMARY KEY, artifact_id TEXT NOT NULL, tag_id TEXT NOT NULL,
-      assigned_by TEXT, assigned_at TEXT NOT NULL
+      assigned_by TEXT, assigned_at TEXT NOT NULL,
+      -- Migration 0006: tag associations carry a decision state, and only
+      -- CONFIRMED tags are indexed or returned.
+      state TEXT NOT NULL DEFAULT 'CONFIRMED',
+      provenance TEXT NOT NULL DEFAULT 'USER',
+      source_version_id TEXT, decided_by TEXT, decided_at TEXT
     );
     CREATE VIRTUAL TABLE artifact_search USING fts5(
       title, filename, description, tags, extracted_text,

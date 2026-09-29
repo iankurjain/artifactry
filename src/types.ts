@@ -81,6 +81,7 @@ export type AiScope =
   | 'artifact.share'
   | 'artifact.analytics.read'
   | 'workspace.read'
+  | 'team.read'
   | 'tags.read'
   | 'profile.read'
 
@@ -90,9 +91,62 @@ export const AI_SCOPES: AiScope[] = [
   'artifact.share',
   'artifact.analytics.read',
   'workspace.read',
+  'team.read',
   'tags.read',
   'profile.read'
 ]
+
+// ---------------------------------------------------------------
+// Tag decision model (migration 0006)
+// ---------------------------------------------------------------
+
+/**
+ * A tag association records a *decision*, not merely a link.
+ *
+ *   SUGGESTED — machine-proposed from the artifact's content; shown to the user
+ *   CONFIRMED — accepted by a person, or added by one directly
+ *   REJECTED  — explicitly declined by a person. The row is retained so the
+ *               same suggestion is never re-offered against unchanged content.
+ */
+export type TagState = 'SUGGESTED' | 'CONFIRMED' | 'REJECTED'
+
+/** Who caused the association. Only these three, deliberately. */
+export type TagProvenance = 'AI' | 'USER' | 'ADMIN'
+
+// ---------------------------------------------------------------
+// Teams — reusable named sharing audiences (migration 0006)
+// ---------------------------------------------------------------
+
+export type TeamScope = 'ORGANIZATION' | 'WORKSPACE'
+export type TeamStatus = 'ACTIVE' | 'INACTIVE'
+export type TeamMemberRole = 'ADMIN' | 'MEMBER'
+
+export interface TeamRow {
+  id: string
+  organization_id: string
+  workspace_id: string | null
+  scope: TeamScope
+  name: string
+  slug: string
+  description: string | null
+  owner_user_id: string
+  status: TeamStatus
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface TeamMemberRow {
+  id: string
+  team_id: string
+  user_id: string | null
+  email_normalized: string
+  display_name: string | null
+  role: TeamMemberRole
+  status: string
+  created_at: string
+  created_by: string | null
+}
 
 // ---------------------------------------------------------------
 // Permission model — the single source of truth for authorization.
@@ -116,8 +170,10 @@ export type Permission =
   | 'workspace.manage'
   | 'member.manage'
   | 'tag.manage'
+  | 'team.read'
+  | 'team.manage'
 
-const VIEWER_PERMS: Permission[] = ['artifact.read', 'artifact.download']
+const VIEWER_PERMS: Permission[] = ['artifact.read', 'artifact.download', 'team.read']
 
 const CONTRIBUTOR_PERMS: Permission[] = [
   ...VIEWER_PERMS,
@@ -136,7 +192,8 @@ const WORKSPACE_ADMIN_PERMS: Permission[] = [
   'analytics.read.artifact',
   'analytics.read.workspace',
   'workspace.manage',
-  'member.manage'
+  'member.manage',
+  'team.manage'
 ]
 
 const ORG_ADMIN_PERMS: Permission[] = [
@@ -287,6 +344,14 @@ export interface Principal {
   integrationId?: string
   provider?: SourceProvider
   grantId?: string
+  /**
+   * The AI application that reported itself when the grant was issued, e.g.
+   * "Claude Desktop". Recorded on every artifact the connection produces and
+   * on every MCP call, so "which AI did what, on whose behalf" is answerable
+   * rather than inferred from the provider alone (§59).
+   */
+  clientName?: string
+  clientVersion?: string
 }
 
 export interface ApiError {

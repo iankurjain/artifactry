@@ -79,7 +79,13 @@ function makeDB() {
       id TEXT PRIMARY KEY, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'ACTIVE'
     );
     CREATE TABLE artifact_tags (
-      id TEXT PRIMARY KEY, artifact_id TEXT NOT NULL, tag_id TEXT NOT NULL
+      id TEXT PRIMARY KEY, artifact_id TEXT NOT NULL, tag_id TEXT NOT NULL,
+      -- Migration 0006: an association carries a decision. indexArtifact() and
+      -- loadTagsFor() index CONFIRMED tags only, so a harness without this
+      -- column would fail to reflect the real index semantics.
+      state TEXT NOT NULL DEFAULT 'CONFIRMED',
+      provenance TEXT NOT NULL DEFAULT 'USER',
+      source_version_id TEXT, decided_by TEXT, decided_at TEXT
     );
     CREATE VIRTUAL TABLE artifact_search USING fts5(
       title, filename, description, tags, extracted_text,

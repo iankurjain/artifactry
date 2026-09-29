@@ -33,10 +33,20 @@ export type AuditAction =
   | 'TAG_DELETE'
   | 'WORKSPACE_CREATE'
   | 'ORGANIZATION_CREATE'
+  | 'TEAM_CREATE'
+  | 'TEAM_UPDATE'
+  | 'TEAM_MEMBER_ADD'
+  | 'TEAM_MEMBER_REMOVE'
+  | 'TAG_SUGGEST'
+  | 'TAG_ACCEPT'
+  | 'TAG_REJECT'
   | 'AI_CONNECT'
   | 'AI_DISCONNECT'
   | 'AI_FETCH'
   | 'AI_CREATE'
+  | 'AI_CONFIRM_REQUESTED'
+  | 'AI_CONFIRM_GRANTED'
+  | 'AI_CONFIRM_DENIED'
 
 export interface AuditInput {
   organizationId?: string | null

@@ -29,6 +29,10 @@ export interface SearchFilters {
   statuses?: string[]
   createdFrom?: string
   createdTo?: string
+  /** Restrict to artifacts that belong to any of these collections. */
+  collectionIds?: string[]
+  updatedFrom?: string
+  updatedTo?: string
 }
 
 export interface SearchRequest extends SearchFilters {
@@ -45,6 +49,12 @@ export interface SearchHit {
   matchSource: 'lexical' | 'semantic' | 'both'
   isOwner: boolean
   workspaceName: string | null
+  /**
+   * Short authorized excerpt from the artifact's own text, centred on the
+   * query where the match can be located. Derived only from rows that already
+   * passed the ACL, so it can never widen what the caller may see.
+   */
+  excerpt: string | null
 }
 
 export interface SearchResponse {
@@ -230,6 +240,27 @@ export async function searchArtifacts(
     params.push(request.createdTo)
   }
 
+  if (request.collectionIds?.length) {
+    // Membership is a join through collection_artifacts. The workspace bound
+    // applied above still holds, so a collection id cannot be used to reach
+    // across a tenant boundary even if one were guessed.
+    where.push(`EXISTS (
+      SELECT 1 FROM collection_artifacts ca
+       WHERE ca.artifact_id = a.id
+         AND ca.collection_id IN (${request.collectionIds.map(() => '?').join(',')})
+    )`)
+    params.push(...request.collectionIds)
+  }
+
+  if (request.updatedFrom) {
+    where.push('a.updated_at >= ?')
+    params.push(request.updatedFrom)
+  }
+  if (request.updatedTo) {
+    where.push('a.updated_at <= ?')
+    params.push(request.updatedTo)
+  }
+
   if (request.tagSlugs?.length) {
     // Require every requested tag (AND semantics), matching how the filter
     // chips read on the search screen.
@@ -237,6 +268,7 @@ export async function searchArtifacts(
       SELECT COUNT(DISTINCT t.slug) FROM artifact_tags at
         JOIN tags t ON t.id = at.tag_id
        WHERE at.artifact_id = a.id
+         AND at.state = 'CONFIRMED'
          AND t.slug IN (${request.tagSlugs.map(() => '?').join(',')})
     ) = ?`)
     params.push(...request.tagSlugs, request.tagSlugs.length)
@@ -320,6 +352,7 @@ export async function searchArtifacts(
 
   const tagMap = await loadTagsFor(db, rows.map((r) => r.id))
   const workspaceNames = await loadWorkspaceNames(db, rows.map((r) => r.workspace_id))
+  const excerpts = await loadExcerpts(db, rows, request.query)
 
   const hits: SearchHit[] = rows.map((row) => {
     const semScore = semanticMap.get(row.id) ?? 0
@@ -339,7 +372,8 @@ export async function searchArtifacts(
       score: row.score + semScore,
       matchSource: source,
       isOwner: row.owner_user_id === principal.userId,
-      workspaceName: workspaceNames.get(row.workspace_id) ?? null
+      workspaceName: workspaceNames.get(row.workspace_id) ?? null,
+      excerpt: excerpts.get(row.id) ?? null
     }
   })
 
@@ -445,6 +479,10 @@ export async function loadTagsFor(
   const map = new Map<string, string[]>()
   if (!artifactIds.length) return map
 
+  // CONFIRMED only. This is what renders beside a search hit and on the detail
+  // screen, so returning SUGGESTED names here would present machine guesses as
+  // if the user had accepted them, and REJECTED names would reappear after
+  // being explicitly declined.
   const rows = await all<{ artifact_id: string; slug: string; name: string }>(
     db,
     `SELECT at.artifact_id, t.slug, t.name
@@ -452,6 +490,7 @@ export async function loadTagsFor(
        JOIN tags t ON t.id = at.tag_id
       WHERE at.artifact_id IN (${artifactIds.map(() => '?').join(',')})
         AND t.status = 'ACTIVE'
+        AND at.state = 'CONFIRMED'
       ORDER BY t.name ASC`,
     artifactIds
   )
@@ -461,6 +500,61 @@ export async function loadTagsFor(
     list.push(row.name)
     map.set(row.artifact_id, list)
   }
+  return map
+}
+
+/**
+ * Build a short excerpt per hit, centred on the query where locatable.
+ *
+ * Reads ONLY the rows already in `hits` (which have each passed the ACL), so an
+ * excerpt can never reveal text from an artifact the caller may not access. It
+ * is bounded because this is model context, not a document transport.
+ */
+async function loadExcerpts(
+  db: D1Database,
+  rows: ArtifactRow[],
+  query: string
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>()
+  const withVersion = rows.filter((r) => r.current_version_id)
+  if (!withVersion.length) return map
+
+  const versionIds = withVersion.map((r) => r.current_version_id as string)
+  const texts = await all<{ id: string; extracted_text: string | null }>(
+    db,
+    `SELECT id, extracted_text FROM artifact_versions
+      WHERE id IN (${versionIds.map(() => '?').join(',')})`,
+    versionIds
+  )
+  const byVersion = new Map(texts.map((t) => [t.id, t.extracted_text]))
+
+  const terms = (query || '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .split(/\s+/)
+    .filter((t) => t.length >= 3)
+
+  const WINDOW = 240
+
+  for (const row of withVersion) {
+    const text = byVersion.get(row.current_version_id as string)
+    if (!text) continue
+
+    const flat = text.replace(/\s+/g, ' ').trim()
+    if (!flat) continue
+
+    const lowered = flat.toLowerCase()
+    let start = -1
+    for (const term of terms) {
+      const found = lowered.indexOf(term)
+      if (found !== -1 && (start === -1 || found < start)) start = found
+    }
+
+    const from = start === -1 ? 0 : Math.max(0, start - 80)
+    const slice = flat.slice(from, from + WINDOW).trim()
+    map.set(row.id, `${from > 0 ? '\u2026' : ''}${slice}${from + WINDOW < flat.length ? '\u2026' : ''}`)
+  }
+
   return map
 }
 
@@ -512,10 +606,14 @@ export async function indexArtifact(db: D1Database, artifactId: string): Promise
   // search facets (what the filter list offers). Denormalising an INACTIVE tag
   // name here would make an artifact findable by a tag the UI no longer shows
   // and no longer lets you filter by.
+  //
+  // CONFIRMED only: a SUGGESTED tag is a machine proposal nobody has accepted
+  // yet. Indexing it would let an artifact surface from a guess the user never
+  // approved, and a REJECTED tag must never be searchable at all.
   const tagNames = await all<{ name: string }>(
     db,
     `SELECT t.name FROM artifact_tags at JOIN tags t ON t.id = at.tag_id
-      WHERE at.artifact_id = ? AND t.status = 'ACTIVE'`,
+      WHERE at.artifact_id = ? AND t.status = 'ACTIVE' AND at.state = 'CONFIRMED'`,
     [artifactId]
   )
 
