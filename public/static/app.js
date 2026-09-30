@@ -26,7 +26,9 @@ import {
   extLabel,
   fileBadge,
   emptyState,
-  spinner
+  spinner,
+  brandLockup,
+  brandUrl
 } from './ui.js'
 import {
   renderLogin,
@@ -541,6 +543,7 @@ function navItem(key, path, label, iconName, active) {
 
 ctx.bottomNav = (active) => `
   <nav class="bottom-nav" aria-label="Primary navigation">
+    <a class="rail-brand" href="/" data-nav="/" aria-label="Artifactry home">${brandLockup(32)}</a>
     ${navItem('home', '/', 'Home', 'home', active)}
     ${navItem('library', '/library', 'Library', 'library', active)}
     <button class="nav-item" id="nav-add" aria-label="Add to library">
@@ -606,7 +609,7 @@ ctx.workspaceSwitcher = () => {
     <button class="chip" id="workspace-switcher" style="min-height:36px;padding:6px 11px;cursor:pointer;max-width:170px">
       ${icon(current?.type === 'PERSONAL' ? 'user' : 'building', 14)}
       <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(label)}</span>
-      ${icon('back', 12, 'rotate-270')}
+      ${icon('chevronDown', 12)}
     </button>`
 }
 
@@ -1279,11 +1282,11 @@ ctx.openGrantResultSheet = (result, integration) => {
         </p>
 
         <div style="font-size:11.5px;font-weight:640;color:var(--text-2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">MCP endpoint</div>
-        <div style="padding:11px;border-radius:11px;background:var(--surface-2);font-family:ui-monospace,monospace;
-          font-size:11.5px;word-break:break-all;line-height:1.6">${esc(result.mcpEndpoint)}</div>
+        <div class="brand-url" style="padding:11px;border-radius:11px;background:var(--surface-2);
+          font-size:11.5px;word-break:break-all;line-height:1.6">${brandUrl(result.mcpEndpoint)}</div>
 
         <div style="font-size:11.5px;font-weight:640;color:var(--text-2);text-transform:uppercase;letter-spacing:.05em;margin:14px 0 5px">Access token</div>
-        <div style="padding:11px;border-radius:11px;background:var(--surface-2);font-family:ui-monospace,monospace;
+        <div style="padding:11px;border-radius:11px;background:var(--surface-2);font-family:var(--font-mono);
           font-size:11.5px;word-break:break-all;line-height:1.6">${esc(result.token)}</div>
 
         <div style="margin-top:14px;padding:11px 13px;border-radius:11px;background:var(--warning-weak);
@@ -1347,7 +1350,7 @@ ctx.openIntegrationSheet = (integration) => {
         </div>
         <div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0">
           <span style="color:var(--text-2)">Token prefix</span>
-          <span style="font-weight:560;font-family:ui-monospace,monospace;font-size:11.5px">${esc(
+          <span style="font-weight:560;font-family:var(--font-mono);font-size:11.5px">${esc(
             integration.tokenPrefix || '—'
           )}</span>
         </div>
@@ -1657,7 +1660,7 @@ ctx.openCollectionsSheet = async () => {
                         ${c.artifactCount} item(s)${c.workspaceName ? ` · ${esc(c.workspaceName)}` : ''}
                       </span>
                     </span>
-                    ${icon('back', 16)}
+                    ${icon('chevron', 16)}
                   </button>`
                   )
                   .join('')}
@@ -2270,7 +2273,7 @@ ctx.openShareManageSheet = async (shareId) => {
         </div>
         <div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0">
           <span style="color:var(--text-2)">Link prefix</span>
-          <span style="font-weight:560;font-family:ui-monospace,monospace;font-size:11.5px">${esc(share.tokenPrefix)}…</span>
+          <span style="font-weight:560;font-family:var(--font-mono);font-size:11.5px">${esc(share.tokenPrefix)}…</span>
         </div>
 
         <div style="font-size:12.5px;font-weight:640;color:var(--text-2);text-transform:uppercase;letter-spacing:.05em;margin:18px 0 8px">

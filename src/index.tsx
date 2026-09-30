@@ -198,7 +198,7 @@ function viewerMessage(title: string, message: string): Response {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>${escapeHtml(title)}</title></head>
-<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:48px 20px;background:#f5f6f2;color:#12151c">
+<body style="font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:48px 20px;background:#f5f6f2;color:#12151c">
 <div style="max-width:420px;margin:0 auto;background:#fff;border:1px solid #e2e4da;border-radius:14px;padding:22px">
 <h1 style="font-size:19px;margin:0 0 8px">${escapeHtml(title)}</h1>
 <p style="font-size:14px;color:#5a6066;margin:0;line-height:1.55">${escapeHtml(message)}</p>
@@ -308,7 +308,7 @@ app.get(
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: #f5f6f2;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
   .wrap { display: flex; flex-direction: column; height: 100dvh; }
   .bar { display: flex; align-items: center; gap: 12px; padding: 10px 16px;
     background: #fff; border-bottom: 1px solid #e2e4da; flex: none; }
@@ -440,7 +440,7 @@ app.onError((err, c) => {
   }
   return c.html(
     `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Error</title></head>
-     <body style="font-family:system-ui;padding:40px;max-width:430px;margin:0 auto;background:#f5f6f2;color:#12151c">
+     <body style="font-family:Inter,system-ui,sans-serif;padding:40px;max-width:430px;margin:0 auto;background:#f5f6f2;color:#12151c">
      <h1 style="font-size:22px">Something went wrong</h1>
      <p style="color:#5a6066">Please reload and try again.</p>
      <a href="/" style="color:#4e7a00">Back to library</a></body></html>`,
