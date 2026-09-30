@@ -1,6 +1,6 @@
-# Artifact Library
+# Artifactry
 
-A mobile-first, multi-tenant **AI-Native Artifact Library SaaS** built entirely on Cloudflare
+A mobile-first, multi-tenant **AI-native artifact library SaaS** built entirely on Cloudflare
 Pages + Workers. It gives a person or a team one governed library for the files they and their
 AI tools create: permanent artifact links, versions, tags, collections, search, sharing, usage
 analytics, an audit trail, and a scoped MCP endpoint that ChatGPT / Claude / Gemini can call.
@@ -455,18 +455,18 @@ create/read buckets; D1 and Pages scopes are separate and will not cover it.
 
 **Email**: `EMAIL_API_KEY` (Resend) **is set**, so dev-code mode is off and codes are emailed.
 
-> **Sender-domain limitation.** Resend refuses to send from an unverified domain, and this
-> account has **no verified domain** (`GET https://api.resend.com/domains` → empty). The code's
-> built-in fallback sender is `noreply@artifactlibrary.dev`, which Resend rejects with `403` —
-> so `EMAIL_FROM` is pinned in `wrangler.jsonc` to `onboarding@resend.dev`, the one identity
-> this account can currently send as. With that sender Resend delivers **only to the Resend
-> account owner's address**; every other recipient is rejected `403` and the API fails with
-> `400 Could not send email. Please try again shortly.`
+> **Sender.** `EMAIL_FROM` is set in `wrangler.jsonc` to `Artifactry <no-reply@artifactry.app>`,
+> and the code's own fallback uses the same address. Sending from `artifactry.app` requires the
+> domain to be verified in Resend (DKIM at `resend._domainkey`, SPF via the `rsend`/`send`
+> CNAMEs); production sign-in delivery was exercised during release validation. If the domain is
+> ever *not* verified, Resend rejects the send with `403` and the API surfaces
+> `400 Could not send email. Please try again shortly.` — an unverified-domain sender also
+> restricts delivery to the account owner's address.
 >
-> **To fix properly:** verify a domain at https://resend.com/domains (add DNS records), then
-> change `EMAIL_FROM` in `wrangler.jsonc` to an address on it and redeploy. Alternatively, set
-> `DEV_LOGIN_MODE=false` *and* revert to dev-code mode to restore demo sign-in — but note that
-> without an email key dev-code mode is the only working path.
+> **To change the sender:** verify the domain at https://resend.com/domains (add the DNS
+> records), then set `EMAIL_FROM` in `wrangler.jsonc` and redeploy. It is a build-time var, not
+> a runtime secret, so editing it alone does nothing. Separately, note that without an email key
+> `DEV_LOGIN_MODE` is the only working sign-in path.
 
 **Alternative path.** `gsk-hosted-deploy` provisions D1/R2 on a Genspark-managed Cloudflare
 account with no billing step. The source works unmodified on that path (see note 1 below), but
@@ -482,6 +482,31 @@ Other operational notes for this deployment path:
    sending domain, `EMAIL_FROM` must stay on the shared test sender — see the sender-domain
    limitation above. A failed send writes **no** `auth_otp` row and burns **no** cooldown, so a
    delivery failure never locks a recipient out or leaves a false audit record.
+
+---
+
+## Brand
+
+Identity is the official Artifactry **"Spark Fold"** kit (v1.0): an Ink document tile with a URL
+slash cut through it, whose folded corner lifts off as a Volt spark — the tile is the artifact,
+the slash is the permalink, the spark is the AI moment. Assets are vendored under
+`public/static/brand/` and served at `/static/brand/*`, an ordinary static-asset path that
+`_routes.json` already excludes, so icons are served by Pages and never reach the Worker.
+
+| Token | HEX | Use |
+|---|---|---|
+| Ink | `#12151C` | tile, wordmark, body text |
+| Volt Deep | `#4E7A00` | **primary interactive accent** — buttons, links, focus rings, selected controls |
+| Volt | `#B8F23A` | brand highlight only; 1.33:1 on white, so never text on a light surface |
+| Paper | `#F5F6F2` | light background |
+
+`--accent` is **Volt Deep**, not Volt: Volt cannot carry text or primary UI meaning on white
+(1.33:1), while Volt Deep reaches 5.11:1 on white and 4.71:1 on Paper. Volt survives only as a
+highlight and inside the mark itself. The logo is never redrawn — `brandMark(size)` in
+`public/static/ui.js` inlines the kit's two official cuts and switches to the small-size cut
+below 32 px as the kit mandates; the sign-in screen uses the kit's outlined horizontal lockup.
+Palette values are mirrored in the Tailwind `extend` block in `renderer.tsx`, while the CSS
+custom properties on `:root` remain the single source of truth.
 
 ---
 

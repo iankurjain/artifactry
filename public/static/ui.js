@@ -130,6 +130,31 @@ const ICON_PATHS = {
   ai: '<rect x="5" y="7" width="14" height="11" rx="3"/><path d="M12 3.5V7"/><circle cx="9.5" cy="12" r="1.2"/><circle cx="14.5" cy="12" r="1.2"/>'
 }
 
+/**
+ * The Artifactry brand mark — "Spark Fold".
+ *
+ * Geometry, colours, and both size cuts are copied verbatim from the official
+ * logo kit (`masters/artifactry-symbol.svg` and `artifactry-symbol-small.svg`).
+ * Nothing here is redrawn or approximated.
+ *
+ * The kit mandates the small-size cut below 32 px: it enlarges the slash and
+ * the spark so the mark still reads in a browser tab or a 17 px header. Above
+ * that the standard cut is used.
+ *
+ * The mark carries its own Ink tile and Volt Deep spark, so it is placed
+ * directly on light surfaces. It must not be recoloured, separated from the
+ * tile, or given a chip/background of its own (kit "Don'ts").
+ */
+export function brandMark(size = 28, extraClass = '') {
+  const paths =
+    size < 32
+      ? '<path fill="#12151C" fill-rule="evenodd" d="M42,58 H92 L196,162 V214 A24,24 0 0 1 172,238 H42 A24,24 0 0 1 18,214 V82 A24,24 0 0 1 42,58 Z M42.60,201.57 L93.40,201.57 L141.40,118.43 L90.60,118.43 Z"/><path fill="#4E7A00" d="M194,8 Q199.76,50.24 242,56 Q199.76,61.76 194,104 Q188.24,61.76 146,56 Q188.24,50.24 194,8 Z"/>'
+      : '<path fill="#12151C" fill-rule="evenodd" d="M48,42 H122 L206,126 V210 A22,22 0 0 1 184,232 H48 A22,22 0 0 1 26,210 V64 A22,22 0 0 1 48,42 Z M62.37,200.50 L101.63,200.50 L157.63,103.50 L118.37,103.50 Z"/><path fill="#4E7A00" d="M197,17 Q200.63,46.37 230,50 Q200.63,53.63 197,83 Q193.37,53.63 164,50 Q193.37,46.37 197,17 Z"/>'
+
+  return `<svg viewBox="0 0 256 256" width="${size}" height="${size}" role="img" aria-label="Artifactry"
+    class="${esc(extraClass)}" focusable="false">${paths}</svg>`
+}
+
 export function icon(name, size = 24, extraClass = '') {
   const path = ICON_PATHS[name] || ICON_PATHS.file
   return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor"
@@ -143,11 +168,11 @@ export function fileBadge(extension) {
   const palette = {
     pptx: ['#fff1e6', '#b54708'],
     pdf: ['#fef3f2', '#b42318'],
-    docx: ['#eaf0ff', '#1d4ed8'],
+    docx: ['#eef9dc', '#4e7a00'],
     html: ['#f3e8ff', '#7e22ce']
   }
   const [bg, fg] = palette[ext] ||
-    (['png', 'jpg', 'jpeg', 'bmp', 'gif'].includes(ext) ? ['#ecfdf3', '#067647'] : ['#f1f3f6', '#5b6472'])
+    (['png', 'jpg', 'jpeg', 'bmp', 'gif'].includes(ext) ? ['#ecfdf3', '#067647'] : ['#eef0e9', '#5a6066'])
 
   return `<div style="width:46px;height:46px;flex:none;border-radius:11px;background:${bg};color:${fg};
     display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;letter-spacing:.03em">

@@ -1,5 +1,5 @@
 /**
- * Shared domain types for the Artifact Library.
+ * Shared domain types for Artifactry.
  * Mirrors the D1 schema in migrations/0001_initial_schema.sql
  */
 

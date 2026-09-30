@@ -51,7 +51,7 @@
   },
 
   "vars": {
-    "APP_NAME": "Artifact Library",
+    "APP_NAME": "Artifactry",
     // Sender identity for transactional email (Resend).
     //
     // artifactry.app is verified on the Resend account with sending enabled
@@ -61,7 +61,7 @@
     //
     // Changing this line requires a redeploy: EMAIL_FROM is a build-time var,
     // not a runtime secret.
-    "EMAIL_FROM": "Artifact Library <no-reply@artifactry.app>",
+    "EMAIL_FROM": "Artifactry <no-reply@artifactry.app>",
     // Server-side enforced upload ceilings (PRD §9). Worker-proxied uploads,
     // so this is bounded by the Workers request body limit.
     "MAX_UPLOAD_BYTES": "26214400",

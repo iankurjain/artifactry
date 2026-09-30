@@ -157,7 +157,7 @@ export function renderArtifactDetail(ctx) {
                           <div style="display:flex;flex-wrap:wrap;gap:6px">
                             ${tagState.suggested
                               .map(
-                                (t) => `<span class="chip" style="padding:0 3px 0 9px;background:var(--accent-weak);color:#1d4ed8">
+                                (t) => `<span class="chip" style="padding:0 3px 0 9px;background:var(--accent-weak);color:var(--accent)">
                                         ${esc(t)}
                                         ${
                                           canEditTags
@@ -284,7 +284,7 @@ export function renderArtifactDetail(ctx) {
       <!-- Sticky bottom actions: thumb-accessible (§75, §82) -->
       <div style="position:fixed;left:50%;transform:translateX(-50%);bottom:0;width:100%;max-width:430px;
         padding:12px 16px calc(var(--safe-bottom) + 12px);box-sizing:border-box;
-        background:linear-gradient(to top, var(--bg) 65%, rgba(246,247,249,0));z-index:30">
+        background:linear-gradient(to top, var(--bg) 65%, rgba(245,246,242,0));z-index:30">
         <div style="display:flex;gap:9px">
           <button class="btn btn-secondary" id="detail-share" style="flex:1">
             ${icon('share', 18)} Share
@@ -796,7 +796,7 @@ export function versionsSheet(ctx, artifact, versions) {
     <div style="display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--border)">
       <div style="width:34px;height:34px;border-radius:9px;background:${v.isCurrent ? 'var(--accent-weak)' : 'var(--surface-2)'};
         display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:650;
-        color:${v.isCurrent ? '#1d4ed8' : 'var(--text-2)'};flex:none">
+        color:${v.isCurrent ? 'var(--accent)' : 'var(--text-2)'};flex:none">
         v${v.versionNumber}
       </div>
       <div style="flex:1;min-width:0">

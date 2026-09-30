@@ -23,7 +23,7 @@ export const GUIDE_SECTIONS = [
     'Getting started',
     'sign in login email code otp passwordless account first time workspace personal',
     `
-    <p>Artifact Library is a private library for everything you and your AI tools create. There are no passwords — you sign in with a short code sent to your email.</p>
+    <p>Artifactry is a private library for everything you and your AI tools create. There are no passwords — you sign in with a short code sent to your email.</p>
     <ol>
       <li>Enter your email address and choose <strong>Send code</strong>.</li>
       <li>Open the email and type the 6-digit code on the next screen.</li>
@@ -408,7 +408,7 @@ export function renderGuide(ctx) {
       ${screenHeader({
         title: 'User guide',
         onBackId: canGoBack ? 'guide-back' : undefined,
-        subtitle: 'How Artifact Library works'
+        subtitle: 'How Artifactry works'
       })}
 
       <main class="app-main" style="padding-top:10px">
@@ -433,7 +433,7 @@ export function renderGuide(ctx) {
         <div id="guide-body">${body}</div>
 
         <p class="guide-footer-note">
-          This guide covers Artifact Library. Where a feature is not available yet, it is listed under
+          This guide covers Artifactry. Where a feature is not available yet, it is listed under
           <button class="guide-inline-link" data-guide-jump="limits">Known limitations</button>.
         </p>
       </main>

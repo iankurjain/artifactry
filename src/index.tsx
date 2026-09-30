@@ -198,10 +198,10 @@ function viewerMessage(title: string, message: string): Response {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>${escapeHtml(title)}</title></head>
-<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:48px 20px;background:#f6f7f9;color:#16181d">
-<div style="max-width:420px;margin:0 auto;background:#fff;border:1px solid #e4e7ec;border-radius:14px;padding:22px">
+<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:48px 20px;background:#f5f6f2;color:#12151c">
+<div style="max-width:420px;margin:0 auto;background:#fff;border:1px solid #e2e4da;border-radius:14px;padding:22px">
 <h1 style="font-size:19px;margin:0 0 8px">${escapeHtml(title)}</h1>
-<p style="font-size:14px;color:#5b6472;margin:0;line-height:1.55">${escapeHtml(message)}</p>
+<p style="font-size:14px;color:#5a6066;margin:0;line-height:1.55">${escapeHtml(message)}</p>
 </div></body></html>`,
     { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
   )
@@ -307,21 +307,21 @@ app.get(
 <style>
   :root { color-scheme: light; }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: #eef0f4;
+  html, body { margin: 0; height: 100%; background: #f5f6f2;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif; }
   .wrap { display: flex; flex-direction: column; height: 100dvh; }
   .bar { display: flex; align-items: center; gap: 12px; padding: 10px 16px;
-    background: #fff; border-bottom: 1px solid #e4e7ec; flex: none; }
+    background: #fff; border-bottom: 1px solid #e2e4da; flex: none; }
   .bar h1 { font-size: 15px; font-weight: 640; margin: 0; overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap; }
-  .meta { font-size: 12px; color: #5b6472; margin-top: 2px; }
+  .meta { font-size: 12px; color: #5a6066; margin-top: 2px; }
   .spacer { flex: 1; min-width: 0; }
   .btn { display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 16px;
-    border-radius: 10px; border: 1px solid #e4e7ec; background: #fff; color: #16181d;
+    border-radius: 10px; border: 1px solid #e2e4da; background: #fff; color: #12151c;
     font-size: 13.5px; font-weight: 560; text-decoration: none; white-space: nowrap; }
-  .btn-primary { background: #16181d; color: #fff; border-color: #16181d; }
+  .btn-primary { background: #12151c; color: #fff; border-color: #12151c; }
   .stage { flex: 1; min-height: 0; padding: 14px; }
-  iframe { width: 100%; height: 100%; border: 1px solid #e4e7ec; border-radius: 12px;
+  iframe { width: 100%; height: 100%; border: 1px solid #e2e4da; border-radius: 12px;
     background: #fff; display: block; }
   @media (max-width: 560px) { .bar { padding: 10px 12px; } .stage { padding: 10px; } }
 </style>
@@ -440,10 +440,10 @@ app.onError((err, c) => {
   }
   return c.html(
     `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Error</title></head>
-     <body style="font-family:system-ui;padding:40px;max-width:430px;margin:0 auto">
+     <body style="font-family:system-ui;padding:40px;max-width:430px;margin:0 auto;background:#f5f6f2;color:#12151c">
      <h1 style="font-size:22px">Something went wrong</h1>
-     <p style="color:#666">Please reload and try again.</p>
-     <a href="/" style="color:#111">Back to library</a></body></html>`,
+     <p style="color:#5a6066">Please reload and try again.</p>
+     <a href="/" style="color:#4e7a00">Back to library</a></body></html>`,
     500
   )
 })

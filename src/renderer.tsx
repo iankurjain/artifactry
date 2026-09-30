@@ -40,15 +40,30 @@ function serializeBoot(data: unknown): string {
  */
 const DESIGN_TOKENS = `
   :root {
-    --bg: #f6f7f9;
+    /* Artifactry brand palette (logo kit v1.0).
+
+       Ink  #12151C  tile, wordmark and body text
+       Volt #B8F23A  brand highlight — 1.33:1 on white, so it can never carry
+                     text or primary UI meaning on a light surface
+       Paper #F5F6F2 light background
+
+       --accent is Volt Deep #4E7A00 rather than Volt: it is the accessible
+       face of the same green (5.11:1 on white, 4.71:1 on Paper) and is what
+       buttons, links, focus rings and selected controls use. Volt is kept as
+       --volt for brand highlights only. */
+    --ink: #12151c;
+    --volt: #b8f23a;
+    --paper: #f5f6f2;
+
+    --bg: #f5f6f2;          /* Paper */
     --surface: #ffffff;
-    --surface-2: #f1f3f6;
-    --border: #e4e7ec;
-    --text: #16181d;
-    --text-2: #5b6472;
-    --text-3: #8b94a3;
-    --accent: #2f6bff;
-    --accent-weak: #eaf0ff;
+    --surface-2: #eef0e9;   /* warm tint of Paper; replaces the old cool grey */
+    --border: #e2e4da;
+    --text: #12151c;        /* Ink */
+    --text-2: #5a6066;
+    --text-3: #7e858b;
+    --accent: #4e7a00;      /* Volt Deep */
+    --accent-weak: #eef9dc; /* Volt tint for selected/active surfaces */
     --danger: #d92d20;
     --danger-weak: #fef3f2;
     --success: #067647;
@@ -57,8 +72,8 @@ const DESIGN_TOKENS = `
     --warning-weak: #fffaeb;
     --radius: 14px;
     --radius-sm: 10px;
-    --shadow-1: 0 1px 2px rgba(16, 24, 40, 0.05);
-    --shadow-2: 0 4px 14px rgba(16, 24, 40, 0.08);
+    --shadow-1: 0 1px 2px rgba(18, 21, 28, 0.05);
+    --shadow-2: 0 4px 14px rgba(18, 21, 28, 0.08);
     --nav-h: 62px;
     --safe-top: env(safe-area-inset-top, 0px);
     --safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -79,7 +94,7 @@ const DESIGN_TOKENS = `
     padding: 0;
     background: var(--bg);
     color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
     -webkit-font-smoothing: antialiased;
   }
 
@@ -119,7 +134,7 @@ const DESIGN_TOKENS = `
     position: sticky;
     top: 0;
     z-index: 20;
-    background: rgba(246, 247, 249, 0.86);
+    background: rgba(245, 246, 242, 0.86);
     backdrop-filter: saturate(180%) blur(12px);
     -webkit-backdrop-filter: saturate(180%) blur(12px);
     border-bottom: 1px solid transparent;
@@ -264,7 +279,7 @@ const DESIGN_TOKENS = `
   .sheet-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(16, 24, 40, 0.42);
+    background: rgba(18, 21, 28, 0.42);
     z-index: 60;
     opacity: 0;
     transition: opacity .2s ease;
@@ -291,7 +306,7 @@ const DESIGN_TOKENS = `
   .sheet.is-open { transform: translateX(-50%) translateY(0); }
   .sheet-grabber {
     width: 38px; height: 4px; border-radius: 999px;
-    background: #d3d7de; margin: 10px auto 2px; flex: none;
+    background: #d5d8ce; margin: 10px auto 2px; flex: none;
   }
   .sheet-body { overflow-y: auto; padding: 8px 16px 20px; box-sizing: border-box; }
 
@@ -313,7 +328,7 @@ const DESIGN_TOKENS = `
   .row + .row { border-top: 1px solid var(--border); }
 
   .skeleton {
-    background: linear-gradient(90deg, #eef0f4 25%, #e6e9ef 37%, #eef0f4 63%);
+    background: linear-gradient(90deg, #eef0e9 25%, #e4e6dd 37%, #eef0e9 63%);
     background-size: 400% 100%;
     animation: shimmer 1.4s ease-in-out infinite;
     border-radius: 8px;
@@ -327,7 +342,7 @@ const DESIGN_TOKENS = `
     border-radius: 50%;
     animation: spin .7s linear infinite;
   }
-  .spinner-dark { border-color: rgba(22,24,29,.2); border-top-color: var(--text); }
+  .spinner-dark { border-color: rgba(18,21,28,.2); border-top-color: var(--text); }
   @keyframes spin { to { transform: rotate(360deg); } }
 
   /* Toast */
@@ -345,7 +360,7 @@ const DESIGN_TOKENS = `
     pointer-events: none;
   }
   .toast {
-    background: #16181d;
+    background: #12151c;
     color: #fff;
     font-size: 13.5px;
     line-height: 1.45;
@@ -422,7 +437,7 @@ const DESIGN_TOKENS = `
      ---------------------------------------------------------------- */
 
   .guide-search-wrap { position: sticky; top: 0; z-index: 10; padding: 6px 0 10px;
-    background: linear-gradient(var(--bg) 72%, rgba(246,247,249,0)); }
+    background: linear-gradient(var(--bg) 72%, rgba(245,246,242,0)); }
   .guide-search {
     display: flex; align-items: center; gap: 9px;
     background: var(--surface); border: 1px solid var(--border);
@@ -436,7 +451,7 @@ const DESIGN_TOKENS = `
   }
   .guide-search input::-webkit-search-cancel-button { display: none; }
   .guide-clear {
-    border: 0; background: var(--surface-2, #f1f3f6); color: var(--text-2);
+    border: 0; background: var(--surface-2, #eef0e9); color: var(--text-2);
     width: 30px; height: 30px; border-radius: 999px; display: flex;
     align-items: center; justify-content: center; cursor: pointer; flex: none;
   }
@@ -467,7 +482,7 @@ const DESIGN_TOKENS = `
     font-size: 14.5px; color: var(--text); text-align: left;
   }
   .guide-toc-item + .guide-toc-item { border-top: 1px solid var(--border); }
-  .guide-toc-item:active { background: var(--surface-2, #f1f3f6); }
+  .guide-toc-item:active { background: var(--surface-2, #eef0e9); }
   .guide-toc-item svg { color: var(--text-3); flex: none; }
 
   .guide-section {
@@ -488,8 +503,8 @@ const DESIGN_TOKENS = `
   .guide-section li { margin-bottom: 6px; }
   .guide-section li::marker { color: var(--text-3); }
   .guide-section code {
-    font-size: 12.5px; background: var(--surface-2, #f1f3f6); padding: 1px 5px;
-    border-radius: 5px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12.5px; background: var(--surface-2, #eef0e9); padding: 1px 5px;
+    border-radius: 5px; font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   }
   .guide-note {
     background: var(--surface); border: 1px solid var(--border);
@@ -598,7 +613,7 @@ const DESIGN_TOKENS = `
       font-weight: 560;
     }
     .nav-item:hover { background: var(--surface-2); }
-    .nav-item[aria-current="page"] { background: var(--accent-weak); color: #1d4ed8; }
+    .nav-item[aria-current="page"] { background: var(--accent-weak); color: var(--accent); }
     .nav-item svg { width: 18px; height: 18px; }
     /* The Add action becomes an inline labelled row, not a floating disc. */
     .nav-add {
@@ -661,16 +676,23 @@ export async function renderShell(c: Context<AppEnv>, options: ShellOptions): Pr
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=5">
-<meta name="theme-color" content="#f6f7f9">
+<meta name="theme-color" content="#12151c">
 <meta name="color-scheme" content="light">
 <meta name="description" content="One secure library for everything you and your AI create.">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="robots" content="noindex, nofollow">
-<title>Artifact Library</title>
-<link rel="icon" href="data:image/svg+xml,${encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#16181d"/><path d="M9 11h14M9 16h10M9 21h7" stroke="#fff" stroke-width="2.2" stroke-linecap="round"/></svg>'
-  )}">
+<title>Artifactry</title>
+<!--
+  Official icon set from the Artifactry logo kit, served as ordinary static
+  assets under /static/brand/. The generated _routes.json already excludes
+  /static/*, so these need no routing change and are served by Pages without
+  touching the Worker.
+-->
+<link rel="icon" href="/static/brand/favicon.ico" sizes="48x48">
+<link rel="icon" href="/static/brand/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png">
+<link rel="manifest" href="/static/brand/site.webmanifest">
 <style>${DESIGN_TOKENS}</style>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
@@ -681,8 +703,8 @@ export async function renderShell(c: Context<AppEnv>, options: ShellOptions): Pr
       corePlugins: { preflight: false },
       theme: { extend: {
         colors: {
-          ink: '#16181d', muted: '#5b6472', faint: '#8b94a3',
-          line: '#e4e7ec', accent: '#2f6bff'
+          ink: '#12151c', muted: '#5a6066', faint: '#7e858b',
+          line: '#e2e4da', accent: '#4e7a00', volt: '#b8f23a', paper: '#f5f6f2'
         },
         borderRadius: { card: '14px' }
       } }
@@ -691,11 +713,11 @@ export async function renderShell(c: Context<AppEnv>, options: ShellOptions): Pr
 </script>
 </head>
 <body>
-<div id="shell" role="application" aria-label="Artifact Library">
+<div id="shell" role="application" aria-label="Artifactry">
   <noscript>
     <div style="padding:24px;text-align:center">
       <h1 style="font-size:20px">JavaScript required</h1>
-      <p style="color:#5b6472">Artifact Library is an interactive application. Please enable JavaScript.</p>
+      <p style="color:#5a6066">Artifactry is an interactive application. Please enable JavaScript.</p>
     </div>
   </noscript>
   <div id="app" aria-live="polite"></div>

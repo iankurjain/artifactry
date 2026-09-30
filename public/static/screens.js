@@ -10,6 +10,7 @@
 import {
   esc,
   icon,
+  brandMark,
   toast,
   sheet,
   closeSheet,
@@ -69,12 +70,15 @@ export function renderLogin(ctx) {
   const html = () => `
     <main class="app-main" style="padding-top:calc(var(--safe-top) + 28px);min-height:100vh">
       <div style="text-align:center;margin-bottom:30px">
-        <div style="width:56px;height:56px;border-radius:16px;background:var(--text);color:#fff;
-          display:flex;align-items:center;justify-content:center;margin:0 auto 16px">
-          ${icon('library', 28)}
-        </div>
-        <h1 style="font-size:23px;font-weight:650;letter-spacing:-0.02em;margin:0">Artifact Library</h1>
-        <p style="color:var(--text-2);font-size:13.5px;margin:8px 0 0;line-height:1.5">
+        <h1 class="sr-only">Artifactry</h1>
+        <!--
+          Official horizontal lockup from the logo kit. The wordmark is outlined
+          artwork set in the brand's own typeface, so the logo is never re-typed
+          in a UI font.
+        -->
+        <img src="/static/brand/artifactry-horizontal.svg" alt=""
+          style="height:52px;width:auto;display:block;margin:0 auto 14px">
+        <p style="color:var(--text-2);font-size:13.5px;margin:0;line-height:1.5">
           One secure library for everything<br>you and your AI create.
         </p>
       </div>
@@ -322,7 +326,7 @@ export function artifactCard(artifact) {
 
   const sourceBadge =
     artifact.sourceProvider && artifact.sourceProvider !== 'WEB'
-      ? `<span class="chip" style="background:var(--accent-weak);color:#1d4ed8">${icon('sparkle', 11)} ${esc(
+      ? `<span class="chip" style="background:var(--accent-weak);color:var(--accent)">${icon('sparkle', 11)} ${esc(
           artifact.sourceProvider
         )}</span>`
       : ''
@@ -750,7 +754,7 @@ export function renderProfile(ctx) {
 
       <main class="app-main" style="padding-top:8px">
         <div class="card" style="padding:16px;display:flex;gap:13px;align-items:center">
-          <div style="width:48px;height:48px;border-radius:999px;background:var(--accent-weak);color:#1d4ed8;
+          <div style="width:48px;height:48px;border-radius:999px;background:var(--accent-weak);color:var(--accent);
             display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:640;flex:none">
             ${esc((state.me?.displayName || 'U').charAt(0).toUpperCase())}
           </div>
@@ -1088,9 +1092,8 @@ export function renderShareRecipient(ctx) {
   const shell = (inner) => `
     <main class="app-main" style="padding-top:calc(var(--safe-top) + 24px);min-height:100vh">
       <div style="display:flex;align-items:center;gap:9px;margin-bottom:20px;justify-content:center">
-        <div style="width:30px;height:30px;border-radius:9px;background:var(--text);color:#fff;
-          display:flex;align-items:center;justify-content:center">${icon('library', 17)}</div>
-        <span style="font-size:14px;font-weight:620">Artifact Library</span>
+        <h1 class="sr-only">Artifactry</h1>
+        ${brandMark(30)}
       </div>
       ${inner}
       ${ctx.appFooter()}

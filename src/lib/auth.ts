@@ -52,7 +52,7 @@ async function sendEmail(
     throw badRequest('Email delivery is not configured. Please contact the administrator.')
   }
 
-  const from = env.EMAIL_FROM ?? 'Artifact Library <noreply@artifactlibrary.dev>'
+  const from = env.EMAIL_FROM ?? 'Artifactry <noreply@artifactry.app>'
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
@@ -124,13 +124,14 @@ export async function issueOtp(
   } else {
     const subject =
       purpose === 'LOGIN'
-        ? 'Your Artifact Library sign-in code'
+        ? 'Your Artifactry sign-in code'
         : 'Verify your email to open this share'
     const html = `
     <div style="font-family:system-ui,-apple-system,sans-serif;max-width:480px">
-      <h2 style="font-size:18px;margin:0 0 12px">Your verification code</h2>
-      <p style="font-size:24px;letter-spacing:4px;font-weight:700;margin:0 0 16px">${code}</p>
-      <p style="color:#555;font-size:14px">
+      <div style="font-size:13px;font-weight:620;color:#4e7a00;letter-spacing:.01em;margin:0 0 18px">Artifactry</div>
+      <h2 style="font-size:18px;margin:0 0 12px;color:#12151c">Your verification code</h2>
+      <p style="font-size:24px;letter-spacing:4px;font-weight:700;margin:0 0 16px;color:#12151c">${code}</p>
+      <p style="color:#5a6066;font-size:14px">
         This code expires in ${OTP_TTL_MINUTES} minutes. If you did not request it, you can ignore this email.
       </p>
     </div>`

@@ -79,16 +79,16 @@ export function toHtml(title: string, content: string, blocks?: ContentBlock[]):
   :root { color-scheme: light; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
          margin: 0 auto; padding: 32px 20px; max-width: 680px; line-height: 1.6;
-         color: #16181d; background: #fff; }
+         color: #12151c; background: #fff; }
   h1 { font-size: 24px; margin: 0 0 8px; letter-spacing: -0.01em; }
   h2 { font-size: 17px; margin: 28px 0 8px; }
   p { margin: 0 0 14px; font-size: 15px; }
-  .meta { color: #6b7280; font-size: 12px; margin-bottom: 28px; }
+  .meta { color: #5a6066; font-size: 12px; margin-bottom: 28px; }
 </style>
 </head>
 <body>
 <h1>${escapeHtml(title)}</h1>
-<p class="meta">Generated ${new Date().toISOString().slice(0, 10)} · Artifact Library</p>
+<p class="meta">Generated ${new Date().toISOString().slice(0, 10)} · Artifactry</p>
 ${body}
 </body>
 </html>`
