@@ -1,9 +1,9 @@
 # Artifactry
 
-A mobile-first, multi-tenant **AI-native artifact library SaaS** built entirely on Cloudflare
-Pages + Workers. It gives a person or a team one governed library for the files they and their
-AI tools create: permanent artifact links, versions, tags, collections, search, sharing, usage
-analytics, an audit trail, and a scoped MCP endpoint that ChatGPT / Claude / Gemini can call.
+**Artifactry** is a mobile-first, multi-tenant **AI-native artifact library SaaS** built entirely
+on Cloudflare Pages + Workers. It gives a person or a team one governed library for the files they
+and their AI tools create: permanent artifact links, versions, tags, collections, search, sharing,
+usage analytics, an audit trail, and a scoped MCP endpoint that ChatGPT / Claude / Gemini can call.
 
 Everything is edge-native: D1 for metadata and RBAC, R2 for binaries, FTS5 for lexical
 search, and Vectorize + Workers AI for semantic search. There is no server process and

@@ -1093,7 +1093,7 @@ export function renderShareRecipient(ctx) {
     <main class="app-main" style="padding-top:calc(var(--safe-top) + 24px);min-height:100vh">
       <div style="display:flex;align-items:center;gap:9px;margin-bottom:20px;justify-content:center">
         <h1 class="sr-only">Artifactry</h1>
-        ${brandMark(30)}
+        ${brandMark(32)}
       </div>
       ${inner}
       ${ctx.appFooter()}
