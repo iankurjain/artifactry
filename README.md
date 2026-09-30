@@ -575,3 +575,46 @@ app-origin Safe fallback all return `401` without a session.
 ---
 
 **Last updated**: 2026-09-29
+
+---
+
+## Known issues & follow-ups
+
+Recorded during production validation of release `7eb4eaa` (2026-09-30). None of
+these block the release.
+
+### Operational
+
+1. **`scripts/run-gates.sh` is not self-contained.** The browser suites
+   (`test-preview-security`, `test-preview-ui`) require the app on :3000 and the
+   isolated preview worker on :3001 to be already running, and the runner never
+   starts or verifies them. A cold run therefore reports two failures that look
+   exactly like product regressions (`ECONNREFUSED ::1:3000`). It should start
+   both surfaces itself, wait for readiness, and tear them down.
+
+2. **GitHub auth setup reports success without verifying credentials.**
+   `setup_github_environment` reported success while `~/.git-credentials` was
+   empty (0 lines), so `git push` failed with "Invalid username or token".
+   Running `gh auth setup-git` was the actual fix. Setup should assert that a
+   resolvable credential exists before claiming success.
+
+### Product
+
+3. **MCP `search` and `get` emit a `null` origin in canonical URLs.**
+   `toolSearch` and `toolGet` (src/lib/mcp-jobs.ts) interpolate a bare `origin`
+   that is neither a parameter nor a local in those functions; the dispatcher
+   passes `origin` only to `save` and `share`. Production output is
+   `null/a/art_…` instead of `https://artifactry.app/a/art_…`.
+   `toolCreateVersion` already uses the working pattern
+   (`originOf(args) ?? ''`). Cosmetic: `structuredContent.artifact_id` is
+   correct, so clients are unaffected. Present at baseline `49cbeb5`, so it is
+   **not** a regression from this release.
+   `scripts/check-undefined.mjs` cannot catch this — `origin` is a
+   syntactically valid ambient-global reference (`window.origin`), which that
+   checker deliberately permits.
+
+4. **`TAG_ACCEPT` / `TAG_REJECT` audit rows lack workspace/organization context.**
+   `decideTag` writes those events without `workspace_id` / `organization_id`,
+   while `TAG_ADD` / `TAG_REMOVE` (written by `applyTagDecisions`) include them.
+   The events are written and correct in actor and target, but an audit query
+   scoped by workspace will not surface tag decisions.
