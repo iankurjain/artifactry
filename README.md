@@ -605,13 +605,33 @@ these block the release.
    that is neither a parameter nor a local in those functions; the dispatcher
    passes `origin` only to `save` and `share`. Production output is
    `null/a/art_…` instead of `https://artifactry.app/a/art_…`.
-   `toolCreateVersion` already uses the working pattern
-   (`originOf(args) ?? ''`). Cosmetic: `structuredContent.artifact_id` is
-   correct, so clients are unaffected. Present at baseline `49cbeb5`, so it is
-   **not** a regression from this release.
-   `scripts/check-undefined.mjs` cannot catch this — `origin` is a
-   syntactically valid ambient-global reference (`window.origin`), which that
-   checker deliberately permits.
+   Present at baseline `49cbeb5` (same interpolations, same dispatcher), so it
+   is **not** a regression from this release. Cosmetic for clients:
+   `structuredContent.artifact_id` is correct.
+
+   Mechanism, established by direct experiment rather than inference: under
+   Node a bare `origin` throws `ReferenceError`, but under workerd — the runtime
+   that actually serves the app — `origin` exists on `globalThis` as a
+   non-writable string whose value is literally `'null'` (measured in a scratch
+   Worker: `Object.getOwnPropertyDescriptor(globalThis, 'origin')` →
+   `{ value: 'null', writable: false, configurable: true, no getter }`). It does
+   not vary with the request's `Origin` header, and `${null}` stringifies to
+   `'null'`. That is why the defect renders silently instead of throwing.
+
+   Why each guard missed it:
+   - `scripts/check-undefined.mjs` structurally cannot flag it: its loop
+     iterates only `projectSymbols` — names exported by some file in `src/` or
+     `public/` — and no module exports `origin`, so the name is never examined.
+   - The Node test suites never reach it: no test calls `tools/call` with
+     `search` or `get`, and no test asserts `canonical_url`.
+   - No typecheck runs (TypeScript is not installed here), so whether one would
+     have caught it is **not established**.
+
+   Fix: thread the dispatcher's own `origin` argument into `toolSearch` /
+   `toolGet`, as it already is for `save` / `share`. Do *not* copy
+   `toolCreateVersion`'s `originOf(args) ?? ''` — that helper derives the origin
+   from the caller-supplied `artifact` / `artifact_url` argument, which `search`
+   does not take, so it would yield nothing there.
 
 4. **`TAG_ACCEPT` / `TAG_REJECT` audit rows lack workspace/organization context.**
    `decideTag` writes those events without `workspace_id` / `organization_id`,
