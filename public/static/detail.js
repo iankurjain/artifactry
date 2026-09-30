@@ -68,6 +68,15 @@ export function renderArtifactDetail(ctx) {
   const a = artifact
   const analytics = detail.analytics
   const tags = a.tags || []
+  /**
+   * Confirmed and suggested tags are reported separately by the API because
+   * they are different things: a suggestion is a question waiting for an
+   * answer, not a tag the artifact has. Rendering the two as one list is what
+   * made a suggestion impossible to act on. Falls back to empty sets so a
+   * missing field degrades to "no suggestions" rather than throwing.
+   */
+  const tagState = a.tagsByState || { confirmed: [], suggested: [], rejected: [] }
+  const canEditTags = Boolean(a.canWrite)
   const versions = detail.versions || []
   const isHtml = a.mimeType === 'text/html'
   const isImage = ['image/png', 'image/jpeg', 'image/bmp', 'image/gif'].includes(a.mimeType)
@@ -138,9 +147,65 @@ export function renderArtifactDetail(ctx) {
           }
 
           ${
-            tags.length
-              ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:13px">
-                  ${tags.map((t) => `<button class="chip" data-tag-manage style="min-height:28px;cursor:pointer">${esc(t)}</button>`).join('')}
+            tagState.suggested.length || tags.length || canEditTags
+              ? `<div style="margin-top:13px">
+                   ${
+                     tagState.suggested.length
+                       ? `<div style="font-size:11.5px;color:var(--text-2);margin-bottom:7px">
+                            Suggested from this content — accept or reject
+                          </div>
+                          <div style="display:flex;flex-wrap:wrap;gap:6px">
+                            ${tagState.suggested
+                              .map(
+                                (t) => `<span class="chip" style="padding:0 3px 0 9px;background:var(--accent-weak);color:#1d4ed8">
+                                        ${esc(t)}
+                                        ${
+                                          canEditTags
+                                            ? `<button class="btn" data-tag-accept="${esc(t)}" title="Accept ${esc(t)}"
+                                                 style="min-height:22px;padding:0 4px;background:transparent;color:inherit">
+                                                 ${icon('check', 13)}
+                                               </button>
+                                               <button class="btn" data-tag-reject="${esc(t)}" title="Reject ${esc(t)}"
+                                                 style="min-height:22px;padding:0 4px;background:transparent;color:inherit">
+                                                 ${icon('x', 13)}
+                                               </button>`
+                                            : ''
+                                        }
+                                      </span>`
+                              )
+                              .join('')}
+                          </div>`
+                       : ''
+                   }
+                   ${
+                     tags.length
+                       ? `<div style="display:flex;flex-wrap:wrap;gap:6px;${tagState.suggested.length ? 'margin-top:9px' : ''}">
+                            ${tags
+                              .map(
+                                (t) => `<span class="chip" style="padding-right:3px">
+                                          ${esc(t)}
+                                          ${
+                                            canEditTags
+                                              ? `<button class="btn" data-tag-remove="${esc(t)}" title="Remove ${esc(t)}"
+                                                   style="min-height:22px;padding:0 4px;background:transparent;color:var(--text-3)">
+                                                   ${icon('x', 12)}
+                                                 </button>`
+                                              : ''
+                                          }
+                                        </span>`
+                              )
+                              .join('')}
+                          </div>`
+                       : ''
+                   }
+                   ${
+                     canEditTags
+                       ? `<button class="btn btn-ghost" id="detail-tag-add"
+                            style="min-height:30px;padding:0 9px;font-size:12.5px;margin-top:9px">
+                            ${icon('plus', 14)} Add tag
+                          </button>`
+                       : ''
+                   }
                  </div>`
               : ''
           }
@@ -240,9 +305,25 @@ export function renderArtifactDetail(ctx) {
       root.querySelector('#detail-share')?.addEventListener('click', () => ctx.openShareCreateSheet(a))
       root.querySelector('#detail-analytics')?.addEventListener('click', () => ctx.openAnalyticsScreen(a.id))
       root.querySelector('#detail-versions')?.addEventListener('click', () => ctx.openVersionsSheet(a))
-      root.querySelectorAll('[data-tag-manage]').forEach((button) => {
-        button.addEventListener('click', () => ctx.openTagsSheet({ artifact: a }))
+      // Tag decisions are applied one at a time and the detail screen is
+      // re-fetched after each, so the chips always show server state rather
+      // than an optimistic guess that a refusal would silently contradict.
+      root.querySelectorAll('[data-tag-accept]').forEach((button) => {
+        button.addEventListener('click', () =>
+          ctx.decideTags(a.id, { accept: [button.dataset.tagAccept] }, 'Tag accepted')
+        )
       })
+      root.querySelectorAll('[data-tag-reject]').forEach((button) => {
+        button.addEventListener('click', () =>
+          ctx.decideTags(a.id, { reject: [button.dataset.tagReject] }, 'Tag rejected')
+        )
+      })
+      root.querySelectorAll('[data-tag-remove]').forEach((button) => {
+        button.addEventListener('click', () =>
+          ctx.decideTags(a.id, { remove: [button.dataset.tagRemove] }, 'Tag removed')
+        )
+      })
+      root.querySelector('#detail-tag-add')?.addEventListener('click', () => ctx.openAddTagSheet(a))
       // Fills in the owner-only Interactive HTML control from the server's
       // settings response, so availability and the warning text are never
       // hard-coded in the client.

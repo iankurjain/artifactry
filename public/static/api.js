@@ -188,6 +188,20 @@ export const api = {
       method: 'DELETE'
     }),
 
+  /**
+   * Accept, reject, add or remove tags in one call.
+   *
+   * `accept` only works on a tag that already exists on the artifact — that is
+   * what "accept the suggestion" means — so creating a brand-new tag is `add`.
+   * All four go through the same server-side service the MCP `update_tags` tool
+   * uses, so the two surfaces cannot drift.
+   */
+  decideTags: (id, decision) =>
+    request(`/api/v1/artifacts/${encodeURIComponent(id)}/tags/decide`, {
+      method: 'POST',
+      body: decision
+    }),
+
   // ---------------------------------------------------------------
   // Search
   // ---------------------------------------------------------------

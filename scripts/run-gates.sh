@@ -18,7 +18,7 @@ if ! flock -n 9; then
   exit 3
 fi
 
-ALL=(build check-imports check-undefined test-preview test-preview-security test-preview-ui test-authz test-index-sync test-semantic test-extract test-autotag test-mcp-jobs)
+ALL=(build check-imports check-undefined test-preview test-preview-security test-preview-ui test-authz test-index-sync test-semantic test-extract test-autotag test-mcp-jobs test-tag-decisions)
 GATES=("$@")
 [ ${#GATES[@]} -eq 0 ] && GATES=("${ALL[@]}")
 
@@ -50,6 +50,11 @@ run_gate() {
     # migration files. No browser, so it needs no probe account and does not
     # contend with the serialised browser suites for one-time codes.
     test-mcp-jobs)         node scripts/test-mcp-jobs.mjs ;;
+    # Headless: real service modules and the real MCP transport against a real
+    # SQLite built from the actual migrations. Covers the tag decisions on BOTH
+    # surfaces, because the failure mode is one surface enforcing a rule the
+    # other does not.
+    test-tag-decisions)    node scripts/test-tag-decisions.mjs ;;
     *) echo "unknown gate: $g" >&2; return 1 ;;
   esac > "$log" 2>&1
   rc=$?

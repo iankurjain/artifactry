@@ -419,7 +419,16 @@ taxonomy.post(
   })
 )
 
-/** Remove a single tag from an artifact. */
+/**
+ * Remove a single tag from an artifact.
+ *
+ * Delegates to `applyTagDecisions` rather than deleting the association
+ * directly. The direct delete was silent — it wrote no audit row — and it would
+ * remove a pending AI suggestion as readily as a confirmed tag, so the same
+ * request meant different things depending on which surface issued it.
+ * `remove` in the service refuses the pending-suggestion case and audits the
+ * rest, which is why this route no longer has a delete of its own.
+ */
 taxonomy.delete(
   '/artifacts/:artifactId/tags/:slug',
   guarded(async (c) => {
@@ -430,16 +439,24 @@ taxonomy.delete(
     const { assertArtifactPermission } = await import('../lib/access')
     await assertArtifactPermission(c.env.DB, principal, artifactId, 'artifact.tag.apply')
 
-    const tag = await first<{ id: string }>(c.env.DB, `SELECT id FROM tags WHERE slug = ?`, [slug])
-    if (!tag) throw notFound('Tag not found')
+    const artifact = await loadArtifact(c.env.DB, artifactId)
 
-    await run(c.env.DB, `DELETE FROM artifact_tags WHERE artifact_id = ? AND tag_id = ?`, [
-      artifactId,
-      tag.id
-    ])
-    await indexArtifact(c.env.DB, artifactId)
+    const outcome = await applyTagDecisions(
+      c.env.DB,
+      principal,
+      {
+        id: artifactId,
+        organization_id: artifact?.organization_id ?? null,
+        workspace_id: artifact?.workspace_id ?? null,
+        current_version_id: artifact?.current_version_id ?? null
+      },
+      { remove: [slug] }
+    )
 
-    return ok(c, { removed: slug })
+    // Nothing removed means the slug does not name a tag on this artifact.
+    if (!outcome.removed.length) throw notFound('Tag not found on this artifact')
+
+    return ok(c, { removed: outcome.removed })
   })
 )
 

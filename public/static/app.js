@@ -1395,6 +1395,70 @@ async function ensureTags() {
   return state.tags
 }
 
+/**
+ * Apply one tag decision from the detail screen and refresh it in place.
+ *
+ * The single funnel for accept / reject / add / remove, so all four share one
+ * error path and one refresh path. `remove` is refused for a pending suggestion
+ * by the service — rejecting is the meaningful action there — so a refusal is
+ * surfaced as a toast rather than being swallowed.
+ */
+ctx.decideTags = async (artifactId, decision, successMessage) => {
+  const outcome = await attempt(
+    () => api.decideTags(artifactId, decision),
+    successMessage || 'Tags updated'
+  )
+  if (outcome === null) return false
+
+  // A name that resolved to nothing is worth saying out loud; otherwise the
+  // chip simply disappears and the user cannot tell whether it worked.
+  if (outcome?.not_found?.length) {
+    toast(`No tag on this artifact matches: ${outcome.not_found.join(', ')}`, 'error')
+  }
+
+  await ctx.reload()
+  return true
+}
+
+/**
+ * Add one tag by hand from the detail screen.
+ *
+ * Deliberately a single field — this is the "type a word and file it" case, not
+ * a tag-management screen. The value goes through the `add` decision, which
+ * resolves or creates the tag by slug and confirms it with USER provenance, so
+ * a manual add can never create a case-duplicate of a tag that already exists.
+ */
+ctx.openAddTagSheet = (artifact) => {
+  sheet({
+    title: 'Add tag',
+    content: `
+      <div>
+        ${field(
+          'Tag name',
+          '<input id="tag-new-name" class="input" type="text" placeholder="board prep" autocomplete="off">',
+          'Any word or short phrase that helps you find this later.'
+        )}
+      </div>`,
+    actions: [
+      {
+        label: 'Add tag',
+        variant: 'primary',
+        keepOpen: true,
+        onClick: async () => {
+          const panel = document.querySelector('.sheet')
+          const raw = panel?.querySelector('#tag-new-name')?.value?.trim()
+          if (!raw) {
+            toast('Enter a tag name', 'error')
+            return
+          }
+          const done = await ctx.decideTags(artifact.id, { add: [raw] }, `Tag added: ${raw}`)
+          if (done) closeSheet()
+        }
+      }
+    ]
+  })
+}
+
 ctx.openTagsSheet = async (options = {}) => {
   const tags = await ensureTags()
 
