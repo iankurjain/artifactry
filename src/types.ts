@@ -61,8 +61,8 @@ export type ArtifactStatus =
   | 'QUARANTINED'
   | 'DELETED'
 
-export type SourceType = 'WEB_UPLOAD' | 'CHATGPT' | 'CLAUDE' | 'GEMINI' | 'API' | 'IMPORT'
-export type SourceProvider = 'CHATGPT' | 'CLAUDE' | 'GEMINI' | 'WEB' | 'API'
+export type SourceType = 'WEB_UPLOAD' | 'CHATGPT' | 'CLAUDE' | 'GEMINI' | 'COPILOT' | 'API' | 'IMPORT'
+export type SourceProvider = 'CHATGPT' | 'CLAUDE' | 'GEMINI' | 'COPILOT' | 'WEB' | 'API'
 
 export type AccessType = 'PUBLIC_LINK' | 'EMAIL' | 'DOMAIN'
 export type ShareStatus = 'ACTIVE' | 'REVOKED' | 'EXPIRED'

@@ -5,7 +5,8 @@
  *   POST   /api/v1/integrations/:id/connect     → issue a scoped grant (§58)
  *   DELETE /api/v1/integrations/grants/:grantId → disconnect (§60)
  *   POST   /api/v1/mcp                          → JSON-RPC 2.0 MCP endpoint (§51, §53)
- *   GET    /api/v1/mcp                          → capability discovery
+ *   GET    /api/v1/mcp                          → capability discovery (405 for SSE)
+ *   POST   /api/v1/integrations/oauth-clients   → client id + secret for manual OAuth setup
  *   GET    /api/v1/activity                     → cross-artifact activity feed
  *   GET    /api/v1/profile                      → profile + settings summary (§89)
  */
@@ -21,8 +22,10 @@ import {
   validateScopes
 } from '../lib/ai'
 import { handleMcpRequest, MCP_TOOLS, type McpRequest } from '../lib/mcp-jobs'
+import { OAuthError, createManualClient } from '../lib/oauth'
 import { all, first, nowIso, run } from '../lib/db'
-import { badRequest, notFound, ok, readJson } from '../lib/http'
+import { badRequest, notFound, ok, readBearer, readJson } from '../lib/http'
+import { tokenPrefix } from '../lib/crypto'
 import { AI_SCOPES } from '../types'
 import { effectiveWorkspaceRole, readableWorkspaces } from '../lib/principal'
 import { actorDisplay } from '../lib/analytics'
@@ -107,41 +110,122 @@ integrations.delete(
 // MCP transport (§51, §53, §54)
 // ---------------------------------------------------------------
 
-/** Capability discovery, so a connector can be verified without a session. */
+/**
+ * Capability discovery, so a connector can be verified without a session.
+ *
+ * Streamable HTTP clients open GET with `Accept: text/event-stream` to ask for
+ * a server-initiated stream. This server never pushes, and the spec's answer
+ * for that is 405 — returning a JSON 200 there makes strict clients treat the
+ * endpoint as broken.
+ */
 integrations.get(
   '/mcp',
   guarded(async (c) => {
+    if ((c.req.header('Accept') ?? '').includes('text/event-stream')) {
+      c.header('Allow', 'POST')
+      return c.body(null, 405)
+    }
     const origin = new URL(c.req.url).origin
     return ok(c, {
       protocol: 'mcp',
-      transport: 'http-jsonrpc',
+      transport: 'streamable-http (JSON responses)',
       endpoint: `${origin}/api/v1/mcp`,
-      authentication: 'Bearer <AI access token from POST /api/v1/integrations/:id/connect>',
+      authentication: {
+        oauth: `${origin}/.well-known/oauth-protected-resource/api/v1/mcp`,
+        bearer: 'Bearer <AI access token from POST /api/v1/integrations/:id/connect>'
+      },
       tools: MCP_TOOLS.map((t) => ({ name: t.name, description: t.description, scope: t.requiredScope }))
     })
   })
 )
 
+/** Sessions are not used, so there is nothing to terminate. */
+integrations.delete('/mcp', (c) => {
+  c.header('Allow', 'POST')
+  return c.body(null, 405)
+})
+
+/** A JSON-RPC notification has no id and gets no response body (202). */
+function isNotification(req: McpRequest): boolean {
+  return (req as { id?: unknown }).id === undefined && typeof req.method === 'string'
+}
+
 integrations.post(
   '/mcp',
-  rateLimit({ bucket: 'mcp', limit: 600, windowSeconds: 300 }),
+  // Keyed by connection, not IP: every ChatGPT or Claude user reaches us from
+  // the same few provider egress addresses, so a per-IP budget would be shared
+  // by all of them. The token prefix is already stored on the grant row.
+  rateLimit({
+    bucket: 'mcp',
+    limit: 600,
+    windowSeconds: 300,
+    keyFrom: (c) => {
+      const bearer = readBearer(c)
+      return bearer ? `t:${tokenPrefix(bearer)}` : `ip:${c.req.header('CF-Connecting-IP') ?? 'unknown'}`
+    }
+  }),
   guarded(async (c) => {
-    // Every MCP call must carry a grant; anonymous MCP is never allowed (§59)
+    // Every MCP call must carry a grant; anonymous MCP is never allowed (§59).
+    // The 401 this throws carries WWW-Authenticate (see index.tsx), which is
+    // how an OAuth client learns where to sign in.
     const principal = requireAiPrincipal(c)
 
     const payload = await readJson<McpRequest | McpRequest[]>(c)
     const origin = new URL(c.req.url).origin
 
-    // Support batched requests, which MCP clients use during discovery
+    // Support batched requests, which older MCP clients use during discovery
     if (Array.isArray(payload)) {
       const responses = await Promise.all(
-        payload.map((req) => handleMcpRequest(c.env, principal, req, origin))
+        payload.map(async (req) => {
+          const res = await handleMcpRequest(c.env, principal, req, origin)
+          return isNotification(req) ? null : res
+        })
       )
-      return c.json(responses)
+      const replies = responses.filter((r) => r !== null)
+      return replies.length ? c.json(replies) : c.body(null, 202)
     }
 
     const response = await handleMcpRequest(c.env, principal, payload, origin)
+    if (isNotification(payload)) return c.body(null, 202)
     return c.json(response)
+  })
+)
+
+// ---------------------------------------------------------------
+// Manual OAuth clients
+//
+// Gemini Enterprise and Copilot Studio ("Manual") ask for a client id and
+// secret instead of registering themselves. A signed-in user creates one here
+// and pastes it into that app; the secret is shown once.
+// ---------------------------------------------------------------
+
+integrations.post(
+  '/integrations/oauth-clients',
+  rateLimit({ bucket: 'oauth:manual-client', limit: 20, windowSeconds: 3600 }),
+  guarded(async (c) => {
+    const principal = requirePrincipal(c)
+    if (principal.kind !== 'SESSION') throw badRequest('Create OAuth clients from a signed-in browser session')
+    const body = await readJson<{ name?: unknown; redirect_uris?: unknown; provider?: unknown }>(c)
+    try {
+      const created = await createManualClient(c.env.DB, principal, body)
+      const origin = new URL(c.req.url).origin
+      return ok(
+        c,
+        {
+          ...created,
+          authorization_url: `${origin}/oauth/authorize`,
+          token_url: `${origin}/oauth/token`,
+          refresh_url: `${origin}/oauth/token`,
+          scopes: 'artifact.read artifact.write artifact.share workspace.read team.read tags.read',
+          mcp_url: `${origin}/api/v1/mcp`,
+          note: 'Copy the client secret now — it is stored only as a hash and cannot be shown again.'
+        },
+        201
+      )
+    } catch (err) {
+      if (err instanceof OAuthError) throw badRequest(err.message)
+      throw err
+    }
   })
 )
 

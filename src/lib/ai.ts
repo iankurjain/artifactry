@@ -21,7 +21,9 @@ import { badRequest, forbidden, notFound } from './http'
 import { recordAudit, type AuditAction } from './audit'
 
 /** Provider-specific source attribution (§15, §16). */
-export function sourceTypeForProvider(provider: SourceProvider): 'CHATGPT' | 'CLAUDE' | 'GEMINI' | 'API' {
+export function sourceTypeForProvider(
+  provider: SourceProvider
+): 'CHATGPT' | 'CLAUDE' | 'GEMINI' | 'COPILOT' | 'API' {
   switch (provider) {
     case 'CHATGPT':
       return 'CHATGPT'
@@ -29,6 +31,8 @@ export function sourceTypeForProvider(provider: SourceProvider): 'CHATGPT' | 'CL
       return 'CLAUDE'
     case 'GEMINI':
       return 'GEMINI'
+    case 'COPILOT':
+      return 'COPILOT'
     default:
       return 'API'
   }
@@ -62,7 +66,8 @@ export interface GrantRow {
 export const PROVIDER_ACTIONS: Record<string, AuditAction> = {
   CHATGPT: 'AI_CONNECT',
   CLAUDE: 'AI_CONNECT',
-  GEMINI: 'AI_CONNECT'
+  GEMINI: 'AI_CONNECT',
+  COPILOT: 'AI_CONNECT'
 }
 
 export async function listIntegrations(db: D1Database): Promise<IntegrationRow[]> {
@@ -243,5 +248,6 @@ export function detectProvider(header: string | null | undefined, fallback: Sour
   if (value.includes('chatgpt') || value.includes('openai')) return 'CHATGPT'
   if (value.includes('claude') || value.includes('anthropic')) return 'CLAUDE'
   if (value.includes('gemini') || value.includes('google')) return 'GEMINI'
+  if (value.includes('copilot') || value.includes('microsoft')) return 'COPILOT'
   return fallback
 }

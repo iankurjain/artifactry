@@ -16,7 +16,8 @@ export const EXTENSION_MIME: Record<string, string> = {
   jpg: 'image/jpeg',
   jpeg: 'image/jpeg',
   bmp: 'image/bmp',
-  gif: 'image/gif'
+  gif: 'image/gif',
+  webp: 'image/webp'
 }
 
 export type ArtifactKind = 'PRESENTATION' | 'DOCUMENT' | 'WEB' | 'IMAGE'
@@ -138,6 +139,13 @@ export function magicBytesMatch(
       return startsWith(bytes, [0x42, 0x4d])
         ? { ok: true }
         : { ok: false, reason: 'File does not begin with a BMP signature' }
+    case 'webp':
+      // RIFF container whose form type (bytes 8–11) is WEBP.
+      return startsWith(bytes, [0x52, 0x49, 0x46, 0x46]) &&
+        bytes.length >= 12 &&
+        bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
+        ? { ok: true }
+        : { ok: false, reason: 'File does not begin with a WebP signature' }
     case 'pptx':
     case 'docx':
       return ZIP_SIGNATURES.some((sig) => startsWith(bytes, sig))
