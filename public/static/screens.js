@@ -10,7 +10,7 @@
 import {
   esc,
   icon,
-  brandMark,
+  brandLockup,
   toast,
   sheet,
   closeSheet,
@@ -115,7 +115,7 @@ export function renderLogin(ctx) {
               ? `<div style="margin-top:12px;padding:11px 13px;border-radius:11px;background:var(--warning-weak);
                    border:1px solid #fedf89;font-size:12.5px;line-height:1.5">
                    <strong>Development mode.</strong> No email provider is configured, so your code is
-                   <span style="font-family:ui-monospace,monospace;font-weight:700">${esc(ctx.devCode)}</span>
+                   <span style="font-family:var(--font-mono);font-weight:700">${esc(ctx.devCode)}</span>
                  </div>`
               : ''
           }
@@ -249,6 +249,7 @@ export function renderHome(ctx) {
     html: `
       <header class="app-header" data-header>
         <div style="padding:calc(var(--safe-top) + 12px) 16px 12px">
+          <div class="home-brand">${brandLockup(28)}</div>
           <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
             <div style="min-width:0">
               <div style="font-size:13px;color:var(--text-2)">${esc(greeting)}</div>
@@ -673,17 +674,17 @@ export function renderSearch(ctx) {
 export function renderAdd(ctx) {
   return {
     html: `
-      ${screenHeader({ title: 'Add to Library', onBackId: 'add-back' })}
+      ${screenHeader({ title: 'Add to library', onBackId: 'add-back' })}
       <main class="app-main" style="padding-top:8px">
         <div class="card" style="overflow:hidden">
           <button class="row" id="add-upload" style="padding:12px 14px">
-            ${icon('upload', 20)} <span style="flex:1">Upload a file</span> ${icon('back', 16, 'rotate-180')}
+            ${icon('upload', 20)} <span style="flex:1">Upload a file</span> ${icon('chevron', 16)}
           </button>
           <button class="row" id="add-html" style="padding:12px 14px">
-            ${icon('globe', 20)} <span style="flex:1">Save HTML or text</span> ${icon('back', 16)}
+            ${icon('globe', 20)} <span style="flex:1">Save HTML or text</span> ${icon('chevron', 16)}
           </button>
           <button class="row" id="add-collection" style="padding:12px 14px">
-            ${icon('folder', 20)} <span style="flex:1">Create a collection</span> ${icon('back', 16)}
+            ${icon('folder', 20)} <span style="flex:1">Create a collection</span> ${icon('chevron', 16)}
           </button>
         </div>
 
@@ -797,7 +798,7 @@ export function renderProfile(ctx) {
                   w.type === 'PERSONAL' ? 'Personal workspace' : `${w.organizationName || 'Organization'} · ${w.role || ''}`
                 )}</span>
               </span>
-              ${icon('back', 16)}
+              ${icon('chevron', 16)}
             </button>`
             )
             .join('')}
@@ -816,7 +817,7 @@ export function renderProfile(ctx) {
                        ${esc(o.name)}
                        <span style="display:block;font-size:11.5px;color:var(--text-2)">${esc(o.role)} · ${esc(o.plan)}</span>
                      </span>
-                     ${icon('back', 16)}
+                     ${icon('chevron', 16)}
                    </button>`
                    )
                    .join('')}
@@ -878,16 +879,16 @@ export function renderProfile(ctx) {
         <h2 style="font-size:14px;font-weight:640;margin:22px 0 9px">Help</h2>
         <div class="card" style="overflow:hidden">
           <button class="row" id="profile-guide" style="padding:12px 14px">
-            ${icon('file', 20)} <span style="flex:1">User guide &amp; help</span> ${icon('back', 16)}
+            ${icon('file', 20)} <span style="flex:1">User guide &amp; help</span> ${icon('chevron', 16)}
           </button>
           <button class="row" id="profile-shortcuts" style="padding:12px 14px">
-            ${icon('search', 20)} <span style="flex:1">Keyboard &amp; tips</span> ${icon('back', 16)}
+            ${icon('search', 20)} <span style="flex:1">Keyboard &amp; tips</span> ${icon('chevron', 16)}
           </button>
         </div>
 
         <div class="card" style="overflow:hidden;margin-top:22px">
-          <button class="row" id="profile-tags" style="padding:12px 14px">${icon('tag', 20)} <span style="flex:1">Tag management</span> ${icon('back', 16)}</button>
-          <button class="row" id="profile-activity" style="padding:12px 14px">${icon('chart', 20)} <span style="flex:1">Recent activity</span> ${icon('back', 16)}</button>
+          <button class="row" id="profile-tags" style="padding:12px 14px">${icon('tag', 20)} <span style="flex:1">Tag management</span> ${icon('chevron', 16)}</button>
+          <button class="row" id="profile-activity" style="padding:12px 14px">${icon('chart', 20)} <span style="flex:1">Recent activity</span> ${icon('chevron', 16)}</button>
           <button class="row" id="profile-logout" style="padding:12px 14px;color:var(--danger)">
             ${icon('logout', 20)} <span style="flex:1">Sign out</span>
           </button>
@@ -1029,7 +1030,7 @@ export function renderAdmin(ctx) {
                 ${esc(w.name)}
                 <span style="display:block;font-size:11.5px;color:var(--text-2)">${w.artifacts} artifact(s) · ${w.views} views</span>
               </span>
-              ${icon('back', 16)}
+              ${icon('chevron', 16)}
             </button>`
                   )
                   .join('')
@@ -1093,7 +1094,10 @@ export function renderShareRecipient(ctx) {
     <main class="app-main" style="padding-top:calc(var(--safe-top) + 24px);min-height:100vh">
       <div style="display:flex;align-items:center;gap:9px;margin-bottom:20px;justify-content:center">
         <h1 class="sr-only">Artifactry</h1>
-        ${brandMark(32)}
+        <!-- Recipients may never have met the brand, so the share page uses
+             the full lockup: the kit reserves the bare symbol for places
+             where the name already appears nearby. -->
+        ${brandLockup(32)}
       </div>
       ${inner}
       ${ctx.appFooter()}
@@ -1122,7 +1126,7 @@ export function renderShareRecipient(ctx) {
                 ? `<div style="margin-top:12px;padding:11px 13px;border-radius:11px;background:var(--warning-weak);
                      border:1px solid #fedf89;font-size:12.5px">
                      <strong>Development mode.</strong> Your code is
-                     <span style="font-family:ui-monospace,monospace;font-weight:700">${esc(ctx.shareDevCode)}</span>
+                     <span style="font-family:var(--font-mono);font-weight:700">${esc(ctx.shareDevCode)}</span>
                    </div>`
                 : ''
             }

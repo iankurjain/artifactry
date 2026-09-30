@@ -104,6 +104,9 @@ const ICON_PATHS = {
   library: '<rect x="3" y="4" width="7" height="7" rx="1.6"/><rect x="14" y="4" width="7" height="7" rx="1.6"/><rect x="3" y="15" width="7" height="6" rx="1.6"/><rect x="14" y="15" width="7" height="6" rx="1.6"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/>',
   back: '<path d="M15 5l-7 7 7 7"/>',
+  chevron: '<path d="M9 5l7 7-7 7"/>',
+  chevronDown: '<path d="M5 9l7 7 7-7"/>',
+  chevronUp: '<path d="M5 15l7-7 7 7"/>',
   more: '<circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/>',
   download: '<path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 20h14"/>',
   share: '<circle cx="17" cy="6" r="2.6"/><circle cx="7" cy="12" r="2.6"/><circle cx="17" cy="18" r="2.6"/><path d="m9.3 10.7 5.4-3.4M9.3 13.3l5.4 3.4"/>',
@@ -154,6 +157,31 @@ export function brandMark(size = 28, extraClass = '') {
 
   return `<svg viewBox="0 0 256 256" width="${size}" height="${size}" role="img" aria-label="Artifactry"
     class="${esc(extraClass)}" focusable="false">${paths}</svg>`
+}
+
+/**
+ * The official horizontal lockup (symbol + outlined wordmark) from the logo
+ * kit, served as a static asset so it is never re-typed or redrawn.
+ *
+ * The artwork is 909x256, so `height` 28 gives ~99 px of width: the kit's
+ * minimum for the horizontal lockup is 96 px wide, so never go below 28.
+ */
+export function brandLockup(height = 28, extraClass = '') {
+  const h = Math.max(28, height)
+  return `<img src="/static/brand/artifactry-horizontal.svg" alt="Artifactry" height="${h}"
+    width="${Math.round((h * 909) / 256)}" class="${esc(extraClass)}" style="display:block;height:${h}px;width:auto">`
+}
+
+/**
+ * Brand URL treatment (logo kit "System seeds"): artifact links are set in
+ * monospace with every "/" in Volt Deep, echoing the slash in the symbol.
+ * Returns escaped HTML; the caller wraps it in an element with class
+ * "brand-url".
+ */
+export function brandUrl(url) {
+  return esc(String(url ?? ''))
+    .split('/')
+    .join('<span class="brand-url-slash">/</span>')
 }
 
 export function icon(name, size = 24, extraClass = '') {

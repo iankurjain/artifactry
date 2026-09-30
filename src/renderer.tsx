@@ -55,6 +55,12 @@ const DESIGN_TOKENS = `
     --volt: #b8f23a;
     --paper: #f5f6f2;
 
+    /* Type (logo kit v1.0, "Wordmark"): Inter for UI text, JetBrains Mono
+       for code, IDs and URLs. The wordmark itself is outlined artwork and
+       never depends on these. */
+    --font-sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
     --bg: #f5f6f2;          /* Paper */
     --surface: #ffffff;
     --surface-2: #eef0e9;   /* warm tint of Paper; replaces the old cool grey */
@@ -94,7 +100,7 @@ const DESIGN_TOKENS = `
     padding: 0;
     background: var(--bg);
     color: var(--text);
-    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
   }
 
@@ -504,7 +510,7 @@ const DESIGN_TOKENS = `
   .guide-section li::marker { color: var(--text-3); }
   .guide-section code {
     font-size: 12.5px; background: var(--surface-2, #eef0e9); padding: 1px 5px;
-    border-radius: 5px; font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    border-radius: 5px; font-family: var(--font-mono);
   }
   .guide-note {
     background: var(--surface); border: 1px solid var(--border);
@@ -570,6 +576,16 @@ const DESIGN_TOKENS = `
     .app-footer { max-width: var(--content-max); margin-left: auto; margin-right: auto; }
   }
 
+  /* Brand URL treatment: monospace, with each "/" in Volt Deep. */
+  .brand-url { font-family: var(--font-mono); }
+  .brand-url-slash { color: var(--accent); font-weight: 700; }
+
+  /* Where the logo sits in the signed-in app. The rail lockup exists only on
+     desktop (the rail is the bottom bar on smaller screens); the home-header
+     lockup covers phones and tablets and steps aside once the rail shows it. */
+  .rail-brand { display: none; }
+  .home-brand { margin: 2px 0 14px; }
+
   /* Desktop — persistent left rail replaces the bottom bar; wide content. */
   @media (min-width: 1024px) {
     :root {
@@ -626,6 +642,10 @@ const DESIGN_TOKENS = `
     /* Ordering: the Add button sits mid-bar on mobile; on the rail it reads
        better last, after the four destinations. */
     .bottom-nav #nav-add { order: 9; }
+    /* Clear space: the kit asks for X (the spark height, about 8 px at this size)
+       on every side; the padding and margin here give several times that. */
+    .rail-brand { display: block; order: -1; padding: 6px 14px 22px; }
+    .home-brand { display: none; }
 
     .app-main { padding-bottom: 56px; }
     .app-header { padding-top: 0; }
@@ -693,6 +713,13 @@ export async function renderShell(c: Context<AppEnv>, options: ShellOptions): Pr
 <link rel="icon" href="/static/brand/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/static/brand/apple-touch-icon.png">
 <link rel="manifest" href="/static/brand/site.webmanifest">
+<!--
+  Brand typefaces: Inter (UI text) and JetBrains Mono (code, IDs, URLs).
+  display=swap keeps text visible on the system fallback while they load.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..700&family=JetBrains+Mono:wght@400..700&display=swap">
 <style>${DESIGN_TOKENS}</style>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>

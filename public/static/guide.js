@@ -394,7 +394,7 @@ export function renderGuide(ctx) {
 
   const toc = GUIDE_SECTIONS.map(
     (s) => `<button class="guide-toc-item" data-guide-jump="${esc(s.id)}">
-        <span>${esc(s.title)}</span>${icon('back', 14, 'rotate-180')}
+        <span>${esc(s.title)}</span>${icon('chevron', 14)}
       </button>`
   ).join('')
 
@@ -403,7 +403,7 @@ export function renderGuide(ctx) {
     <section class="guide-section" id="guide-${esc(s.id)}">
       <h2 class="guide-h2">${esc(s.title)}</h2>
       ${s.html}
-      <button class="guide-top" data-guide-top>${icon('back', 13, 'rotate-90')} Back to top</button>
+      <button class="guide-top" data-guide-top>${icon('chevronUp', 13)} Back to top</button>
     </section>`
   ).join('')
 
