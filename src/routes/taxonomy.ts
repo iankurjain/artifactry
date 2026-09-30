@@ -25,7 +25,7 @@ import { badRequest, conflict, forbidden, notFound, ok, readJson } from '../lib/
 import { assignTags } from '../lib/artifacts'
 import { recordAudit } from '../lib/audit'
 import { indexArtifact } from '../lib/search'
-import { decideTags, mayCreateTag } from '../lib/tags'
+import { applyTagDecisions, decideTags, mayCreateTag } from '../lib/tags'
 import { loadArtifact } from '../lib/artifacts'
 
 const taxonomy = new Hono<AppEnv>()
@@ -367,6 +367,55 @@ taxonomy.post(
     )
 
     return ok(c, { applied: slugs, added: outcome.added.length })
+  })
+)
+
+/**
+ * Decide on an artifact's tags — the REST surface for the tag loop (§24).
+ *
+ *   POST /api/v1/artifacts/:artifactId/tags/decide
+ *   { "accept": ["finance"], "reject": ["draft"], "add": ["board-prep"], "remove": ["old"] }
+ *
+ * This exists because the tag model was only half-wired over HTTP: suggestions
+ * were generated and stored as SUGGESTED, but nothing could CONFIRM or REJECT
+ * one except the MCP `update_tags` tool. A suggestion a person cannot act on is
+ * just noise in the database.
+ *
+ * All four actions go through `applyTagDecisions`, which the MCP tool calls too,
+ * so the two surfaces cannot drift apart.
+ */
+taxonomy.post(
+  '/artifacts/:artifactId/tags/decide',
+  guarded(async (c) => {
+    const principal = requirePrincipal(c)
+    const artifactId = c.req.param('artifactId')
+
+    // Same RBAC as every other tag write on this artifact.
+    const { assertArtifactPermission } = await import('../lib/access')
+    await assertArtifactPermission(c.env.DB, principal, artifactId, 'artifact.tag.apply')
+
+    const body = await readJson<{
+      accept?: unknown
+      reject?: unknown
+      add?: unknown
+      remove?: unknown
+    }>(c)
+
+    const artifact = await loadArtifact(c.env.DB, artifactId)
+
+    const outcome = await applyTagDecisions(
+      c.env.DB,
+      principal,
+      {
+        id: artifactId,
+        organization_id: artifact?.organization_id ?? null,
+        workspace_id: artifact?.workspace_id ?? null,
+        current_version_id: artifact?.current_version_id ?? null
+      },
+      body
+    )
+
+    return ok(c, outcome)
   })
 )
 

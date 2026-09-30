@@ -27,6 +27,8 @@ import { badRequest, forbidden } from './http'
 import { recordAudit } from './audit'
 import { filterSuggestions, blockReason, suggestTags, MAX_TAGS } from './autotag'
 import type { SuggestStatus } from './autotag'
+// Safe direction: search.ts never imports tags.ts, so there is no cycle.
+import { indexArtifact } from './search'
 
 export interface ArtifactTagView {
   tag_id: string
@@ -500,11 +502,13 @@ export interface DecideOutcome {
 /**
  * Apply a person's tag decisions to an artifact.
  *
- *   accept → CONFIRMED (the tag is created if the name is new to the taxonomy,
- *            because typing a name and accepting it is the same act)
- *   reject → REJECTED, bound to the current version, which is what suppresses
- *            re-suggestion until the content materially changes
- *   add    → CONFIRMED, provenance USER rather than AI
+ * Thin alias over `applyTagDecisions`, which is the single implementation. It
+ * exists because upload (`artifacts.ts`) and the artifact tag endpoint already
+ * call it, and because `DecideOutcome` is the shape those callers expect.
+ *
+ * Returning the superset is deliberate: `TagDecisionResult` satisfies
+ * `DecideOutcome`, so callers that only read `accepted`/`rejected`/`added` are
+ * unaffected, and nobody needs a second code path to get the extra fields.
  */
 export async function decideTags(
   db: D1Database,
@@ -512,58 +516,183 @@ export async function decideTags(
   artifact: { id: string; organization_id: string | null; current_version_id?: string | null },
   decision: { accept?: unknown; reject?: unknown; add?: unknown }
 ): Promise<DecideOutcome> {
+  return applyTagDecisions(db, principal, artifact, decision)
+}
+
+// ---------------------------------------------------------------
+// Tag decisions — the single service both REST and MCP call
+// ---------------------------------------------------------------
+
+export interface TagDecisionRequest {
+  accept?: unknown
+  reject?: unknown
+  add?: unknown
+  remove?: unknown
+}
+
+export interface TagDecisionResult {
+  accepted: string[]
+  rejected: string[]
+  added: string[]
+  removed: string[]
+  /** Names that could not be resolved to a tag that exists on this artifact. */
+  not_found: string[]
+  /** Confirmed tag names after the decision. */
+  confirmed: string[]
+  suggested: string[]
+  rejectedTags: string[]
+}
+
+/**
+ * Apply tag decisions to an artifact.
+ *
+ * THE ONE PLACE tag decisions are implemented. The REST endpoint and the MCP
+ * `update_tags` tool both call this, because two copies of the resolution rules
+ * drift, and the copy that drifts becomes a hole: one surface would refuse a
+ * case-duplicate that the other happily created.
+ *
+ * Difference from `decideTags`, deliberate and narrow:
+ *
+ *   * `accept` must resolve to a tag that ALREADY EXISTS on the artifact. A
+ *     suggestion can only be accepted if it was actually suggested — otherwise
+ *     "accept" silently doubles as "create", and a client typo becomes a new
+ *     tag. Creating a tag is what `add` is for, so the two intents stay
+ *     distinguishable.
+ *   * `reject` is recorded against the current version, which is what licenses
+ *     re-proposing the tag later: a rejection is a judgement about specific
+ *     content, not a permanent ban on a word.
+ *   * `remove` deletes the association and is audited (it was previously
+ *     silent), and refuses to remove another user's AI-provenance suggestion.
+ *
+ * Resolution is by slug against the artifact's own tags, falling back to a
+ * case-insensitive name match, so "Finance" and "finance" address one tag.
+ */
+export async function applyTagDecisions(
+  db: D1Database,
+  principal: Principal,
+  artifact: { id: string; organization_id: string | null; workspace_id?: string | null; current_version_id?: string | null },
+  decision: TagDecisionRequest
+): Promise<TagDecisionResult> {
   if (!principal.userId) throw forbidden('Sign in to change tags')
 
-  const acceptList = Array.isArray(decision.accept) ? decision.accept.map(String) : []
-  const rejectList = Array.isArray(decision.reject) ? decision.reject.map(String) : []
-  const addList = Array.isArray(decision.add) ? decision.add.map(String) : []
+  const list = (value: unknown): string[] =>
+    Array.isArray(value) ? (value as unknown[]).map(String).filter((s) => s.trim()) : []
 
-  if (!acceptList.length && !rejectList.length && !addList.length) {
-    throw badRequest('Provide at least one tag to accept, reject or add')
+  const accept = list(decision.accept)
+  const reject = list(decision.reject)
+  const add = list(decision.add)
+  const remove = list(decision.remove)
+
+  if (!accept.length && !reject.length && !add.length && !remove.length) {
+    throw badRequest('Provide at least one tag to accept, reject, add or remove')
   }
 
-  const result: DecideOutcome = { accepted: [], rejected: [], added: [] }
   const versionId = artifact.current_version_id ?? null
+  const existing = await artifactTagViews(db, artifact.id, { includeRejected: true })
+  const bySlug = new Map(existing.map((t) => [t.slug, t]))
+  const byName = new Map(existing.map((t) => [t.name.trim().toLowerCase(), t]))
 
-  for (const name of acceptList) {
-    const { tag } = await resolveOrCreateTag(db, principal, name, {
-      organizationId: artifact.organization_id,
-      provenance: 'USER'
-    })
-    await decideTag(db, principal, artifact.id, tag.id, 'CONFIRMED', 'USER', versionId)
-    result.accepted.push(tag.name)
+  /** Resolve a user-supplied name against THIS artifact's tags (case-insensitively). */
+  const resolveOnArtifact = (raw: string): ArtifactTagView | null =>
+    bySlug.get(slugify(raw, 48)) ?? byName.get(raw.trim().toLowerCase()) ?? null
+
+  const result: TagDecisionResult = {
+    accepted: [],
+    rejected: [],
+    added: [],
+    removed: [],
+    not_found: [],
+    confirmed: [],
+    suggested: [],
+    rejectedTags: []
   }
 
-  for (const name of rejectList) {
-    const existing = await findTagBySlug(db, slugify(name, 48), artifact.organization_id)
-    // Rejecting a name that is not a tag has nothing to record, and silently
-    // ignoring it is correct: the outcome the user asked for (not tagged)
-    // already holds.
-    if (!existing) continue
-    await decideTag(db, principal, artifact.id, existing.id, 'REJECTED', 'USER', versionId)
-    result.rejected.push(existing.name)
+  for (const name of accept) {
+    const target = resolveOnArtifact(name)
+    // Accepting something that was never suggested is a client error, not a
+    // request to invent a tag — `add` is the documented way to do that.
+    if (!target) {
+      result.not_found.push(name)
+      continue
+    }
+    await decideTag(db, principal, artifact.id, target.tag_id, 'CONFIRMED', 'USER', versionId)
+    result.accepted.push(target.name)
   }
 
-  for (const name of addList) {
+  for (const name of reject) {
+    const target = resolveOnArtifact(name)
+    if (!target) {
+      result.not_found.push(name)
+      continue
+    }
+    await decideTag(db, principal, artifact.id, target.tag_id, 'REJECTED', 'USER', versionId)
+    result.rejected.push(target.name)
+  }
+
+  for (const name of add) {
     const blocking = blockReason(name)
     // A generic word is the user's prerogative when they type it themselves —
-    // they may be filing a document that is literally about folders. Inferring
-    // a personal attribute is refused even for an explicit entry, because the
-    // tag itself becomes the leak.
+    // they may be filing a document literally about folders. Inferring a
+    // personal attribute is refused even for an explicit entry, because the tag
+    // itself becomes the leak.
     if (blocking === 'sensitive') {
       throw badRequest(`"${String(name).trim()}" looks like a personal attribute and cannot be a tag`)
     }
     if (blocking) continue
 
-    const { name: applied } = await addTagToArtifact(
-      db,
-      principal,
-      artifact.id,
-      name,
-      artifact.organization_id
-    )
-    result.added.push(applied)
+    // addTagToArtifact resolves or creates the tag by slug, so a manual add
+    // cannot create a case-duplicate of an existing tag.
+    const applied = await addTagToArtifact(db, principal, artifact.id, name, artifact.organization_id)
+    result.added.push(applied.name)
+
+    await recordAudit(db, {
+      organizationId: artifact.organization_id,
+      workspaceId: artifact.workspace_id ?? null,
+      actorUserId: principal.userId,
+      actorType: 'USER',
+      action: 'TAG_ADD',
+      targetType: 'artifact',
+      targetId: artifact.id,
+      metadata: { name: applied.name, created: applied.created }
+    })
   }
+
+  for (const name of remove) {
+    const target = resolveOnArtifact(name)
+    if (!target) {
+      result.not_found.push(name)
+      continue
+    }
+    // An AI suggestion the user never decided on is not theirs to delete; it is
+    // a pending proposal, and rejecting it is the meaningful action.
+    if (target.state === 'SUGGESTED' && target.provenance === 'AI') {
+      throw badRequest(`"${target.name}" is a pending suggestion — reject it rather than removing it`)
+    }
+    await removeTagFromArtifact(db, artifact.id, target.tag_id)
+    result.removed.push(target.name)
+
+    await recordAudit(db, {
+      organizationId: artifact.organization_id,
+      workspaceId: artifact.workspace_id ?? null,
+      actorUserId: principal.userId,
+      actorType: 'USER',
+      action: 'TAG_REMOVE',
+      targetType: 'artifact',
+      targetId: artifact.id,
+      metadata: { tagId: target.tag_id, name: target.name }
+    })
+  }
+
+  // The lexical index carries CONFIRMED tag names, so it is refreshed whenever
+  // the confirmed set could have changed — accepting, adding or removing.
+  if (result.accepted.length || result.added.length || result.removed.length) {
+    await indexArtifact(db, artifact.id)
+  }
+
+  const after = await artifactTagViews(db, artifact.id, { includeRejected: true })
+  result.confirmed = after.filter((t) => t.state === 'CONFIRMED').map((t) => t.name)
+  result.suggested = after.filter((t) => t.state === 'SUGGESTED').map((t) => t.name)
+  result.rejectedTags = after.filter((t) => t.state === 'REJECTED').map((t) => t.name)
 
   return result
 }

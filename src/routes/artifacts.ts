@@ -461,6 +461,14 @@ artifacts.get(
 
     const access = await artifactAccess(c.env.DB, principal, artifactId)
     const tags = await tagsForArtifact(c.env.DB, artifactId)
+    /**
+     * The same tags split by decision state. `tags` above is the flat
+     * confirmed-plus-suggested list the chips render from; this adds the
+     * per-state split so the client can offer Accept/Reject on pending
+     * suggestions and show rejected tags it may reverse. Derived from the same
+     * rows, so the flat list and the split can never disagree.
+     */
+    const tagState = await tagsByState(c.env.DB, artifactId)
     const workspace = await first<{ name: string; workspace_type: string }>(
       c.env.DB,
       `SELECT name, workspace_type FROM workspaces WHERE id = ?`,
@@ -484,6 +492,7 @@ artifacts.get(
     return ok(c, {
       artifact: presentArtifact(access.artifact as unknown as Record<string, unknown>, {
         tags,
+        tagsByState: tagState,
         canonicalUrl: `${origin}/a/${access.artifact.id}`,
         isOwner: access.isOwner,
         canDownload: access.allowDownload,

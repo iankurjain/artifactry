@@ -33,7 +33,7 @@ import {
   normalizeTitle,
   assignTags
 } from './artifacts'
-import { searchArtifacts, resolveSemanticProvider, indexArtifact } from './search'
+import { searchArtifacts, resolveSemanticProvider } from './search'
 import { createShare, revokeShare } from './sharing'
 import { convertContent, ConversionUnsupported } from './convert'
 import { all, first, nowIso, run } from './db'
@@ -49,13 +49,13 @@ import {
 } from './teams'
 import {
   addTagToArtifact,
+  applyTagDecisions,
   artifactTagViews,
   confirmedTagNames,
-  decideTag,
   findTagBySlug,
-  removeTagFromArtifact,
   resolveOrCreateTag
 } from './tags'
+import type { TagDecisionResult } from './tags'
 import { filterSuggestions, suggestTags, MAX_TAGS, MIN_TAGS } from './autotag'
 import {
   CONFIRM_MESSAGES,
@@ -1464,55 +1464,29 @@ async function toolUpdateTags(
     }
   }
 
-  const existing = await artifactTagViews(db, artifact.id, { includeRejected: true })
-  const byName = new Map(existing.map((t) => [t.slug, t]))
-  const byLowerName = new Map(existing.map((t) => [t.name.toLowerCase(), t]))
-
-  const results: Record<string, string[]> = { accepted: [], rejected: [], added: [], removed: [], not_found: [] }
-
-  const findExisting = (raw: string) => {
-    const slug = slugOf(raw)
-    return byName.get(slug) ?? byLowerName.get(raw.trim().toLowerCase()) ?? null
+  /**
+   * The decision itself belongs to the shared tag service.
+   *
+   * REST and MCP calling the same function is the entire point: a second copy of
+   * these rules drifts, and the copy that drifts becomes a hole — one surface
+   * would refuse a case-duplicate that the other happily created. This tool now
+   * differs from the REST endpoint only in how it reports the outcome, never in
+   * what it accepts or what it writes.
+   */
+  let decision: TagDecisionResult
+  try {
+    decision = await applyTagDecisions(db, principal, artifact, {
+      accept,
+      reject,
+      add,
+      remove
+    })
+  } catch (err) {
+    // Service-level refusals — a sensitive manual tag, or a pending suggestion
+    // passed to `remove` — are the model's error to see and correct, so they are
+    // returned as a tool result instead of ending the session on the transport.
+    return { text: err instanceof Error ? err.message : 'Tag update failed', isError: true }
   }
-
-  for (const name of accept) {
-    const target = findExisting(name)
-    if (!target) {
-      results.not_found.push(name)
-      continue
-    }
-    await decideTag(db, principal, artifact.id, target.tag_id, 'CONFIRMED', 'USER')
-    results.accepted.push(target.name)
-  }
-
-  for (const name of reject) {
-    const target = findExisting(name)
-    if (!target) {
-      results.not_found.push(name)
-      continue
-    }
-    await decideTag(db, principal, artifact.id, target.tag_id, 'REJECTED', 'USER')
-    results.rejected.push(target.name)
-  }
-
-  for (const name of add) {
-    const applied = await addTagToArtifact(db, principal, artifact.id, name, artifact.organization_id)
-    results.added.push(applied.name)
-  }
-
-  for (const name of remove) {
-    const target = findExisting(name)
-    if (!target) {
-      results.not_found.push(name)
-      continue
-    }
-    await removeTagFromArtifact(db, artifact.id, target.tag_id)
-    results.removed.push(target.name)
-  }
-
-  // Lexical index carries confirmed tag names, so it is refreshed whenever the
-  // confirmed set could have changed.
-  await indexArtifact(db, artifact.id)
 
   await recordAudit(db, {
     organizationId: artifact.organization_id,
@@ -1522,26 +1496,28 @@ async function toolUpdateTags(
     action: 'TAG_UPDATE',
     targetType: 'artifact',
     targetId: artifact.id,
-    metadata: { operation: 'update_tags', ...results }
+    metadata: { operation: 'update_tags', ...decision }
   })
 
-  const after = await artifactTagViews(db, artifact.id, { includeRejected: true })
-
   const parts: string[] = []
-  if (results.accepted.length) parts.push(`accepted: ${results.accepted.join(', ')}`)
-  if (results.added.length) parts.push(`added: ${results.added.join(', ')}`)
-  if (results.rejected.length) parts.push(`rejected: ${results.rejected.join(', ')}`)
-  if (results.removed.length) parts.push(`removed: ${results.removed.join(', ')}`)
-  if (results.not_found.length) parts.push(`not found: ${results.not_found.join(', ')}`)
+  if (decision.accepted.length) parts.push(`accepted: ${decision.accepted.join(', ')}`)
+  if (decision.added.length) parts.push(`added: ${decision.added.join(', ')}`)
+  if (decision.rejected.length) parts.push(`rejected: ${decision.rejected.join(', ')}`)
+  if (decision.removed.length) parts.push(`removed: ${decision.removed.join(', ')}`)
+  if (decision.not_found.length) parts.push(`not found: ${decision.not_found.join(', ')}`)
 
   return {
     text: parts.length ? `Tags updated — ${parts.join('; ')}.` : 'No tags changed.',
     structured: {
       artifact_id: artifact.id,
-      ...results,
-      confirmed_tags: after.filter((t) => t.state === 'CONFIRMED').map((t) => t.name),
-      suggested_tags: after.filter((t) => t.state === 'SUGGESTED').map((t) => t.name),
-      rejected_tags: after.filter((t) => t.state === 'REJECTED').map((t) => t.name),
+      accepted: decision.accepted,
+      rejected: decision.rejected,
+      added: decision.added,
+      removed: decision.removed,
+      not_found: decision.not_found,
+      confirmed_tags: decision.confirmed,
+      suggested_tags: decision.suggested,
+      rejected_tags: decision.rejectedTags,
       note: 'A rejected tag will not be suggested again for this content.'
     }
   }
