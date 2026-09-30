@@ -6,6 +6,7 @@
  *   DELETE /api/v1/integrations/grants/:grantId → disconnect (§60)
  *   POST   /api/v1/mcp                          → JSON-RPC 2.0 MCP endpoint (§51, §53)
  *   GET    /api/v1/mcp                          → capability discovery (405 for SSE)
+ *   PUT    /api/v1/uploads/:uploadId            → whole file for a staged upload (upload_part)
  *   POST   /api/v1/integrations/oauth-clients   → client id + secret for manual OAuth setup
  *   GET    /api/v1/activity                     → cross-artifact activity feed
  *   GET    /api/v1/profile                      → profile + settings summary (§89)
@@ -23,6 +24,7 @@ import {
 } from '../lib/ai'
 import { handleMcpRequest, MCP_TOOLS, type McpRequest } from '../lib/mcp-jobs'
 import { OAuthError, createManualClient } from '../lib/oauth'
+import { UploadError, putBody } from '../lib/uploads'
 import { all, first, nowIso, run } from '../lib/db'
 import { badRequest, notFound, ok, readBearer, readJson } from '../lib/http'
 import { tokenPrefix } from '../lib/crypto'
@@ -190,6 +192,28 @@ integrations.post(
     return c.json(response)
   })
 )
+
+// ---------------------------------------------------------------
+// Staged uploads
+//
+// The other half of the upload_part tool: a client that can run code sends
+// the whole file here in one request, then calls save with the upload_id.
+// The id in the path is the credential (see lib/uploads.ts), so this takes no
+// session or bearer token. POST is accepted too for tools that cannot PUT.
+// ---------------------------------------------------------------
+
+const receiveUpload = guarded(async (c) => {
+  try {
+    const bytes = await putBody(c.env, c.req.param('uploadId') ?? '', c.req.raw.body)
+    return ok(c, { upload_id: c.req.param('uploadId'), bytes_received: bytes })
+  } catch (err) {
+    if (err instanceof UploadError) throw badRequest(err.message)
+    throw err
+  }
+})
+const uploadLimit = rateLimit({ bucket: 'upload:put', limit: 60, windowSeconds: 600 })
+integrations.put('/uploads/:uploadId', uploadLimit, receiveUpload)
+integrations.post('/uploads/:uploadId', uploadLimit, receiveUpload)
 
 // ---------------------------------------------------------------
 // Manual OAuth clients

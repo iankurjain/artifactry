@@ -108,8 +108,13 @@ no filesystem.
   never wrapped or escaped), a **ChatGPT file** via `file_ref` (declared as an
   `openai/fileParams` parameter, so ChatGPT hands over a download URL instead of the model
   base64-encoding bytes), a **public `source_url`** (https only, private/loopback hosts refused,
-  size capped while streaming), `content_base64` for small binaries, or plain text that
-  Artifactry converts to PDF/HTML. It creates either a new artifact or a new version. It returns the artifact id,
+  size capped while streaming), `content_base64` for small binaries, plain text that
+  Artifactry converts to PDF/HTML, or an **`upload_id`** from `upload_part`.
+- `upload_part` (`src/lib/uploads.ts`) gets a file that is too big for one tool call into
+  Artifactry: the model sends it in pieces (text as `content`, binaries as `content_base64`),
+  then calls `save` or `create_version` with the `upload_id`. The same id is a one-time
+  `PUT /api/v1/uploads/:id` link for clients that can run code. Pieces live in R2 under a hash
+  of the id, expire after 24 hours and are deleted once saved; no D1 table is involved. It creates either a new artifact or a new version. It returns the artifact id,
   canonical URL, workspace, **indexing state** and **proposed tags**.
 - `share` accepts an artifact id **or a canonical Artifactry URL**, and an audience of specific
   emails, an email domain, a **named team**, a workspace, or a public link, with expiry and

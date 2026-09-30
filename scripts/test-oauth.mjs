@@ -17,7 +17,8 @@
  *   6. disconnect in Settings → refresh fails
  *
  * plus a manually created confidential client (client id + secret), the
- * streamable-HTTP transport details, and every save source.
+ * streamable-HTTP transport details, every save source, and large files sent
+ * in parts (upload_part) or in one PUT.
  *
  * Run: node scripts/test-oauth.mjs
  */
@@ -111,6 +112,7 @@ function makeR2() {
         body: new Response(o.bytes).body,
         arrayBuffer: async () => o.bytes.buffer.slice(o.bytes.byteOffset, o.bytes.byteOffset + o.bytes.byteLength),
         text: async () => new TextDecoder().decode(o.bytes),
+        json: async () => JSON.parse(new TextDecoder().decode(o.bytes)),
         httpMetadata: o.opts?.httpMetadata ?? {},
         size: o.bytes.byteLength
       }
@@ -119,8 +121,14 @@ function makeR2() {
       const o = store.get(key)
       return o ? { size: o.bytes.byteLength, httpMetadata: o.opts?.httpMetadata ?? {} } : null
     },
-    async delete(key) {
-      store.delete(key)
+    async delete(keys) {
+      for (const k of Array.isArray(keys) ? keys : [keys]) store.delete(k)
+    },
+    async list({ prefix = '' } = {}) {
+      const objects = [...store.entries()]
+        .filter(([k]) => k.startsWith(prefix))
+        .map(([key, o]) => ({ key, size: o.bytes.byteLength }))
+      return { objects, truncated: false }
     }
   }
 }
@@ -541,6 +549,91 @@ let htmlArtifactId
   } finally {
     globalThis.fetch = realFetch
   }
+}
+
+// ---------------------------------------------------------------
+section('6b. Large files: upload_part and the PUT link')
+// ---------------------------------------------------------------
+
+{
+  const staged = () => [...R2.store.keys()].filter((k) => k.startsWith('staging/'))
+
+  // A page far bigger than one tool call, sent in pieces split mid-tag.
+  const rows = Array.from({ length: 4000 }, (_, i) => `<tr><td>Row ${i}</td><td>Aurora ✓ ${i * 7}</td></tr>`).join('\n')
+  const BIG = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Big report</title></head><body><h1>Aurora big report</h1><table>${rows}</table></body></html>`
+  const pieces = []
+  for (let i = 0; i < BIG.length; i += 20000) pieces.push(BIG.slice(i, i + 20000))
+  check('the test page needs several parts', pieces.length > 5, String(pieces.length))
+
+  const first = await tool(token(), 'upload_part', { content: pieces[0] })
+  const uploadId = first.structuredContent?.upload_id
+  check('the first part opens an upload and returns its id', first.isError === false && /^upl_/.test(uploadId ?? ''), first.content?.[0]?.text)
+  check('it also returns a PUT link', first.structuredContent?.put_url === `${ORIGIN}/api/v1/uploads/${uploadId}`)
+  check('the upload id is not used as a storage key', staged().every((k) => !k.includes(uploadId)))
+
+  for (let i = 1; i < pieces.length; i++) {
+    const r = await tool(token(), 'upload_part', { upload_id: uploadId, content: pieces[i] })
+    if (r.isError) check(`part ${i + 1} is accepted`, false, r.content?.[0]?.text)
+  }
+  const retry = await tool(token(), 'upload_part', { upload_id: uploadId, part: 2, content: pieces[1] })
+  check('resending a part number replaces it instead of duplicating it',
+    retry.isError === false && retry.structuredContent?.parts_received === pieces.length, JSON.stringify(retry.structuredContent))
+
+  const mixed = await tool(token(), 'upload_part', { upload_id: uploadId, content_base64: 'QUJD' })
+  check('mixing text and base64 parts in one upload is refused', mixed.isError === true)
+
+  const saved = await tool(token(), 'save', { upload_id: uploadId, title: 'Big report', tags: ['Aurora'] })
+  const bytes = storedBytesFor(saved.structuredContent?.artifact_id)
+  check('save with upload_id stores the page reassembled exactly', saved.isError === false && bytes &&
+    new TextDecoder().decode(bytes) === BIG, saved.content?.[0]?.text)
+  const row = db.sqlite.prepare('SELECT extension FROM artifacts WHERE id = ?').get(saved.structuredContent?.artifact_id)
+  check('an HTML upload with no file name is saved as .html', row?.extension === 'html', row?.extension)
+  check('tags given with the upload are applied', (saved.structuredContent?.applied_tags ?? []).includes('Aurora'))
+  check('the staged parts are deleted after saving', staged().length === 0, staged().join(','))
+
+  const again = await tool(token(), 'save', { upload_id: uploadId })
+  check('a used upload_id cannot be saved twice', again.isError === true)
+
+  // Gaps are caught rather than saving a corrupt file.
+  const g1 = await tool(token(), 'upload_part', { content: '<html><body>a' })
+  await tool(token(), 'upload_part', { upload_id: g1.structuredContent.upload_id, part: 3, content: 'c</body></html>' })
+  const gap = await tool(token(), 'save', { upload_id: g1.structuredContent.upload_id, file: 'gap.html' })
+  check('a missing part is reported by number', gap.isError === true && /Part 2/.test(gap.content?.[0]?.text ?? ''), gap.content?.[0]?.text)
+
+  // Binary in base64 parts.
+  const PDF = new TextEncoder().encode('%PDF-1.4\n' + 'x'.repeat(3000) + '\n%%EOF\n')
+  const b64 = Buffer.from(PDF).toString('base64')
+  const b1 = await tool(token(), 'upload_part', { content_base64: b64.slice(0, 2000) })
+  await tool(token(), 'upload_part', { upload_id: b1.structuredContent.upload_id, content_base64: b64.slice(2000) })
+  const noName = await tool(token(), 'save', { upload_id: b1.structuredContent.upload_id })
+  check('a binary upload without a file name asks for one', noName.isError === true && /file/.test(noName.content?.[0]?.text ?? ''))
+  const pdf = await tool(token(), 'save', { upload_id: b1.structuredContent.upload_id, file: 'long.pdf', title: 'Long PDF' })
+  const pdfBytes = storedBytesFor(pdf.structuredContent?.artifact_id)
+  check('base64 parts reassemble into the exact binary', pdf.isError === false && pdfBytes?.length === PDF.length, pdf.content?.[0]?.text)
+
+  // One-request upload through the link.
+  const open = await tool(token(), 'upload_part', {})
+  const putUrl = open.structuredContent?.put_url
+  check('calling with nothing returns an empty upload and its link', open.isError === false && !!putUrl)
+  const put = await call(new URL(putUrl).pathname, { method: 'PUT', body: PDF })
+  check('PUT to the link accepts the whole file without a token', put.status === 200, String(put.status))
+  const viaPut = await tool(token(), 'save', { upload_id: open.structuredContent.upload_id, file: 'put.pdf' })
+  check('save picks up the PUT file', viaPut.isError === false && storedBytesFor(viaPut.structuredContent?.artifact_id)?.length === PDF.length,
+    viaPut.content?.[0]?.text)
+
+  const bogus = await call('/api/v1/uploads/upl_' + 'A'.repeat(32), { method: 'PUT', body: PDF })
+  check('PUT to an unknown upload id is refused', bogus.status === 400, String(bogus.status))
+  const forged = await tool(token(), 'save', { upload_id: 'upl_' + 'B'.repeat(32), file: 'x.pdf' })
+  check('save with an unknown upload id is refused', forged.isError === true)
+
+  const tooBig = await call(new URL((await tool(token(), 'upload_part', {})).structuredContent.put_url).pathname, {
+    method: 'PUT', body: new Uint8Array(6_000_000)
+  })
+  check('a PUT over the size limit is refused', tooBig.status === 400, String(tooBig.status))
+
+  const v = await tool(token(), 'upload_part', { content: BIG.replace('Aurora big', 'Aurora bigger') })
+  const ver = await tool(token(), 'create_version', { artifact: saved.structuredContent.artifact_id, upload_id: v.structuredContent.upload_id })
+  check('create_version accepts an upload_id too', ver.isError === false, ver.content?.[0]?.text)
 }
 
 // ---------------------------------------------------------------

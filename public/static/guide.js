@@ -222,6 +222,7 @@ export const GUIDE_SECTIONS = [
     <p><strong>Gemini Enterprise</strong>: it asks for a client ID and secret, which your Artifactry admin creates for you. Then in Gemini Enterprise add an MCP server with the address, OAuth 2.0, the authorization and token URLs shown, and the client ID and secret. The consumer Gemini app does not support custom connectors yet. <strong>Gemini CLI</strong> signs in with OAuth on its own.</p>
     <p><strong>Saving files:</strong> HTML pages the AI writes are stored exactly as written. Files you upload or the AI generates in ChatGPT are handed over directly. Other apps can pass a public link to the file.</p>
     <p><strong>Permissions are granular.</strong> Each capability is granted separately and enforced on every request, and an app can never do more than you can. Sharing outside your organization always asks you first.</p>
+    <p>Long pages and big files are fine: if a file is too large for the app to send in one go, it sends it in parts and Artifactry puts them back together before saving.</p>
     <p>Disconnecting an app in Profile revokes it straight away; the app will ask you to sign in again. Apps that cannot sign in with OAuth can still use a token from <em>Profile → Connected AI apps</em>.</p>`
   ),
 
