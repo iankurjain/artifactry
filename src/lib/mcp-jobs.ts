@@ -37,6 +37,7 @@ import { searchArtifacts, resolveSemanticProvider } from './search'
 import { createShare, revokeShare } from './sharing'
 import { convertContent, ConversionUnsupported } from './convert'
 import { EXTENSION_MIME } from './validate'
+import { UploadError, appendPart, assembleUpload, discardUpload, startUpload } from './uploads'
 import { all, first, nowIso, run } from './db'
 import { badRequest, forbidden, notFound } from './http'
 import { recordAudit } from './audit'
@@ -108,6 +109,11 @@ const FILE_REF_SCHEMA = {
     mime_type: { type: 'string' }
   },
   required: ['download_url']
+}
+
+const UPLOAD_ID_SCHEMA = {
+  type: 'string',
+  description: 'An upload_id from upload_part: saves the file assembled from the parts sent there'
 }
 
 const SOURCE_URL_SCHEMA = {
@@ -189,6 +195,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       'Persist what the AI has just produced: HTML pages, slide decks (pptx), documents (docx, pdf) and ' +
       'images (png, jpg, webp, gif). Pick ONE source: ' +
       '(1) an HTML page — pass the full document as content with file "name.html"; it is stored exactly as given. ' +
+      'If the page (or any file) is too long for one call, send it in pieces with upload_part and pass upload_id here. ' +
       '(2) a file from the conversation — file_ref (ChatGPT fills it automatically). ' +
       '(3) a file at a public URL — source_url. ' +
       '(4) small binaries — content_base64 with file. ' +
@@ -200,6 +207,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       type: 'object',
       properties: {
         file: { type: 'string', description: 'Filename including a supported extension, e.g. "q3-summary.html"' },
+        upload_id: UPLOAD_ID_SCHEMA,
         file_ref: FILE_REF_SCHEMA,
         source_url: SOURCE_URL_SCHEMA,
         content_base64: { type: 'string', description: 'Base64 file bytes (small binary files only)' },
@@ -231,6 +239,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       properties: {
         artifact: { type: 'string', description: ARTIFACT_REF },
         file: { type: 'string' },
+        upload_id: UPLOAD_ID_SCHEMA,
         file_ref: FILE_REF_SCHEMA,
         source_url: SOURCE_URL_SCHEMA,
         content_base64: { type: 'string' },
@@ -238,6 +247,30 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         change_summary: { type: 'string' }
       },
       required: ['artifact']
+    }
+  },
+  {
+    name: 'upload_part',
+    title: 'Upload a large file in parts',
+    annotations: WRITES,
+    description:
+      'Send a file that is too large for a single save call, one piece at a time. First call: omit upload_id ' +
+      'and pass the first piece; keep the returned upload_id and pass it with every following piece, in order. ' +
+      'Text files such as HTML go in content, split anywhere (about 20,000 characters per piece works well); ' +
+      'binary files go in content_base64, split at a multiple of 4 characters. Then call save (or ' +
+      'create_version) with upload_id, file, title and tags. Nothing is saved until then. ' +
+      'The result also has a put_url: a client that can run code with network access may instead upload the ' +
+      'whole file in one request (curl -T file put_url) and then call save with the upload_id. Calling with ' +
+      'no content and no upload_id just returns a fresh upload_id and put_url. Uploads expire after 24 hours.',
+    requiredScope: 'artifact.write',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        upload_id: { type: 'string', description: 'Omit on the first piece; then the id returned by the first call' },
+        part: { type: 'number', description: 'Piece number from 1 (default: the next one). Resending a number replaces that piece' },
+        content: { type: 'string', description: 'The next piece of a text file (HTML, markdown, csv, json…)' },
+        content_base64: { type: 'string', description: 'The next piece of a binary file, as base64' }
+      }
     }
   },
   {
@@ -551,6 +584,8 @@ export async function callJobTool(
         return await toolSave(env, principal, args, origin)
       case 'create_version':
         return await toolCreateVersion(env, principal, args, origin)
+      case 'upload_part':
+        return await toolUploadPart(env, principal, args, origin)
       case 'share':
         return await toolShare(env, principal, args, origin)
       case 'revoke_share':
@@ -567,6 +602,7 @@ export async function callJobTool(
         return { text: `Tool not implemented: ${name}`, isError: true }
     }
   } catch (err) {
+    if (err instanceof UploadError) return { text: err.message, isError: true }
     // Tool failures are returned as results, not thrown, so a provider can show
     // the model why its call failed instead of ending the session.
     const message = err instanceof Error ? err.message : 'Unexpected error'
@@ -950,10 +986,23 @@ async function toolSave(
 
   // Sources, most specific first. Each one yields the artifact's real bytes;
   // only the last (format conversion) produces something Artifactry authored.
-  const fetched = await fileFromReference(env, args)
+  const uploadId = typeof args.upload_id === 'string' && args.upload_id.trim() ? args.upload_id.trim() : null
+  const fetched = uploadId ? null : await fileFromReference(env, args)
   if (fetched && 'error' in fetched) return { text: fetched.error, isError: true }
 
-  if (fetched) {
+  if (uploadId) {
+    const staged = await assembleUpload(env, principal, uploadId)
+    bytes = staged.bytes
+    if (fileArg && extensionOf(fileArg)) {
+      filename = fileArg
+    } else if (staged.text !== null && looksLikeHtmlDocument(staged.text)) {
+      filename = `${fileBase(fileArg || title || 'Untitled')}.html`
+    } else {
+      return { text: 'Provide file (a filename with extension, e.g. "deck.pptx") alongside upload_id.', isError: true }
+    }
+    const ext = extensionOf(filename)
+    if (ext === 'html' || ext === 'htm') mimeType = 'text/html'
+  } else if (fetched) {
     bytes = fetched.bytes
     filename = fileArg || fetched.filename
   } else if (typeof args.content_base64 === 'string' && args.content_base64.trim()) {
@@ -986,8 +1035,8 @@ async function toolSave(
     return {
       text:
         'Nothing to save. Pass an HTML page as content with file "name.html", a conversation file as ' +
-        'file_ref, a public URL as source_url, bytes as content_base64 with file, or plain text as ' +
-        'content with format "pdf".',
+        'file_ref, a public URL as source_url, bytes as content_base64 with file, plain text as ' +
+        'content with format "pdf", or an upload_id from upload_part for a file too large for one call.',
       isError: true
     }
   }
@@ -1020,6 +1069,8 @@ async function toolSave(
     },
     origin
   )
+
+  if (uploadId) await discardUpload(env, uploadId).catch(() => {})
 
   const artifact = await loadArtifact(db, result.artifactId)
   if (!artifact) {
@@ -1249,14 +1300,16 @@ async function toolCreateVersion(
   if (!artifact) return { text: 'Artifact not found.', isError: true }
   await assertCan(principal, artifact, 'artifact.version.create')
 
-  const fetched = await fileFromReference(env, args)
+  const uploadId = typeof args.upload_id === 'string' && args.upload_id.trim() ? args.upload_id.trim() : null
+  const staged = uploadId ? await assembleUpload(env, principal, uploadId) : null
+  const fetched = uploadId ? null : await fileFromReference(env, args)
   if (fetched && 'error' in fetched) return { text: fetched.error, isError: true }
-  const bytes = fetched ? fetched.bytes : decodeBytes(args)
+  const bytes = staged ? staged.bytes : fetched ? fetched.bytes : decodeBytes(args)
   const rawContent = typeof args.content === 'string' ? args.content : null
   const ext = artifact.extension?.toLowerCase() ?? ''
 
   if (!bytes && rawContent === null) {
-    return { text: 'Provide file_ref, source_url, content_base64 or content.', isError: true }
+    return { text: 'Provide upload_id, file_ref, source_url, content_base64 or content.', isError: true }
   }
 
   let payload = bytes
@@ -1290,6 +1343,7 @@ async function toolCreateVersion(
     changeSummary: (args.change_summary as string | undefined) ?? null,
     createdBy: principal.userId!
   })
+  if (uploadId) await discardUpload(env, uploadId).catch(() => {})
 
   const suggestions = await generateSuggestionsFor(env, artifact.id)
 
@@ -1308,6 +1362,42 @@ async function toolCreateVersion(
       proposed_tags: suggestions.proposed,
       indexing: await indexingStateFor(db, artifact.id)
     }
+  }
+}
+
+// ---------------------------------------------------------------
+// upload_part
+// ---------------------------------------------------------------
+
+async function toolUploadPart(
+  env: Env,
+  principal: Principal,
+  args: Record<string, unknown>,
+  origin: string
+): Promise<ToolOutcome> {
+  // Uploads land in the caller's own staging area; save re-checks the
+  // workspace permission when the file becomes an artifact.
+  if (!principal.userId) return { text: 'Sign in first.', isError: true }
+
+  const hasContent = [args.content, args.content_base64].some((v) => typeof v === 'string' && v.length > 0)
+  const hasId = typeof args.upload_id === 'string' && args.upload_id.trim()
+  if (!hasContent && !hasId) {
+    const opened = await startUpload(env, principal, origin)
+    return {
+      text:
+        `Upload ready: upload_id ${opened.upload_id}. Send pieces with upload_part, or PUT the whole file ` +
+        `to ${opened.put_url}; then call save with this upload_id.`,
+      structured: opened
+    }
+  }
+  if (!hasContent) return { text: 'Pass the next piece as content or content_base64.', isError: true }
+
+  const receipt = await appendPart(env, principal, args, origin)
+  return {
+    text:
+      `Received part ${receipt.part} (${receipt.parts_received} so far, ${receipt.bytes_received} bytes). ` +
+      `Send the next piece with upload_id ${receipt.upload_id}, or call save with upload_id when done.`,
+    structured: receipt
   }
 }
 
