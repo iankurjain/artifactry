@@ -598,9 +598,29 @@ these block the release.
    Running `gh auth setup-git` was the actual fix. Setup should assert that a
    resolvable credential exists before claiming success.
 
+3. **`artifact-library` auto-deploys production on every push to `main`.**
+   The project has a GitHub source connected
+   (`source.type = "github"`, `production_branch = "main"`,
+   `production_deployments_enabled = true`, `path_includes = ["*"]`), read back
+   from the Pages project API. `artifactry-preview` has `source: null` and does
+   **not** auto-deploy.
+
+   Consequence: a docs-only commit re-deploys production. Pushing the release
+   notes produced a new production deployment with no `wrangler pages deploy`
+   command. It was verified harmless in this case — `README.md` is not a build
+   input, and the rebuilt worker at the new commit hashes byte-identically to
+   the previously validated build (`sha256 b9002824…`), as does the shipped
+   `static/app.js` (`sha256 c1405baf…`) across both deployments. But the same
+   path would silently ship an unreviewed code change, and would also fire
+   during a window when the working tree is mid-edit.
+
+   If deliberate control is wanted, either narrow `path_includes` so docs
+   changes cannot trigger a build, or set
+   `production_deployments_enabled = false` and deploy explicitly.
+
 ### Product
 
-3. **MCP `search` and `get` emit a `null` origin in canonical URLs.**
+4. **MCP `search` and `get` emit a `null` origin in canonical URLs.**
    `toolSearch` and `toolGet` (src/lib/mcp-jobs.ts) interpolate a bare `origin`
    that is neither a parameter nor a local in those functions; the dispatcher
    passes `origin` only to `save` and `share`. Production output is
@@ -633,7 +653,7 @@ these block the release.
    from the caller-supplied `artifact` / `artifact_url` argument, which `search`
    does not take, so it would yield nothing there.
 
-4. **`TAG_ACCEPT` / `TAG_REJECT` audit rows lack workspace/organization context.**
+5. **`TAG_ACCEPT` / `TAG_REJECT` audit rows lack workspace/organization context.**
    `decideTag` writes those events without `workspace_id` / `organization_id`,
    while `TAG_ADD` / `TAG_REMOVE` (written by `applyTagDecisions`) include them.
    The events are written and correct in actor and target, but an audit query
