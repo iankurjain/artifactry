@@ -359,7 +359,7 @@ export function previewNoticePage(denial: PreviewDenial): Response {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
 <title>Preview unavailable</title></head>
-<body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:40px 20px;background:#f5f6f2;color:#12151c">
+<body style="font-family:Inter,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:40px 20px;background:#f5f6f2;color:#12151c">
 <div style="max-width:380px;margin:0 auto;background:#fff;border:1px solid #e2e4da;border-radius:14px;padding:22px">
 <h1 style="font-size:17px;margin:0 0 8px">Preview unavailable</h1>
 <p style="font-size:14px;color:#5a6066;margin:0;line-height:1.55">${escapeHtml(message)}</p>

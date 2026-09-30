@@ -127,7 +127,7 @@ export async function issueOtp(
         ? 'Your Artifactry sign-in code'
         : 'Verify your email to open this share'
     const html = `
-    <div style="font-family:system-ui,-apple-system,sans-serif;max-width:480px">
+    <div style="font-family:Inter,system-ui,-apple-system,sans-serif;max-width:480px">
       <div style="font-size:13px;font-weight:620;color:#4e7a00;letter-spacing:.01em;margin:0 0 18px">Artifactry</div>
       <h2 style="font-size:18px;margin:0 0 12px;color:#12151c">Your verification code</h2>
       <p style="font-size:24px;letter-spacing:4px;font-weight:700;margin:0 0 16px;color:#12151c">${code}</p>

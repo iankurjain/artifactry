@@ -20,7 +20,8 @@ import {
   kindLabel,
   extLabel,
   fileBadge,
-  safeUrl
+  safeUrl,
+  brandUrl
 } from './ui.js'
 
 // ---------------------------------------------------------------
@@ -563,7 +564,7 @@ function detailRow(label, value) {
     <div style="display:flex;justify-content:space-between;gap:12px;padding:7px 0;font-size:13px">
       <span style="color:var(--text-2);flex:none">${esc(label)}</span>
       <span style="font-weight:550;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-        font-family:${label === 'Artifact ID' || label === 'Checksum' ? 'ui-monospace,monospace' : 'inherit'};
+        font-family:${label === 'Artifact ID' || label === 'Checksum' ? 'var(--font-mono)' : 'inherit'};
         font-size:${label === 'Artifact ID' || label === 'Checksum' ? '11.5px' : '13px'}">${esc(value)}</span>
     </div>`
 }
@@ -647,7 +648,7 @@ export function renderAnalytics(ctx) {
           <span style="font-size:14px;font-weight:560">
             ${esc(periods.find((p) => p[0] === data.period)?.[1] || 'Last 30 days')}
           </span>
-          ${icon('back', 16, 'rotate-270')}
+          ${icon('chevronDown', 16)}
         </button>
 
         <div class="stats">
@@ -1049,10 +1050,8 @@ export function shareResultSheet(ctx, result, target) {
     title: 'Share created',
     content: `
       <div>
-        <div style="padding:12px;border-radius:11px;background:var(--surface-2);
-          font-family:ui-monospace,monospace;font-size:11.5px;word-break:break-all;line-height:1.6">
-          ${esc(url)}
-        </div>
+        <div class="brand-url" style="padding:12px;border-radius:11px;background:var(--surface-2);
+          font-size:11.5px;word-break:break-all;line-height:1.6">${brandUrl(url)}</div>
 
         <div style="margin-top:16px;display:flex;flex-direction:column;gap:9px">
           <div style="display:flex;justify-content:space-between;font-size:13px">
