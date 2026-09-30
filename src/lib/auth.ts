@@ -52,7 +52,7 @@ async function sendEmail(
     throw badRequest('Email delivery is not configured. Please contact the administrator.')
   }
 
-  const from = env.EMAIL_FROM ?? 'Artifactry <noreply@artifactry.app>'
+  const from = env.EMAIL_FROM ?? 'Artifactry <no-reply@artifactry.app>'
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
