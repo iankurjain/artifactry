@@ -376,7 +376,7 @@ export function renderLibrary(ctx) {
 
   const visible = state.artifacts.filter((a) => {
     if (activeType === 'all') return true
-    if (activeType === 'image') return ['png', 'jpg', 'jpeg', 'bmp', 'gif'].includes(a.extension)
+    if (activeType === 'image') return ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'].includes(a.extension)
     return a.extension === activeType
   })
 

@@ -922,7 +922,7 @@ ctx.openAnalyticsScreen = (artifactId) => navigate(`/a/${encodeURIComponent(arti
 // Small shared builders
 // ---------------------------------------------------------------
 
-const ACCEPTED = '.pptx,.pdf,.docx,.html,.htm,.png,.jpg,.jpeg,.bmp,.gif'
+const ACCEPTED = '.pptx,.pdf,.docx,.html,.htm,.png,.jpg,.jpeg,.bmp,.gif,.webp'
 
 function workspaceOptions(selectedId) {
   const current = selectedId ?? state.currentWorkspaceId

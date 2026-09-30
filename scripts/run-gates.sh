@@ -18,7 +18,7 @@ if ! flock -n 9; then
   exit 3
 fi
 
-ALL=(build check-imports check-undefined test-preview test-preview-security test-preview-ui test-authz test-index-sync test-semantic test-extract test-autotag test-mcp-jobs test-tag-decisions)
+ALL=(build check-imports check-undefined test-preview test-preview-security test-preview-ui test-authz test-index-sync test-semantic test-extract test-autotag test-mcp-jobs test-tag-decisions test-oauth)
 GATES=("$@")
 [ ${#GATES[@]} -eq 0 ] && GATES=("${ALL[@]}")
 
@@ -55,6 +55,10 @@ run_gate() {
     # surfaces, because the failure mode is one surface enforcing a rule the
     # other does not.
     test-tag-decisions)    node scripts/test-tag-decisions.mjs ;;
+    # Headless: the real app bundle through app.fetch against a real SQLite
+    # from the migrations. Walks the full OAuth connector sign-in (discovery,
+    # registration, consent, PKCE, refresh, disconnect) and every save source.
+    test-oauth)            node scripts/test-oauth.mjs ;;
     *) echo "unknown gate: $g" >&2; return 1 ;;
   esac > "$log" 2>&1
   rc=$?

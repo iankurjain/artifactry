@@ -27,6 +27,8 @@ import teamRoutes from './routes/teams'
 import workspaceRoutes from './routes/workspaces'
 import integrationRoutes from './routes/integrations'
 import previewRoutes from './routes/preview'
+import oauthRoutes from './routes/oauth'
+import { wwwAuthenticate } from './lib/oauth'
 
 import { renderShell } from './renderer'
 import { first } from './lib/db'
@@ -52,6 +54,17 @@ app.use('*', securityHeaders)
 // After securityHeaders so a gated 404 still carries them, before withPrincipal
 // so the preview origin never resolves a session.
 app.use('*', previewSurfaceGate)
+// Every 401 from the MCP endpoint must point at the OAuth metadata, or a
+// connector has no way to start sign-in. Registered before withPrincipal
+// because an invalid/expired token is rejected there, before any route runs.
+app.use('/api/v1/mcp', async (c, next) => {
+  await next()
+  if (c.res.status === 401) {
+    const origin = new URL(c.req.url).origin
+    const presented = /^bearer\s+/i.test(c.req.header('Authorization') ?? '')
+    c.res.headers.set('WWW-Authenticate', wwwAuthenticate(origin, presented ? 'invalid_token' : undefined))
+  }
+})
 app.use('*', withPrincipal)
 
 // The API is same-origin only. CORS is opened narrowly so an AI connector or
@@ -61,7 +74,8 @@ app.use(
   cors({
     origin: (origin) => origin ?? '*',
     allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowHeaders: ['Content-Type', 'Authorization', 'X-AI-Provider'],
+    allowHeaders: ['Content-Type', 'Authorization', 'X-AI-Provider', 'MCP-Protocol-Version', 'Mcp-Session-Id'],
+    exposeHeaders: ['WWW-Authenticate', 'Mcp-Session-Id'],
     credentials: false,
     maxAge: 600
   })
@@ -87,6 +101,12 @@ app.get('/api/health', (c) =>
 // ---------------------------------------------------------------
 
 app.route('/', previewRoutes)
+
+// ---------------------------------------------------------------
+// OAuth for AI connectors: /.well-known/* discovery and /oauth/*
+// ---------------------------------------------------------------
+
+app.route('/', oauthRoutes)
 
 // ---------------------------------------------------------------
 // API surface

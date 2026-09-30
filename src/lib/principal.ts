@@ -50,6 +50,7 @@ interface GrantRow {
   status: string
   client_name: string | null
   client_version: string | null
+  expires_at: string | null
 }
 
 /**
@@ -108,11 +109,14 @@ async function resolveAiGrant(db: D1Database, rawToken: string): Promise<Princip
   const tokenHash = await hashGrantToken(rawToken)
   const grant = await first<GrantRow>(
     db,
-    `SELECT id, integration_id, user_id, scopes, status, client_name, client_version
+    `SELECT id, integration_id, user_id, scopes, status, client_name, client_version, expires_at
        FROM integration_grants WHERE token_hash = ?`,
     [tokenHash]
   )
   if (!grant || grant.status !== 'ACTIVE') return null
+  // OAuth access tokens expire; a pasted token (expires_at NULL) does not. An
+  // expired token is a 401, which is what tells the client to refresh.
+  if (grant.expires_at && Date.parse(grant.expires_at) <= Date.now()) return null
 
   const user = await first<UserRow>(db, `SELECT * FROM users WHERE id = ?`, [grant.user_id])
   if (!user || user.status !== 'ACTIVE') return null
@@ -147,7 +151,12 @@ async function resolveAiGrant(db: D1Database, rawToken: string): Promise<Princip
     scopes,
     integrationId: grant.integration_id,
     grantId: grant.id,
-    provider: (integration?.provider as Principal['provider']) ?? undefined,
+    // CUSTOM ("Other MCP client") is a catalog bucket, not a provider, so it is
+    // attributed like any other API caller.
+    provider:
+      integration?.provider && integration.provider !== 'CUSTOM'
+        ? (integration.provider as Principal['provider'])
+        : undefined,
     // Reported by the client during `initialize`; null until it has connected
     // once. Only ever what the client says about itself.
     clientName: grant.client_name ?? undefined,

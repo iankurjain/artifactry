@@ -104,12 +104,29 @@ no filesystem.
   sort and limit. It returns id, title, type, **canonical URL**, workspace, tags, updated date,
   match type and an **authorized** excerpt — an excerpt is only ever read from rows that already
   passed the ACL, so it can never widen visibility.
-- `save` accepts AI-produced bytes (base64) or structured text that Artifactry converts to a
-  supported format, and creates either a new artifact or a new version. It returns the artifact id,
+- `save` accepts, in order of preference: an **HTML page as `content`** (stored byte-for-byte,
+  never wrapped or escaped), a **ChatGPT file** via `file_ref` (declared as an
+  `openai/fileParams` parameter, so ChatGPT hands over a download URL instead of the model
+  base64-encoding bytes), a **public `source_url`** (https only, private/loopback hosts refused,
+  size capped while streaming), `content_base64` for small binaries, or plain text that
+  Artifactry converts to PDF/HTML. It creates either a new artifact or a new version. It returns the artifact id,
   canonical URL, workspace, **indexing state** and **proposed tags**.
 - `share` accepts an artifact id **or a canonical Artifactry URL**, and an audience of specific
   emails, an email domain, a **named team**, a workspace, or a public link, with expiry and
   view/download permission.
+- **OAuth 2.1 sign-in for connectors** (migration 0007, `src/lib/oauth.ts`, `src/routes/oauth.ts`):
+  protected-resource and authorization-server metadata, Dynamic Client Registration, a
+  server-rendered sign-in + consent page, authorization code + PKCE S256, 1-hour access tokens
+  and rotating 90-day refresh tokens. Every 401 from `/api/v1/mcp` carries
+  `WWW-Authenticate: Bearer resource_metadata=…`, which is how ChatGPT, Claude, Copilot Studio
+  and Gemini start sign-in. An OAuth access token **is an `integration_grants` row**, so scopes,
+  provenance, analytics and Disconnect behave exactly as for a pasted token. Clients that must be
+  given a client id + secret (Gemini Enterprise, Copilot Studio "Manual") get one from
+  `POST /api/v1/integrations/oauth-clients`. Pasted tokens keep working and never expire.
+- **Streamable HTTP details**: notifications get `202` with no body, `GET` asking for
+  `text/event-stream` gets `405`, and the negotiated protocol version echoes any supported one
+  (`2024-11-05` … `2025-11-25`). Tools carry `title` and `readOnlyHint`/`destructiveHint`
+  annotations so clients skip the approval prompt on lookups.
 - **Scoped OAuth-style grants**: `artifact.read`, `artifact.write`, `artifact.share`, `team.read`,
   `workspace.read`, `tags.read`, `analytics.read`; per-tool `requiredScope` enforced server-side,
   so capability is decoupled from what the provider UI offers
@@ -570,6 +587,8 @@ bash scripts/run-gates.sh
 | `test-semantic` | 102 semantic-search and isolation assertions |
 | `test-extract` | Extraction against 9 real documents from 6 generators |
 | `test-mcp-jobs` | 89 assertions over the MCP job surface, teams, tag states and the confirmation gate |
+| `test-tag-decisions` | 41 assertions over tag decisions on both the REST and MCP surfaces |
+| `test-oauth` | 83 assertions: the full connector OAuth flow through the real app bundle, the MCP transport, and every `save` source |
 
 `scripts/check-undefined.mjs` exists because a bundle that builds clean can still reference a symbol
 that was never imported — that caused three separate `500`s in the preview path, and the gate caught
@@ -645,7 +664,10 @@ these block the release.
 
 ### Product
 
-4. **MCP `search` and `get` emit a `null` origin in canonical URLs.**
+4. **Fixed (OAuth connector PR):** ~~MCP `search` and `get` emit a `null` origin in canonical URLs.~~
+   The dispatcher now passes its `origin` to `search`, `get` and `create_version`;
+   `test-oauth` asserts the absolute URL on all three.
+   Original report:
    `toolSearch` and `toolGet` (src/lib/mcp-jobs.ts) interpolate a bare `origin`
    that is neither a parameter nor a local in those functions; the dispatcher
    passes `origin` only to `save` and `share`. Production output is

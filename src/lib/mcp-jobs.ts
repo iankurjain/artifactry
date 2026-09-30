@@ -36,6 +36,7 @@ import {
 import { searchArtifacts, resolveSemanticProvider } from './search'
 import { createShare, revokeShare } from './sharing'
 import { convertContent, ConversionUnsupported } from './convert'
+import { EXTENSION_MIME } from './validate'
 import { all, first, nowIso, run } from './db'
 import { badRequest, forbidden, notFound } from './http'
 import { recordAudit } from './audit'
@@ -66,10 +67,52 @@ import {
 
 export interface McpToolDefinition {
   name: string
+  title?: string
   description: string
   inputSchema: Record<string, unknown>
   /** OAuth scope required to invoke the tool (§58). */
   requiredScope: string
+  /**
+   * MCP tool annotations. Clients use them to decide what needs the user's
+   * approval: ChatGPT and Claude ask before a non-read-only call, so marking
+   * the lookups read-only removes a confirmation click on every search.
+   */
+  annotations?: {
+    readOnlyHint?: boolean
+    destructiveHint?: boolean
+    idempotentHint?: boolean
+    openWorldHint?: boolean
+  }
+  /** Client-specific extensions passed through verbatim in tools/list. */
+  _meta?: Record<string, unknown>
+}
+
+const READ_ONLY = { readOnlyHint: true, destructiveHint: false, openWorldHint: false }
+const WRITES = { readOnlyHint: false, destructiveHint: false, openWorldHint: false }
+
+/**
+ * A file handed over by the chat app itself. ChatGPT fills this in for any
+ * parameter listed under `openai/fileParams`: the user's uploaded or generated
+ * file arrives as a short-lived download URL, so the model never has to
+ * base64-encode bytes into its own output.
+ */
+const FILE_REF_SCHEMA = {
+  type: 'object',
+  description:
+    'A file from the conversation. ChatGPT fills this automatically for uploaded or generated files; ' +
+    'other clients may pass { download_url, file_name }.',
+  properties: {
+    download_url: { type: 'string' },
+    file_id: { type: 'string' },
+    file_name: { type: 'string' },
+    mime_type: { type: 'string' }
+  },
+  required: ['download_url']
+}
+
+const SOURCE_URL_SCHEMA = {
+  type: 'string',
+  description: 'Public https URL Artifactry downloads the file from (pptx, docx, pdf, png, jpg, webp, gif, html)'
 }
 
 export interface ToolOutcome {
@@ -88,6 +131,8 @@ const ARTIFACT_REF =
 export const MCP_TOOLS: McpToolDefinition[] = [
   {
     name: 'search',
+    title: 'Search artifacts',
+    annotations: READ_ONLY,
     description:
       'Find source material in the library. Natural-language query with optional filters for ' +
       'workspace, artifact type, tags, collection/team, owner and date range. Uses the same hybrid ' +
@@ -119,6 +164,8 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: 'get',
+    title: 'Get an artifact',
+    annotations: READ_ONLY,
     description:
       'Retrieve one artifact by id or canonical URL, including its tags, workspace and current version. ' +
       'Returns the extracted text when the artifact has a text layer; binary formats return metadata and ' +
@@ -135,18 +182,32 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: 'save',
+    title: 'Save to Artifactry',
+    annotations: WRITES,
+    _meta: { 'openai/fileParams': ['file_ref'] },
     description:
-      'Persist what the AI has just produced. Provide a binary file (base64) or structured text plus a ' +
-      'target format. Saves into a workspace, optionally into a collection, and proposes tags from the ' +
-      "artifact's actual content. Use create_version to add a version to an artifact that already exists.",
+      'Persist what the AI has just produced: HTML pages, slide decks (pptx), documents (docx, pdf) and ' +
+      'images (png, jpg, webp, gif). Pick ONE source: ' +
+      '(1) an HTML page — pass the full document as content with file "name.html"; it is stored exactly as given. ' +
+      '(2) a file from the conversation — file_ref (ChatGPT fills it automatically). ' +
+      '(3) a file at a public URL — source_url. ' +
+      '(4) small binaries — content_base64 with file. ' +
+      '(5) plain text to turn into a document — content with format "pdf" or "html". ' +
+      'Saves into a workspace, optionally a collection, applies any tags given and proposes more from the ' +
+      "artifact's actual content. Use create_version to revise an artifact that already exists.",
     requiredScope: 'artifact.write',
     inputSchema: {
       type: 'object',
       properties: {
-        file: { type: 'string', description: 'Filename including a supported extension' },
-        content_base64: { type: 'string', description: 'Base64 file bytes (for binary formats)' },
-        content: { type: 'string', description: 'Raw text content, converted when format is given' },
-        format: { type: 'string', description: 'Target format when saving text: pdf or html' },
+        file: { type: 'string', description: 'Filename including a supported extension, e.g. "q3-summary.html"' },
+        file_ref: FILE_REF_SCHEMA,
+        source_url: SOURCE_URL_SCHEMA,
+        content_base64: { type: 'string', description: 'Base64 file bytes (small binary files only)' },
+        content: {
+          type: 'string',
+          description: 'A complete HTML document (stored verbatim), or plain text to convert when format is given'
+        },
+        format: { type: 'string', description: 'Convert plain-text content into this format: pdf or html' },
         title: { type: 'string' },
         description: { type: 'string' },
         workspace: { type: 'string', description: 'Target workspace name or id' },
@@ -158,6 +219,9 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: 'create_version',
+    title: 'Save a new version',
+    annotations: WRITES,
+    _meta: { 'openai/fileParams': ['file_ref'] },
     description:
       'Add a new version to an existing artifact, preserving all prior versions. Use this instead of save ' +
       'when the AI is revising something already in the library.',
@@ -167,8 +231,10 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       properties: {
         artifact: { type: 'string', description: ARTIFACT_REF },
         file: { type: 'string' },
+        file_ref: FILE_REF_SCHEMA,
+        source_url: SOURCE_URL_SCHEMA,
         content_base64: { type: 'string' },
-        content: { type: 'string' },
+        content: { type: 'string', description: 'New HTML document, for HTML artifacts' },
         change_summary: { type: 'string' }
       },
       required: ['artifact']
@@ -176,6 +242,8 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: 'share',
+    title: 'Share an artifact',
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     description:
       'Share an existing artifact with its intended audience: a named team, a workspace, specific email ' +
       'addresses, an email domain, or a public link, with optional expiry and view/download permission. ' +
@@ -202,6 +270,8 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: 'revoke_share',
+    title: 'Revoke a share',
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     description: 'Revoke a share so its link stops working immediately.',
     requiredScope: 'artifact.share',
     inputSchema: {
@@ -212,12 +282,16 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: 'list_workspaces',
+    title: 'List workspaces',
+    annotations: READ_ONLY,
     description: 'List the workspaces the signed-in user can access, with their role.',
     requiredScope: 'workspace.read',
     inputSchema: { type: 'object', properties: {} }
   },
   {
     name: 'list_teams',
+    title: 'List teams',
+    annotations: READ_ONLY,
     description:
       'List reusable named audiences (teams) the signed-in user can share with, with member counts. ' +
       'Use a team name with share to address an audience without supplying individual addresses.',
@@ -229,6 +303,8 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: 'list_tags',
+    title: 'List tags',
+    annotations: READ_ONLY,
     description:
       'List tags in use. Confirmed tags are the library vocabulary; suggestions are shown for a specific ' +
       'artifact via get, not here.',
@@ -237,6 +313,8 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   },
   {
     name: 'update_tags',
+    title: 'Update tags',
+    annotations: WRITES,
     description:
       'Change the tags on an artifact: accept a suggested tag, reject one, add a new one, or remove one. ' +
       'Tags are case-insensitively deduplicated, and a rejected tag is remembered so it is not offered ' +
@@ -279,6 +357,13 @@ export interface McpResponse {
 }
 
 const PROTOCOL_VERSION = '2025-06-18'
+
+/**
+ * Versions this server speaks. The transport is plain request/response JSON,
+ * which is unchanged across these revisions, so echoing the client's version
+ * when it is one of them avoids a pointless downgrade negotiation.
+ */
+const SUPPORTED_PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05']
 
 /**
  * Server instructions are the agent's orientation, so they describe the jobs
@@ -362,7 +447,9 @@ export async function handleMcpRequest(
           jsonrpc: '2.0',
           id,
           result: {
-            protocolVersion: PROTOCOL_VERSION,
+            protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.includes(String(request.params?.protocolVersion))
+              ? String(request.params?.protocolVersion)
+              : PROTOCOL_VERSION,
             capabilities: { tools: { listChanged: false } },
             serverInfo: { name: 'artifactry', version: '1.0.0', title: 'Artifactry' },
             instructions: SERVER_INSTRUCTIONS,
@@ -388,8 +475,11 @@ export async function handleMcpRequest(
           result: {
             tools: MCP_TOOLS.map((tool) => ({
               name: tool.name,
+              ...(tool.title ? { title: tool.title } : {}),
               description: tool.description,
-              inputSchema: tool.inputSchema
+              inputSchema: tool.inputSchema,
+              ...(tool.annotations ? { annotations: tool.annotations } : {}),
+              ...(tool._meta ? { _meta: tool._meta } : {})
             }))
           }
         }
@@ -454,13 +544,13 @@ export async function callJobTool(
   try {
     switch (name) {
       case 'search':
-        return await toolSearch(env, principal, args)
+        return await toolSearch(env, principal, args, origin)
       case 'get':
-        return await toolGet(env, principal, args)
+        return await toolGet(env, principal, args, origin)
       case 'save':
         return await toolSave(env, principal, args, origin)
       case 'create_version':
-        return await toolCreateVersion(env, principal, args)
+        return await toolCreateVersion(env, principal, args, origin)
       case 'share':
         return await toolShare(env, principal, args, origin)
       case 'revoke_share':
@@ -491,7 +581,8 @@ export async function callJobTool(
 async function toolSearch(
   env: Env,
   principal: Principal,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  origin: string
 ): Promise<ToolOutcome> {
   const db = env.DB
   const limit = Math.min(Math.max(Number(args.limit ?? 10) || 10, 1), 50)
@@ -592,7 +683,8 @@ async function toolSearch(
 async function toolGet(
   env: Env,
   principal: Principal,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  origin: string
 ): Promise<ToolOutcome> {
   const db = env.DB
   const artifact = await loadArtifactByRef(db, args.artifact, originOf(args))
@@ -685,6 +777,135 @@ async function toolGet(
 }
 
 // ---------------------------------------------------------------
+// File sources for save / create_version
+// ---------------------------------------------------------------
+
+const FETCH_TIMEOUT_MS = 20_000
+
+function extensionOf(name: string): string {
+  const m = /\.([a-z0-9]+)$/i.exec(name.trim())
+  return m ? m[1].toLowerCase() : ''
+}
+
+function fileBase(title: string): string {
+  return (
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60) || 'artifact'
+  )
+}
+
+/** A full HTML document, as opposed to prose that merely mentions a tag. */
+export function looksLikeHtmlDocument(content: string): boolean {
+  const head = content.replace(/^\uFEFF/, '').trimStart().slice(0, 1024).toLowerCase()
+  return head.startsWith('<!doctype html') || head.startsWith('<html') || (head.includes('<head') && head.includes('<body'))
+}
+
+function extensionForMime(mime: string | null | undefined): string {
+  if (!mime) return ''
+  const bare = mime.split(';')[0].trim().toLowerCase()
+  if (bare === 'image/webp') return 'webp'
+  for (const [ext, m] of Object.entries(EXTENSION_MIME)) if (m === bare) return ext
+  return ''
+}
+
+/**
+ * Hosts a server-side fetch must never be pointed at. Workers egress to the
+ * public internet only, so this is defence in depth against a URL naming a
+ * loopback, link-local or private address, or a bare internal hostname.
+ */
+function forbiddenFetchHost(host: string): boolean {
+  const h = host.toLowerCase().replace(/^\[|\]$/g, '')
+  if (h === 'localhost' || h.endsWith('.localhost') || h.endsWith('.local') || h.endsWith('.internal')) return true
+  if (!h.includes('.') && !h.includes(':')) return true
+  if (/^(127\.|10\.|0\.|169\.254\.|192\.168\.)/.test(h)) return true
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true
+  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(h)) return true
+  if (h === '::1' || h.startsWith('fc') || h.startsWith('fd') || h.startsWith('fe80')) return true
+  return false
+}
+
+/**
+ * Download a file named by `file_ref` (filled by ChatGPT) or `source_url`.
+ * Returns null when neither is present. The size is capped while streaming,
+ * so a huge or endless body is cut off rather than buffered.
+ */
+async function fileFromReference(
+  env: Env,
+  args: Record<string, unknown>
+): Promise<{ bytes: Uint8Array; filename: string } | { error: string } | null> {
+  const ref = args.file_ref && typeof args.file_ref === 'object' ? (args.file_ref as Record<string, unknown>) : null
+  const rawUrl =
+    ref && typeof ref.download_url === 'string'
+      ? ref.download_url
+      : typeof args.source_url === 'string' && args.source_url.trim()
+        ? args.source_url.trim()
+        : null
+  if (!rawUrl) return null
+
+  let url: URL
+  try {
+    url = new URL(rawUrl)
+  } catch {
+    return { error: 'The file URL is not a valid URL.' }
+  }
+  if (url.protocol !== 'https:') return { error: 'Only https URLs can be fetched.' }
+  if (url.username || url.password) return { error: 'URLs with credentials are not accepted.' }
+  if (forbiddenFetchHost(url.hostname)) return { error: 'That host cannot be fetched.' }
+
+  const limit = Number(env.MAX_UPLOAD_BYTES || 26214400)
+  let response: Response
+  try {
+    response = await fetch(url.toString(), {
+      redirect: 'follow',
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      headers: { Accept: '*/*', 'User-Agent': 'Artifactry-Fetch/1.0' }
+    })
+  } catch (err) {
+    return { error: `Could not download the file: ${err instanceof Error ? err.message : 'network error'}` }
+  }
+  if (!response.ok || !response.body) {
+    return { error: `Could not download the file (HTTP ${response.status}).` }
+  }
+  const declared = Number(response.headers.get('Content-Length') ?? '0')
+  if (declared > limit) return { error: `The file is larger than the ${limit}-byte limit.` }
+
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > limit) {
+      await reader.cancel().catch(() => {})
+      return { error: `The file is larger than the ${limit}-byte limit.` }
+    }
+    chunks.push(value)
+  }
+  const bytes = new Uint8Array(total)
+  let offset = 0
+  for (const c of chunks) {
+    bytes.set(c, offset)
+    offset += c.byteLength
+  }
+
+  // Name: what the caller said, else what the chat app said, else the URL's
+  // last path segment, else the content type.
+  const refName = ref && typeof ref.file_name === 'string' ? ref.file_name.trim() : ''
+  const urlName = decodeURIComponent(url.pathname.split('/').pop() ?? '').trim()
+  let filename = refName || urlName || 'file'
+  if (!extensionOf(filename)) {
+    const mime = (ref && typeof ref.mime_type === 'string' ? ref.mime_type : null) ?? response.headers.get('Content-Type')
+    const ext = extensionForMime(mime)
+    if (ext) filename = `${filename}.${ext}`
+  }
+  return { bytes, filename }
+}
+
+// ---------------------------------------------------------------
 // save
 // ---------------------------------------------------------------
 
@@ -724,21 +945,31 @@ async function toolSave(
   let filename = fileArg
   let mimeType: string | undefined
 
-  // Either a binary the provider produced, or text Artifactry converts.
-  if (fileArg && !format) {
+  const fileExt = extensionOf(fileArg)
+  const htmlTarget = fileExt === 'html' || fileExt === 'htm' || format === 'html' || format === 'htm'
+
+  // Sources, most specific first. Each one yields the artifact's real bytes;
+  // only the last (format conversion) produces something Artifactry authored.
+  const fetched = await fileFromReference(env, args)
+  if (fetched && 'error' in fetched) return { text: fetched.error, isError: true }
+
+  if (fetched) {
+    bytes = fetched.bytes
+    filename = fileArg || fetched.filename
+  } else if (typeof args.content_base64 === 'string' && args.content_base64.trim()) {
     bytes = decodeBytes(args)
-    if (!bytes) {
-      return {
-        text:
-          'Provide content_base64 with file for a binary upload, or content with format to have ' +
-          'Artifactry convert structured text.',
-        isError: true
-      }
+    if (!bytes) return { text: 'content_base64 is not valid base64.', isError: true }
+    if (!fileArg) {
+      return { text: 'Provide file (a filename with extension) alongside content_base64.', isError: true }
     }
-  } else {
-    if (!format) {
-      return { text: 'Provide either file (+ content_base64) or content (+ format).', isError: true }
-    }
+  } else if (rawContent !== null && htmlTarget && (fileExt === 'html' || fileExt === 'htm' || looksLikeHtmlDocument(rawContent))) {
+    // An HTML page the AI wrote is saved exactly as written. Wrapping it in
+    // the text-to-document template would escape the markup and store its
+    // source code instead of the page.
+    bytes = new TextEncoder().encode(rawContent)
+    filename = fileExt === 'html' || fileExt === 'htm' ? fileArg : `${fileBase(title ?? 'Untitled')}.html`
+    mimeType = 'text/html'
+  } else if (format) {
     if (rawContent === null) {
       return { text: 'Provide content to convert.', isError: true }
     }
@@ -751,7 +982,17 @@ async function toolSave(
       if (err instanceof ConversionUnsupported) return { text: err.message, isError: true }
       throw err
     }
+  } else {
+    return {
+      text:
+        'Nothing to save. Pass an HTML page as content with file "name.html", a conversation file as ' +
+        'file_ref, a public URL as source_url, bytes as content_base64 with file, or plain text as ' +
+        'content with format "pdf".',
+      isError: true
+    }
   }
+
+  if (!bytes) return { text: 'Nothing to save.', isError: true }
 
   const result = await createArtifact(
     env,
@@ -1000,29 +1241,35 @@ async function attachToCollection(
 async function toolCreateVersion(
   env: Env,
   principal: Principal,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  origin: string
 ): Promise<ToolOutcome> {
   const db = env.DB
   const artifact = await loadArtifactByRef(db, args.artifact, originOf(args))
   if (!artifact) return { text: 'Artifact not found.', isError: true }
   await assertCan(principal, artifact, 'artifact.version.create')
 
-  const bytes = decodeBytes(args)
+  const fetched = await fileFromReference(env, args)
+  if (fetched && 'error' in fetched) return { text: fetched.error, isError: true }
+  const bytes = fetched ? fetched.bytes : decodeBytes(args)
   const rawContent = typeof args.content === 'string' ? args.content : null
   const ext = artifact.extension?.toLowerCase() ?? ''
 
   if (!bytes && rawContent === null) {
-    return { text: 'Provide content_base64 or content.', isError: true }
+    return { text: 'Provide file_ref, source_url, content_base64 or content.', isError: true }
   }
 
   let payload = bytes
-  let filename = typeof args.file === 'string' && args.file.trim() ? args.file.trim() : artifact.filename ?? 'version'
+  let filename =
+    typeof args.file === 'string' && args.file.trim()
+      ? args.file.trim()
+      : fetched?.filename ?? artifact.filename ?? 'version'
 
   // Text content is only writable in the format the artifact already is when
   // that format is text-based; otherwise the caller must send real bytes, since
   // silently re-encoding would misrepresent what was stored.
   if (!payload && rawContent !== null) {
-    if (ext === 'html') {
+    if (ext === 'html' || ext === 'htm') {
       payload = new TextEncoder().encode(rawContent)
     } else {
       return {
@@ -1057,7 +1304,7 @@ async function toolCreateVersion(
       version_id: result.versionId,
       version_number: result.versionNumber,
       status: result.status,
-      canonical_url: `${originOf(args) ?? ''}/a/${artifact.id}`,
+      canonical_url: `${origin}/a/${artifact.id}`,
       proposed_tags: suggestions.proposed,
       indexing: await indexingStateFor(db, artifact.id)
     }

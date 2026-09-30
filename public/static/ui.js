@@ -82,6 +82,7 @@ export function kindLabel(extension) {
     case 'jpeg':
     case 'bmp':
     case 'gif':
+    case 'webp':
       return 'Image'
     default:
       return ext ? ext.toUpperCase() : 'File'
@@ -172,7 +173,7 @@ export function fileBadge(extension) {
     html: ['#f3e8ff', '#7e22ce']
   }
   const [bg, fg] = palette[ext] ||
-    (['png', 'jpg', 'jpeg', 'bmp', 'gif'].includes(ext) ? ['#ecfdf3', '#067647'] : ['#eef0e9', '#5a6066'])
+    (['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'].includes(ext) ? ['#ecfdf3', '#067647'] : ['#eef0e9', '#5a6066'])
 
   return `<div style="width:46px;height:46px;flex:none;border-radius:11px;background:${bg};color:${fg};
     display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;letter-spacing:.03em">

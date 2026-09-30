@@ -79,7 +79,7 @@ export function renderArtifactDetail(ctx) {
   const canEditTags = Boolean(a.canWrite)
   const versions = detail.versions || []
   const isHtml = a.mimeType === 'text/html'
-  const isImage = ['image/png', 'image/jpeg', 'image/bmp', 'image/gif'].includes(a.mimeType)
+  const isImage = ['image/png', 'image/jpeg', 'image/bmp', 'image/gif', 'image/webp'].includes(a.mimeType)
   const processing = ['UPLOADING', 'PROCESSING'].includes(a.status)
   const failed = ['PROCESSING_FAILED', 'QUARANTINED'].includes(a.status)
 
