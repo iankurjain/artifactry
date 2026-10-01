@@ -195,7 +195,9 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       'Persist what the AI has just produced: HTML pages, slide decks (pptx), documents (docx, pdf) and ' +
       'images (png, jpg, webp, gif). Pick ONE source: ' +
       '(1) an HTML page — pass the full document as content with file "name.html"; it is stored exactly as given. ' +
-      'If the page (or any file) is too long for one call, send it in pieces with upload_part and pass upload_id here. ' +
+      'If the file is too big to write into one call: when it already exists as a file where you can run code ' +
+      '(a sandbox, the desktop app), call upload_part with no arguments and upload it with curl -T to the put_url it ' +
+      'returns (never through a third-party file host); otherwise send it in pieces with upload_part. Then pass upload_id here. ' +
       '(2) a file from the conversation — file_ref (ChatGPT fills it automatically). ' +
       '(3) a file at a public URL — source_url. ' +
       '(4) small binaries — content_base64 with file. ' +
@@ -254,14 +256,18 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     title: 'Upload a large file in parts',
     annotations: WRITES,
     description:
-      'Send a file that is too large for a single save call, one piece at a time. First call: omit upload_id ' +
+      'Get a file that is too large for a single save call into Artifactry. ' +
+      'BEST for large or binary files that already exist on disk where you can run code (for example a multi-MB HTML ' +
+      'page with embedded media): call with no arguments, then run curl -sS -T <file> "<put_url>" in your code ' +
+      'environment, then call save with upload_id. No auth header is needed; the link is private to this upload. ' +
+      'Your code environment must be allowed to reach this server; if the request is blocked, tell the user to add ' +
+      'this server\'s domain to the allowed network domains in their AI app settings. ' +
+      'OTHERWISE send the content one piece at a time. First call: omit upload_id ' +
       'and pass the first piece; keep the returned upload_id and pass it with every following piece, in order. ' +
       'Text files such as HTML go in content, split anywhere (about 20,000 characters per piece works well); ' +
       'binary files go in content_base64, split at a multiple of 4 characters. Then call save (or ' +
       'create_version) with upload_id, file, title and tags. Nothing is saved until then. ' +
-      'The result also has a put_url: a client that can run code with network access may instead upload the ' +
-      'whole file in one request (curl -T file put_url) and then call save with the upload_id. Calling with ' +
-      'no content and no upload_id just returns a fresh upload_id and put_url. Uploads expire after 24 hours.',
+      'Uploads expire after 24 hours.',
     requiredScope: 'artifact.write',
     inputSchema: {
       type: 'object',
@@ -1385,8 +1391,9 @@ async function toolUploadPart(
     const opened = await startUpload(env, principal, origin)
     return {
       text:
-        `Upload ready: upload_id ${opened.upload_id}. Send pieces with upload_part, or PUT the whole file ` +
-        `to ${opened.put_url}; then call save with this upload_id.`,
+        `Upload ready: upload_id ${opened.upload_id}. Upload the whole file from your code environment with ` +
+        `curl -sS -T <file> "${opened.put_url}" (or send pieces with upload_part), then call save with this ` +
+        `upload_id, file, title and tags.`,
       structured: opened
     }
   }
