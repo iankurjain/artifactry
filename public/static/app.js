@@ -2151,6 +2151,61 @@ ctx.openCreateOrgSheet = () => {
   })
 }
 
+/**
+ * Create a workspace. With an organizationId it belongs to that organization
+ * (owners and admins only, enforced server-side); without one it is another
+ * personal workspace. The creator becomes its workspace admin.
+ */
+ctx.openCreateWorkspaceSheet = ({ organizationId = null, organizationName = '' } = {}) => {
+  sheet({
+    title: 'New workspace',
+    content: `
+      <div>
+        ${field(
+          'Workspace name',
+          '<input id="ws-name" class="input" type="text" maxlength="120" placeholder="Marketing">',
+          organizationId
+            ? `Belongs to ${organizationName || 'your organization'}. You become its admin and decide who else joins.`
+            : 'A separate personal workspace. You become its admin and decide who else joins.'
+        )}
+        ${field(
+          'Description',
+          '<input id="ws-description" class="input" type="text" maxlength="500" placeholder="Optional">'
+        )}
+      </div>`,
+    actions: [
+      {
+        label: 'Create',
+        variant: 'primary',
+        keepOpen: true,
+        onClick: async () => {
+          const panel = document.querySelector('.sheet')
+          const name = panel?.querySelector('#ws-name')?.value?.trim()
+          const description = panel?.querySelector('#ws-description')?.value?.trim()
+          if (!name) {
+            toast('Enter a name', 'error')
+            return
+          }
+
+          const payload = { name }
+          if (description) payload.description = description
+          if (organizationId) payload.organizationId = organizationId
+
+          const created = await attempt(() => api.createWorkspace(payload), 'Workspace created')
+          if (created === null) return
+
+          closeSheet()
+          // The switcher and profile read the workspace list from the shell
+          // data, which is otherwise loaded once per session.
+          await loadShellData().catch(() => {})
+          if (created?.workspace?.id) setState({ currentWorkspaceId: created.workspace.id })
+          await refresh({ reload: true })
+        }
+      }
+    ]
+  })
+}
+
 ctx.openAdminMenuSheet = () => {
   sheet({
     title: 'Administration',
@@ -2604,8 +2659,16 @@ function openWorkspaceSwitcher() {
           </button>`
           )
           .join('')}
+        <button class="row" id="switch-new-workspace" style="padding:12px 0">
+          ${icon('plus', 19)}
+          <span style="flex:1;font-size:14px;font-weight:560">New workspace</span>
+        </button>
       </div>`,
     onMount(handle) {
+      handle.body.querySelector('#switch-new-workspace')?.addEventListener('click', () => {
+        closeSheet()
+        ctx.openCreateWorkspaceSheet()
+      })
       handle.body.querySelectorAll('[data-switch]').forEach((button) => {
         button.addEventListener('click', async () => {
           setState({ currentWorkspaceId: button.dataset.switch })

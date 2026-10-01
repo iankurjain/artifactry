@@ -785,7 +785,10 @@ export function renderProfile(ctx) {
           </div>
         </div>
 
-        <h2 style="font-size:14px;font-weight:640;margin:22px 0 9px">Workspaces</h2>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:22px 0 9px">
+          <h2 style="font-size:14px;font-weight:640;margin:0">Workspaces</h2>
+          <button class="btn btn-secondary" id="profile-new-workspace" style="min-height:36px;padding:0 12px">${icon('plus', 16)} New workspace</button>
+        </div>
         <div class="card" style="overflow:hidden">
           ${(state.workspaces || [])
             .map(
@@ -913,6 +916,7 @@ export function renderProfile(ctx) {
       root.querySelectorAll('[data-workspace]').forEach((button) => {
         button.addEventListener('click', () => ctx.openWorkspaceSheet(button.dataset.workspace))
       })
+      root.querySelector('#profile-new-workspace')?.addEventListener('click', () => ctx.openCreateWorkspaceSheet())
       root.querySelectorAll('[data-org]').forEach((button) => {
         button.addEventListener('click', () => ctx.openOrgSheet(button.dataset.org))
       })
@@ -1017,7 +1021,10 @@ export function renderAdmin(ctx) {
           }
         </div>
 
-        <h2 style="font-size:14px;font-weight:640;margin:22px 0 9px">Workspaces</h2>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:22px 0 9px">
+          <h2 id="admin-workspaces-heading" style="font-size:14px;font-weight:640;margin:0">Workspaces</h2>
+          <button class="btn btn-secondary" id="admin-new-workspace" style="min-height:36px;padding:0 12px">${icon('plus', 16)} New workspace</button>
+        </div>
         <div class="card" style="overflow:hidden">
           ${
             (state.adminWorkspaces || []).length
@@ -1066,6 +1073,9 @@ export function renderAdmin(ctx) {
       root.querySelectorAll('[data-member]').forEach((button) => {
         button.addEventListener('click', () => ctx.openMemberSheet(button.dataset.member))
       })
+      root.querySelector('#admin-new-workspace')?.addEventListener('click', () =>
+        ctx.openCreateWorkspaceSheet({ organizationId: org.id, organizationName: org.name })
+      )
       root.querySelector('#admin-menu')?.addEventListener('click', () => ctx.openAdminMenuSheet())
     }
   }
