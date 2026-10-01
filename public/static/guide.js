@@ -66,6 +66,7 @@ export const GUIDE_SECTIONS = [
     <p>The <strong>Library</strong> tab lists what you can access, newest first by default.</p>
     <p>You can narrow the list by <strong>type</strong> (document, presentation, image, web) and change the sort order to updated date, created date or title.</p>
     <p>The switcher at the top of the Home screen moves between your workspaces. Each workspace keeps its own artifacts, tags and members, so switching never mixes two projects together.</p>
+    <p>To start another workspace, choose <strong>New workspace</strong> at the bottom of the switcher or on your Profile. Organization owners and admins can create a workspace for the organization from the Administration page. You become the new workspace's admin and decide who else joins.</p>
     <p>Anything you cannot access is not merely hidden from view — it is excluded from the results themselves, so it cannot leak through counts, titles or suggestions.</p>`
   ),
 
