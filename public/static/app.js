@@ -517,14 +517,14 @@ async function loadAdminData() {
 
 /**
  * Workspace management: the workspace named in the URL, else the one being
- * viewed if it is an organization workspace, else the first organization
- * workspace this person can manage, else any organization workspace.
+ * viewed, else the first organization workspace this person can manage, else
+ * any workspace. Personal workspaces get identity and regional settings.
  */
 async function loadWorkspaceManage(requestedId) {
   const workspaces = state.workspaces || []
   const org = workspaces.filter((w) => w.type !== 'PERSONAL')
-  const current = org.find((w) => w.id === state.currentWorkspaceId)
-  const id = requestedId || current?.id || org.find((w) => w.canManage)?.id || org[0]?.id || null
+  const current = workspaces.find((w) => w.id === state.currentWorkspaceId)
+  const id = requestedId || current?.id || org.find((w) => w.canManage)?.id || workspaces[0]?.id || null
 
   if (ctx.wm.workspaceId !== id) {
     ctx.wm = { loading: true, workspaceId: id, manage: null, directory: null, shareDomain: null, lastInvite: null }

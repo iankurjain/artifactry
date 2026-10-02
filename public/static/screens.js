@@ -882,7 +882,7 @@ export function renderProfile(ctx) {
         </div>
 
         ${
-          (state.workspaces || []).some((w) => w.type !== 'PERSONAL')
+          (state.workspaces || []).length
             ? `<div class="card nav-mobile-only" style="overflow:hidden;margin-top:22px">
                  <button class="row" id="profile-workspace" style="padding:12px 14px">
                    ${icon('building', 20)} <span style="flex:1">Workspace settings</span> ${icon('chevron', 16)}

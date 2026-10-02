@@ -225,6 +225,13 @@ section('1. Settings: who may read and change them')
     check(`rejects ${label}`, res.status === 400, `got ${res.status}`)
   }
 
+  res = await call('/api/v1/workspaces/ws_personal/settings', {
+    user: 'usr_o', method: 'PATCH', body: { name: 'My Files', regional: { dateFormat: 'YYYY-MM-DD' } }
+  })
+  check('a personal workspace owner sets identity and regional', res.status === 200 && (await data(res)).settings?.regional?.dateFormat === 'YYYY-MM-DD')
+  res = await call('/api/v1/workspaces/ws_personal/manage', { user: 'usr_o' })
+  check('a personal workspace opens on the management screen', res.status === 200 && (await data(res)).workspace?.canManageSettings === true)
+
   res = await call('/api/v1/auth/me', { user: 'usr_m' })
   d = await data(res)
   const ws = d.workspaces?.find((w) => w.id === 'ws_a')
