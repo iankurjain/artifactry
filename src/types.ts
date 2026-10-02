@@ -47,6 +47,20 @@ export interface Env {
   // closes the case where a spoofed Host header could otherwise choose who is
   // allowed to frame an artifact. Unset means the check is skipped.
   APP_ORIGIN?: string
+
+  // Custom share domains (lib/sharedomains.ts). All four are required before
+  // an organization can put its share links on its own hostname.
+  //
+  // SHARE_EDGE_SECRET is shared with the share-edge Worker, which forwards
+  // customer-hostname traffic here; it proves the forwarded hostname header is
+  // genuine. CF_API_TOKEN (Zone > SSL and Certificates > Edit) and CF_ZONE_ID
+  // register customer hostnames with Cloudflare for SaaS on the app's zone.
+  // SHARE_DOMAIN_CNAME_TARGET is the hostname customers point their CNAME at.
+  // The two credentials are secrets, never committed vars.
+  SHARE_EDGE_SECRET?: string
+  CF_API_TOKEN?: string
+  CF_ZONE_ID?: string
+  SHARE_DOMAIN_CNAME_TARGET?: string
 }
 
 // ---------------------------------------------------------------

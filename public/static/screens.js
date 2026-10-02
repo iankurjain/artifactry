@@ -1045,6 +1045,8 @@ export function renderAdmin(ctx) {
           }
         </div>
 
+        ${shareDomainCard(ctx.adminShareDomain)}
+
         <h2 style="font-size:14px;font-weight:640;margin:22px 0 9px">Created with AI</h2>
         <div class="card" style="overflow:hidden">
           ${
@@ -1077,8 +1079,140 @@ export function renderAdmin(ctx) {
         ctx.openCreateWorkspaceSheet({ organizationId: org.id, organizationName: org.name })
       )
       root.querySelector('#admin-menu')?.addEventListener('click', () => ctx.openAdminMenuSheet())
+      mountShareDomainCard(root, ctx, org)
     }
   }
+}
+
+// ---------------------------------------------------------------
+// Admin: custom share domain
+//
+// Lets an owner or admin issue the organization's share links on their own
+// hostname. The server decides every state; this card only shows it and the
+// two DNS records to add, and offers Check now / Remove.
+// ---------------------------------------------------------------
+
+const SHARE_DOMAIN_STATUS = {
+  PENDING_DNS: ['Waiting for DNS', 'Add both records below, then choose Check now.'],
+  PENDING_CERT: ['Setting up', 'Ownership confirmed. Waiting for the CNAME record and the certificate.'],
+  ACTIVE: ['Active', 'New share links use this domain.'],
+  ERROR: ['Needs attention', 'Cloudflare could not set up this hostname.']
+}
+
+function shareDomainCard(info) {
+  if (!info) return ''
+  const heading = `<h2 style="font-size:14px;font-weight:640;margin:22px 0 9px">Share link domain</h2>`
+
+  if (!info.available) {
+    return `${heading}
+      <div class="card" style="padding:14px">
+        <p style="font-size:13px;color:var(--text-2);margin:0;line-height:1.55">
+          Share links use ${esc(window.location.host)}. Custom share domains are not set up on this deployment yet.
+        </p>
+      </div>`
+  }
+
+  const domain = info.domain
+  if (!domain) {
+    return `${heading}
+      <div class="card" style="padding:14px">
+        <p style="font-size:13px;color:var(--text-2);margin:0 0 12px;line-height:1.55">
+          Share links use ${esc(window.location.host)}. Use a hostname on your own domain instead, like share.yourcompany.com.
+        </p>
+        <label for="share-domain-input" style="font-size:13px;font-weight:600;display:block;margin-bottom:7px">Hostname</label>
+        <input id="share-domain-input" class="input" type="text" inputmode="url" autocomplete="off"
+          autocapitalize="off" spellcheck="false" placeholder="share.yourcompany.com">
+        <button class="btn btn-primary btn-block" id="share-domain-save" style="margin-top:12px">Use this domain</button>
+      </div>`
+  }
+
+  const [label, detail] = SHARE_DOMAIN_STATUS[domain.status] || SHARE_DOMAIN_STATUS.PENDING_DNS
+  const records = (domain.records || [])
+    .map(
+      (r) => `
+        <div style="padding:10px 0;border-top:1px solid var(--border)">
+          <div style="font-size:12px;color:var(--text-2)">${esc(r.type)} · ${esc(r.purpose || '')}</div>
+          <div style="font-size:12.5px;margin-top:4px;word-break:break-all">
+            <span style="color:var(--text-2)">Name</span>
+            <code style="font-family:var(--font-mono)">${esc(r.name)}</code>
+          </div>
+          <div style="font-size:12.5px;margin-top:2px;word-break:break-all">
+            <span style="color:var(--text-2)">Value</span>
+            <code style="font-family:var(--font-mono)">${esc(r.value)}</code>
+          </div>
+        </div>`
+    )
+    .join('')
+
+  return `${heading}
+    <div class="card" style="padding:14px">
+      <div style="display:flex;align-items:center;gap:10px">
+        ${icon('globe', 19)}
+        <span style="flex:1;min-width:0;font-size:14.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis">${esc(domain.hostname)}</span>
+        <span class="chip">${esc(label)}</span>
+      </div>
+      <p style="font-size:13px;color:var(--text-2);margin:8px 0 0;line-height:1.55">${esc(detail)}</p>
+      ${
+        domain.lastError && domain.status !== 'ACTIVE'
+          ? `<p style="font-size:12.5px;color:var(--danger);margin:8px 0 0;line-height:1.5">${esc(domain.lastError)}</p>`
+          : ''
+      }
+      ${domain.status === 'ACTIVE' ? '' : `<div style="margin-top:12px">${records}</div>`}
+      <div style="display:flex;gap:9px;margin-top:12px">
+        <button class="btn btn-secondary" id="share-domain-check" style="flex:1">${icon('refresh', 16)} Check now</button>
+        <button class="btn btn-danger" id="share-domain-remove" style="flex:1">Remove</button>
+      </div>
+    </div>`
+}
+
+function mountShareDomainCard(root, ctx, org) {
+  const busy = (button, fn) => async () => {
+    if (button.disabled) return
+    button.disabled = true
+    try {
+      await fn()
+    } catch (err) {
+      toast(err.message || 'Something went wrong', 'error')
+    } finally {
+      button.disabled = false
+    }
+  }
+
+  const save = root.querySelector('#share-domain-save')
+  save?.addEventListener(
+    'click',
+    busy(save, async () => {
+      const hostname = (root.querySelector('#share-domain-input')?.value || '').trim()
+      if (!hostname) {
+        toast('Enter a hostname', 'error')
+        return
+      }
+      await ctx.api.setShareDomain(org.id, hostname)
+      toast('Domain added. Add the DNS records next.', 'success')
+      await ctx.reload()
+    })
+  )
+
+  const check = root.querySelector('#share-domain-check')
+  check?.addEventListener(
+    'click',
+    busy(check, async () => {
+      const result = await ctx.api.checkShareDomain(org.id)
+      toast(result?.domain?.status === 'ACTIVE' ? 'Share links now use this domain' : 'Checked', 'success')
+      await ctx.reload()
+    })
+  )
+
+  const remove = root.querySelector('#share-domain-remove')
+  remove?.addEventListener(
+    'click',
+    busy(remove, async () => {
+      if (!window.confirm('Stop using this domain? Links already sent with it will stop opening.')) return
+      await ctx.api.removeShareDomain(org.id)
+      toast('Share links use Artifactry again', 'success')
+      await ctx.reload()
+    })
+  )
 }
 
 // ---------------------------------------------------------------

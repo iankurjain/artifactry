@@ -18,6 +18,7 @@ import { prefixed, randomToken, ulid } from './ids'
 import { badRequest, forbidden, notFound } from './http'
 import { emailDomain, isValidEmail, normalizeEmail } from './validate'
 import { recordAudit } from './audit'
+import { shareOriginForOrg } from './sharedomains'
 
 export interface CreateShareInput {
   targetType: ShareTargetType
@@ -50,7 +51,8 @@ export interface CreatedShare {
 
 /**
  * Create a share and return its URL. The raw token exists only in this
- * response; only its SHA-256 hash is stored.
+ * response; only its SHA-256 hash is stored. `origin` is the fallback origin
+ * for the link when the share's organization has no active share domain.
  */
 export async function createShare(
   db: D1Database,
@@ -162,7 +164,11 @@ export async function createShare(
     }
   })
 
-  return { share, token, url: `${origin}/s/${token}` }
+  // An organization with an active custom share domain issues its links there;
+  // everything else (personal workspaces, no domain) uses the caller's origin.
+  const linkOrigin = (await shareOriginForOrg(db, orgId)) ?? origin
+
+  return { share, token, url: `${linkOrigin}/s/${token}` }
 }
 
 function normalizeRecipients(

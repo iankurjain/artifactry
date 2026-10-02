@@ -47,6 +47,10 @@ export type AuditAction =
   | 'AI_CONFIRM_REQUESTED'
   | 'AI_CONFIRM_GRANTED'
   | 'AI_CONFIRM_DENIED'
+  | 'SHARE_DOMAIN_SET'
+  | 'SHARE_DOMAIN_VERIFIED'
+  | 'SHARE_DOMAIN_ACTIVATED'
+  | 'SHARE_DOMAIN_REMOVE'
 
 export interface AuditInput {
   organizationId?: string | null

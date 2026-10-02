@@ -505,6 +505,35 @@ Other operational notes for this deployment path:
    limitation above. A failed send writes **no** `auth_otp` row and burns **no** cooldown, so a
    delivery failure never locks a recipient out or leaves a false audit record.
 
+### Custom share domains — built, needs one-time setup
+
+An organization owner or admin can put the organization's share links on their own hostname
+(**Administration → Share link domain**), e.g. `share.acme.com` instead of `artifactry.app`. The
+customer adds a `CNAME` to `shares.artifactry.app` and a `TXT` at `_artifactry-challenge.<host>`;
+**Check now** verifies the TXT, registers the hostname with Cloudflare for SaaS, and switches new
+links over once the certificate is active. Old links keep working on `artifactry.app`.
+
+Only the recipient surface exists on a customer hostname (`/s/*`, the recipient share APIs, `/guide`);
+sign-in, the library and every other API are `404` there, no session is ever resolved, and only that
+organization's shares open. Code: `src/lib/sharedomains.ts`, `src/routes/sharedomains.ts`,
+`shareDomainGate` in `src/middleware.ts`, `src/share-edge-worker.ts`.
+
+The feature stays **off** until all of this is done (the admin card says so until then):
+
+1. Apply `migrations/0008_share_domains.sql` (`npm run db:migrate:prod`).
+2. On the `artifactry.app` zone: enable **SSL/TLS → Custom Hostnames** (Cloudflare for SaaS), add an
+   originless proxied record `shares.artifactry.app AAAA 100::`, and set it as the **Fallback Origin**.
+3. Secrets on the Pages project `artifact-library`: `SHARE_EDGE_SECRET` (random, 32+ chars),
+   `CF_API_TOKEN` (Zone → SSL and Certificates → Edit, this zone only), `CF_ZONE_ID`.
+4. Deploy the share-edge Worker: `npx wrangler secret put SHARE_EDGE_SECRET -c wrangler.share-edge.jsonc`
+   (same value), then `npm run deploy:share-edge`. Pages cannot be the origin of a custom hostname,
+   so this Worker (route `*/*` on the zone, passing `artifactry.app` and `preview.artifactry.app`
+   straight through) forwards customer traffic to the app with the hostname, visitor IP and secret.
+
+Not included: per-organization branding on the recipient page (it still shows the Artifactry
+lockup), apex domains (customers need a subdomain they can `CNAME`), and a background job to
+re-check pending domains (an admin presses **Check now**).
+
 ---
 
 ## Brand
@@ -594,6 +623,7 @@ bash scripts/run-gates.sh
 | `test-mcp-jobs` | 89 assertions over the MCP job surface, teams, tag states and the confirmation gate |
 | `test-tag-decisions` | 41 assertions over tag decisions on both the REST and MCP surfaces |
 | `test-oauth` | 83 assertions: the full connector OAuth flow through the real app bundle, the MCP transport, and every `save` source |
+| `test-share-domains` | 93 assertions: custom share domain admin flow, link issuing, what a customer hostname may serve, preview framing, and the share-edge Worker |
 
 `scripts/check-undefined.mjs` exists because a bundle that builds clean can still reference a symbol
 that was never imported — that caused three separate `500`s in the preview path, and the gate caught

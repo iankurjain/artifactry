@@ -328,6 +328,20 @@ export const api = {
   orgAnalytics: (id, period = '30d') =>
     request(`/api/v1/organizations/${encodeURIComponent(id)}/analytics?period=${period}`),
 
+  shareDomain: (id) => request(`/api/v1/organizations/${encodeURIComponent(id)}/share-domain`),
+
+  setShareDomain: (id, hostname) =>
+    request(`/api/v1/organizations/${encodeURIComponent(id)}/share-domain`, {
+      method: 'PUT',
+      body: { hostname }
+    }),
+
+  checkShareDomain: (id) =>
+    request(`/api/v1/organizations/${encodeURIComponent(id)}/share-domain/check`, { method: 'POST' }),
+
+  removeShareDomain: (id) =>
+    request(`/api/v1/organizations/${encodeURIComponent(id)}/share-domain`, { method: 'DELETE' }),
+
   updateOrgSettings: (id, settings) =>
     request(`/api/v1/organizations/${encodeURIComponent(id)}/settings`, {
       method: 'PATCH',

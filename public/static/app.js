@@ -171,7 +171,8 @@ const ctx = {
   shareEmail: '',
   shareDevCode: null,
   adminTotals: null,
-  adminProviderStats: []
+  adminProviderStats: [],
+  adminShareDomain: null
 }
 
 let currentRoute = parseRoute()
@@ -447,16 +448,21 @@ async function loadAdminData() {
     ctx.state.adminOrg = null
     ctx.adminTotals = null
     ctx.adminProviderStats = []
+    ctx.adminShareDomain = null
     return
   }
 
   ctx.state.adminOrg = adminOrg
 
-  const [analytics, members, workspaces] = await Promise.all([
+  const [analytics, members, workspaces, shareDomain] = await Promise.all([
     api.orgAnalytics(adminOrg.id, '30d'),
     api.orgMembers(adminOrg.id).catch(() => ({ members: [] })),
-    api.workspaces().catch(() => ({ workspaces: [] }))
+    api.workspaces().catch(() => ({ workspaces: [] })),
+    // Supplementary: the admin screen renders without it.
+    api.shareDomain(adminOrg.id).catch(() => null)
   ])
+
+  ctx.adminShareDomain = shareDomain
 
   ctx.adminTotals = {
     artifacts: analytics?.totals?.artifacts ?? 0,
