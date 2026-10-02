@@ -84,7 +84,7 @@ export { pickPicture }
 
 export function renderWorkspaceManage(ctx) {
   const wm = ctx.wm || {}
-  const orgWorkspaces = (ctx.state.workspaces || []).filter((w) => w.type !== 'PERSONAL')
+  const allWorkspaces = ctx.state.workspaces || []
 
   const header = screenHeader({ title: 'Workspace', subtitle: wm.manage?.workspace?.name, onBackId: 'wm-back' })
   const shell = (body) => ({
@@ -104,27 +104,25 @@ export function renderWorkspaceManage(ctx) {
       <div class="card" style="padding:4px 0 12px">
         ${emptyState({
           iconName: 'building',
-          title: orgWorkspaces.length ? 'Workspace not available' : 'No organization workspace',
-          message: orgWorkspaces.length
-            ? 'You no longer have access to that workspace.'
-            : 'Workspace management is for organization workspaces. Create an organization to get one.',
-          action: orgWorkspaces.length ? '' : '<button class="btn btn-secondary" id="wm-create-org">Create an organization</button>'
+          title: allWorkspaces.length ? 'Workspace not available' : 'No workspace yet',
+          message: allWorkspaces.length ? 'You no longer have access to that workspace.' : 'Create a workspace to manage it here.',
+          action: ''
         })}
       </div>`)
   }
 
   const { workspace, settings, tiers, options } = wm.manage
   const personal = workspace.type === 'PERSONAL'
-  const canSettings = workspace.canManageSettings && !personal
+  const canSettings = workspace.canManageSettings
   const canMembers = workspace.canManageMembers && !personal
 
   const picker =
-    orgWorkspaces.length > 1
+    allWorkspaces.length > 1
       ? `<div style="margin:2px 0 4px">
            <label for="wm-switch" class="visually-hidden">Workspace</label>
            <select id="wm-switch" class="input">
-             ${orgWorkspaces
-               .map((w) => `<option value="${esc(w.id)}" ${w.id === workspace.id ? 'selected' : ''}>${esc(w.name)}</option>`)
+             ${allWorkspaces
+               .map((w) => `<option value="${esc(w.id)}" ${w.id === workspace.id ? 'selected' : ''}>${esc(w.name)}${w.type === 'PERSONAL' ? ' (personal)' : ''}</option>`)
                .join('')}
            </select>
          </div>`
@@ -140,14 +138,14 @@ export function renderWorkspaceManage(ctx) {
   const body = `
     ${picker}
     ${jump}
-    ${personal ? `<div class="card" style="padding:14px;margin-top:12px">${muted('This is a personal workspace. Workspace management, custom URLs, tiers and invitations are for organization workspaces.')}</div>` : ''}
+    ${personal ? `<div class="card" style="padding:14px;margin-top:12px">${muted('This is a personal workspace, so only you use it. Custom URL, team, roles and invitations are available in organization workspaces.')}</div>` : ''}
     ${identitySection(workspace, canSettings)}
     ${customUrlSection(wm.shareDomain, personal, canSettings)}
     ${regionalSection(settings, options, canSettings)}
     ${canMembers ? directorySection(wm.directory, tiers, workspace) : ''}
     ${canMembers ? rolesSection(tiers, options) : ''}
     ${canMembers ? invitationsSection(settings, tiers, wm.lastInvite) : ''}
-    ${!canSettings && !personal ? `<p style="font-size:12px;color:var(--text-3);margin:18px 0 0">${icon('lock', 12)} Only workspace admins may change these settings.</p>` : ''}`
+    ${!canSettings ? `<p style="font-size:12px;color:var(--text-3);margin:18px 0 0">${icon('lock', 12)} Only workspace admins may change these settings.</p>` : ''}`
 
   return {
     html: `${header}<main class="app-main" style="padding-top:8px">${body}${ctx.appFooter()}</main>${ctx.bottomNav('workspace')}`,
