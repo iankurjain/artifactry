@@ -405,8 +405,14 @@ const SPA_ROUTES = [
   '/profile',
   '/admin',
   '/settings',
-  '/guide'
+  '/guide',
+  '/workspace'
 ]
+
+// Workspace management for one workspace, and the page an invitation link opens.
+// Both are signed-in screens; the client reads the id or token from the path.
+app.get('/workspace/:workspaceId', (c) => renderShell(c, { route: 'workspace' }))
+app.get('/join/:token', (c) => renderShell(c, { route: 'join' }))
 
 for (const route of SPA_ROUTES) {
   app.get(route, (c) => {

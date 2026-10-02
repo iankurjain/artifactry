@@ -28,8 +28,12 @@ import {
   emptyState,
   spinner,
   brandLockup,
-  brandUrl
+  brandUrl,
+  avatar,
+  roleLabel,
+  setRegional
 } from './ui.js'
+import { renderWorkspaceManage, renderJoin, pickPicture } from './workspace.js'
 import {
   renderLogin,
   renderHome,
@@ -127,6 +131,14 @@ function parseRoute(pathname = window.location.pathname) {
     return { name: 'share', token: decodeURIComponent(segments[1]) }
   }
 
+  if (segments[0] === 'workspace') {
+    return { name: 'workspace', workspaceId: segments[1] ? decodeURIComponent(segments[1]) : null }
+  }
+
+  if (segments[0] === 'join' && segments[1]) {
+    return { name: 'join', token: decodeURIComponent(segments[1]) }
+  }
+
   if (!segments.length) return { name: 'home' }
   return { name: SIMPLE_ROUTES[segments[0]] || 'home' }
 }
@@ -172,7 +184,9 @@ const ctx = {
   shareDevCode: null,
   adminTotals: null,
   adminProviderStats: [],
-  adminShareDomain: null
+  // Workspace management screen and the invitation join page.
+  wm: { loading: false, workspaceId: null, manage: null, directory: null, shareDomain: null, lastInvite: null },
+  join: { token: null, loading: false, info: null, result: null, workspaceId: null }
 }
 
 let currentRoute = parseRoute()
@@ -212,6 +226,10 @@ function screenFor(route) {
       return renderProfile(ctx)
     case 'admin':
       return renderAdmin(ctx)
+    case 'workspace':
+      return renderWorkspaceManage(ctx)
+    case 'join':
+      return renderJoin(ctx)
     case 'artifact':
       return renderArtifactDetail(ctx)
     case 'analytics':
@@ -228,6 +246,10 @@ function screenFor(route) {
 function render() {
   const root = document.getElementById('app')
   if (!root) return
+
+  // Dates follow the regional settings of the workspace being viewed.
+  const current = (state.workspaces || []).find((w) => w.id === state.currentWorkspaceId)
+  setRegional(current?.regional)
 
   const snapshot = captureFocus()
   const screen = screenFor(currentRoute)
@@ -387,6 +409,21 @@ async function loadRouteData(route) {
       await loadAdminData()
       break
     }
+    case 'workspace': {
+      await loadWorkspaceManage(route.workspaceId)
+      break
+    }
+    case 'join': {
+      if (ctx.join.token !== route.token) {
+        ctx.join = { token: route.token, loading: true, info: null, result: null, workspaceId: null }
+      }
+      try {
+        ctx.join.info = await api.invitation(route.token)
+      } finally {
+        ctx.join.loading = false
+      }
+      break
+    }
     case 'artifact': {
       ctx.detail.loading = true
       ctx.detail.artifact = null
@@ -448,21 +485,16 @@ async function loadAdminData() {
     ctx.state.adminOrg = null
     ctx.adminTotals = null
     ctx.adminProviderStats = []
-    ctx.adminShareDomain = null
     return
   }
 
   ctx.state.adminOrg = adminOrg
 
-  const [analytics, members, workspaces, shareDomain] = await Promise.all([
+  const [analytics, members, workspaces] = await Promise.all([
     api.orgAnalytics(adminOrg.id, '30d'),
     api.orgMembers(adminOrg.id).catch(() => ({ members: [] })),
-    api.workspaces().catch(() => ({ workspaces: [] })),
-    // Supplementary: the admin screen renders without it.
-    api.shareDomain(adminOrg.id).catch(() => null)
+    api.workspaces().catch(() => ({ workspaces: [] }))
   ])
-
-  ctx.adminShareDomain = shareDomain
 
   ctx.adminTotals = {
     artifacts: analytics?.totals?.artifacts ?? 0,
@@ -481,6 +513,43 @@ async function loadAdminData() {
     artifacts: w.artifactCount ?? 0,
     views: (analytics?.byWorkspace || []).find((x) => x.id === w.id)?.views ?? 0
   }))
+}
+
+/**
+ * Workspace management: the workspace named in the URL, else the one being
+ * viewed if it is an organization workspace, else the first organization
+ * workspace this person can manage, else any organization workspace.
+ */
+async function loadWorkspaceManage(requestedId) {
+  const workspaces = state.workspaces || []
+  const org = workspaces.filter((w) => w.type !== 'PERSONAL')
+  const current = org.find((w) => w.id === state.currentWorkspaceId)
+  const id = requestedId || current?.id || org.find((w) => w.canManage)?.id || org[0]?.id || null
+
+  if (ctx.wm.workspaceId !== id) {
+    ctx.wm = { loading: true, workspaceId: id, manage: null, directory: null, shareDomain: null, lastInvite: null }
+  }
+  if (!id) {
+    ctx.wm.loading = false
+    return
+  }
+  if (!requestedId) window.history.replaceState({}, '', `/workspace/${encodeURIComponent(id)}`)
+
+  try {
+    const manage = await api.workspaceManage(id)
+    const isOrg = manage.workspace.type !== 'PERSONAL'
+    const [directory, shareDomain] = await Promise.all([
+      isOrg && manage.workspace.canManageMembers ? api.workspaceDirectory(id).catch(() => null) : null,
+      // Supplementary: the screen renders without it.
+      isOrg ? api.shareDomain(id).catch(() => null) : null
+    ])
+    Object.assign(ctx.wm, { manage, directory, shareDomain })
+  } catch (error) {
+    ctx.wm.manage = null
+    if (error?.status !== 403 && error?.status !== 404) throw error
+  } finally {
+    ctx.wm.loading = false
+  }
 }
 
 // ---------------------------------------------------------------
@@ -507,6 +576,15 @@ ctx.refresh = () => refresh({ reload: false })
 
 /** Re-fetch the current route's data, then re-render. Use after a write. */
 ctx.reload = () => refresh({ reload: true })
+
+/** Re-fetch the signed-in shell (names, logos, pictures, regional) and the route. */
+ctx.reloadShell = async () => {
+  await loadShellData()
+  await refresh({ reload: true })
+}
+
+ctx.selectWorkspace = (workspaceId) => setState({ currentWorkspaceId: workspaceId })
+ctx.pickPicture = pickPicture
 
 ctx.onAuthenticated = async () => {
   await refresh({ reload: true })
@@ -558,6 +636,7 @@ ctx.bottomNav = (active) => `
     </button>
     ${navItem('search', '/search', 'Search', 'search', active)}
     ${navItem('profile', '/profile', 'Profile', 'user', active)}
+    ${navItem('workspace', '/workspace', 'Workspace', 'building', active).replace('class="nav-item"', 'class="nav-item nav-rail-only"')}
   </nav>`
 
 /**
@@ -1834,7 +1913,7 @@ ctx.openWorkspaceSheet = async (workspaceId) => {
         </div>
         <div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0">
           <span style="color:var(--text-2)">Your role</span>
-          <span style="font-weight:560">${esc(workspace?.role || 'VIEWER')}</span>
+          <span style="font-weight:560">${esc(roleLabel(workspace?.role || 'VIEWER'))}</span>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0">
           <span style="color:var(--text-2)">Artifacts</span>
@@ -1859,13 +1938,10 @@ ctx.openWorkspaceSheet = async (workspaceId) => {
                   .map(
                     (m) => `
             <div class="list-row" style="cursor:default">
-              <div style="width:34px;height:34px;border-radius:999px;background:var(--surface-2);flex:none;
-                display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600">
-                ${esc((m.displayName || m.email || 'U').charAt(0).toUpperCase())}
-              </div>
+              ${avatar({ url: m.avatarUrl, name: m.displayName || m.email, size: 34 })}
               <span style="flex:1;min-width:0">
                 <span style="display:block;font-size:13.5px;font-weight:560;overflow:hidden;text-overflow:ellipsis">${esc(m.displayName || m.email)}</span>
-                <span style="display:block;font-size:11.5px;color:var(--text-2)">${esc(m.role)}</span>
+                <span style="display:block;font-size:11.5px;color:var(--text-2)">${esc(m.isWorkspaceOwner ? 'Owner' : m.customRoleName || roleLabel(m.role))}${m.status && m.status !== 'ACTIVE' ? ` · ${esc(m.status === 'REMOVED' ? 'deactivated' : 'awaiting approval')}` : ''}</span>
               </span>
               ${canManage ? `<button class="btn btn-ghost" data-ws-member="${esc(m.userId)}" style="min-height:36px;padding:0 8px" aria-label="Member options">${icon('more', 17)}</button>` : ''}
             </div>`
@@ -1896,6 +1972,19 @@ ctx.openWorkspaceSheet = async (workspaceId) => {
               onClick: () => ctx.openAddMemberSheet(workspaceId)
             }
           ]
+        : []),
+      ...(workspace?.type !== 'PERSONAL'
+        ? [
+            {
+              label: 'Workspace settings',
+              variant: 'secondary',
+              keepOpen: true,
+              onClick: () => {
+                closeSheet()
+                navigate(`/workspace/${encodeURIComponent(workspaceId)}`)
+              }
+            }
+          ]
         : [])
     ],
     onMount(handle) {
@@ -1919,9 +2008,9 @@ ctx.openAddMemberSheet = (workspaceId) => {
         ${field(
           'Role',
           `<select id="member-role" class="input">
-             <option value="VIEWER">Viewer — read only</option>
-             <option value="CONTRIBUTOR" selected>Contributor — create and edit</option>
-             <option value="WORKSPACE_ADMIN">Workspace admin — manage members</option>
+             <option value="VIEWER">Guest — view and download</option>
+             <option value="CONTRIBUTOR" selected>Member — add, edit and share</option>
+             <option value="WORKSPACE_ADMIN">Admin — manage settings and people</option>
            </select>`
         )}
       </div>`,
@@ -1961,9 +2050,9 @@ ctx.openMemberSheet = (userId, workspaceId) => {
         Change role
       </div>
       ${[
-        ['VIEWER', 'Viewer — read only'],
-        ['CONTRIBUTOR', 'Contributor — create and edit'],
-        ['WORKSPACE_ADMIN', 'Workspace admin']
+        ['VIEWER', 'Guest — view and download'],
+        ['CONTRIBUTOR', 'Member — add, edit and share'],
+        ['WORKSPACE_ADMIN', 'Admin — manage settings and people']
       ]
         .map(
           ([value, label]) => `
@@ -2282,6 +2371,56 @@ ctx.openEditNameSheet = () => {
           void refresh({ reload: true })
         }
       }
+    ]
+  })
+}
+
+/**
+ * Profile picture. Any PNG, JPEG, WebP or GIF up to 1 MB; whatever its shape,
+ * it is shown cropped to a circle.
+ */
+ctx.openAvatarSheet = () => {
+  const upload = (file) =>
+    attempt(async () => {
+      const result = await api.uploadAvatar(file)
+      setState({ me: { ...state.me, avatarUrl: result.avatarUrl } })
+      closeSheet()
+      void refresh({ reload: true })
+    }, 'Profile picture updated')
+
+  sheet({
+    title: 'Profile picture',
+    content: `
+      <div style="display:flex;flex-direction:column;align-items:center;gap:12px;padding:6px 0 4px">
+        ${avatar({ url: state.me?.avatarUrl, name: state.me?.displayName || state.me?.email, size: 112 })}
+        <p style="font-size:12.5px;color:var(--text-2);margin:0;text-align:center;line-height:1.5">
+          PNG, JPEG, WebP or GIF, up to 1 MB. A square picture around 320 × 320 looks best;
+          any other shape is cropped to the circle.
+        </p>
+      </div>`,
+    actions: [
+      {
+        label: state.me?.avatarUrl ? 'Choose a new picture' : 'Choose a picture',
+        variant: 'primary',
+        keepOpen: true,
+        onClick: () => pickPicture(upload)
+      },
+      ...(state.me?.avatarUrl
+        ? [
+            {
+              label: 'Remove picture',
+              variant: 'danger',
+              keepOpen: true,
+              onClick: () =>
+                attempt(async () => {
+                  await api.removeAvatar()
+                  setState({ me: { ...state.me, avatarUrl: null } })
+                  closeSheet()
+                  void refresh({ reload: true })
+                }, 'Profile picture removed')
+            }
+          ]
+        : [])
     ]
   })
 }

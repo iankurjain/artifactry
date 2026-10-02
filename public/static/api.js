@@ -49,6 +49,10 @@ async function request(path, options = {}) {
 
   if (body instanceof FormData) {
     init.body = body
+  } else if (body instanceof Blob) {
+    // Pictures go up as the raw file; the server reads the type from the bytes.
+    init.headers['Content-Type'] = 'application/octet-stream'
+    init.body = body
   } else if (body !== undefined) {
     init.headers['Content-Type'] = 'application/json'
     init.body = JSON.stringify(body)
@@ -301,11 +305,57 @@ export const api = {
       body: { email, role }
     }),
 
-  updateWorkspaceMember: (id, userId, role) =>
+  /** `tier` is a built-in role (WORKSPACE_ADMIN | CONTRIBUTOR | VIEWER) or a custom tier id. */
+  updateWorkspaceMember: (id, userId, tier) =>
     request(`/api/v1/workspaces/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`, {
       method: 'PATCH',
-      body: { role }
+      body: String(tier).startsWith('wcr_') ? { customRoleId: tier } : { role: tier }
     }),
+
+  // Workspace management
+  workspaceManage: (id) => request(`/api/v1/workspaces/${encodeURIComponent(id)}/manage`),
+
+  updateWorkspaceSettings: (id, patch) =>
+    request(`/api/v1/workspaces/${encodeURIComponent(id)}/settings`, { method: 'PATCH', body: patch }),
+
+  uploadWorkspaceLogo: (id, file) =>
+    request(`/api/v1/workspaces/${encodeURIComponent(id)}/logo`, { method: 'PUT', body: file }),
+
+  removeWorkspaceLogo: (id) =>
+    request(`/api/v1/workspaces/${encodeURIComponent(id)}/logo`, { method: 'DELETE' }),
+
+  workspaceDirectory: (id) => request(`/api/v1/workspaces/${encodeURIComponent(id)}/directory`),
+
+  setMemberStatus: (id, userId, status) =>
+    request(`/api/v1/workspaces/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}/status`, {
+      method: 'POST',
+      body: { status }
+    }),
+
+  createTier: (id, name, permissions) =>
+    request(`/api/v1/workspaces/${encodeURIComponent(id)}/roles`, { method: 'POST', body: { name, permissions } }),
+
+  updateTier: (id, roleId, patch) =>
+    request(`/api/v1/workspaces/${encodeURIComponent(id)}/roles/${encodeURIComponent(roleId)}`, {
+      method: 'PATCH',
+      body: patch
+    }),
+
+  deleteTier: (id, roleId) =>
+    request(`/api/v1/workspaces/${encodeURIComponent(id)}/roles/${encodeURIComponent(roleId)}`, { method: 'DELETE' }),
+
+  createInvitation: (id, payload) =>
+    request(`/api/v1/workspaces/${encodeURIComponent(id)}/invitations`, { method: 'POST', body: payload }),
+
+  revokeInvitation: (id, inviteId) =>
+    request(`/api/v1/workspaces/${encodeURIComponent(id)}/invitations/${encodeURIComponent(inviteId)}`, {
+      method: 'DELETE'
+    }),
+
+  invitation: (token) => request(`/api/v1/invitations/${encodeURIComponent(token)}`),
+
+  acceptInvitation: (token) =>
+    request(`/api/v1/invitations/${encodeURIComponent(token)}/accept`, { method: 'POST' }),
 
   removeWorkspaceMember: (id, userId) =>
     request(`/api/v1/workspaces/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`, {
@@ -328,19 +378,19 @@ export const api = {
   orgAnalytics: (id, period = '30d') =>
     request(`/api/v1/organizations/${encodeURIComponent(id)}/analytics?period=${period}`),
 
-  shareDomain: (id) => request(`/api/v1/organizations/${encodeURIComponent(id)}/share-domain`),
+  shareDomain: (id) => request(`/api/v1/workspaces/${encodeURIComponent(id)}/share-domain`),
 
   setShareDomain: (id, hostname) =>
-    request(`/api/v1/organizations/${encodeURIComponent(id)}/share-domain`, {
+    request(`/api/v1/workspaces/${encodeURIComponent(id)}/share-domain`, {
       method: 'PUT',
       body: { hostname }
     }),
 
   checkShareDomain: (id) =>
-    request(`/api/v1/organizations/${encodeURIComponent(id)}/share-domain/check`, { method: 'POST' }),
+    request(`/api/v1/workspaces/${encodeURIComponent(id)}/share-domain/check`, { method: 'POST' }),
 
   removeShareDomain: (id) =>
-    request(`/api/v1/organizations/${encodeURIComponent(id)}/share-domain`, { method: 'DELETE' }),
+    request(`/api/v1/workspaces/${encodeURIComponent(id)}/share-domain`, { method: 'DELETE' }),
 
   updateOrgSettings: (id, settings) =>
     request(`/api/v1/organizations/${encodeURIComponent(id)}/settings`, {
@@ -368,7 +418,11 @@ export const api = {
   profile: () => request('/api/v1/profile'),
 
   updateProfile: (displayName) =>
-    request('/api/v1/profile', { method: 'PATCH', body: { displayName } })
+    request('/api/v1/profile', { method: 'PATCH', body: { displayName } }),
+
+  uploadAvatar: (file) => request('/api/v1/profile/avatar', { method: 'PUT', body: file }),
+
+  removeAvatar: () => request('/api/v1/profile/avatar', { method: 'DELETE' })
 }
 
 export default api

@@ -24,7 +24,9 @@ import {
   extLabel,
   fileBadge,
   safeUrl,
-  spinner
+  spinner,
+  avatar,
+  roleLabel
 } from './ui.js'
 
 // ---------------------------------------------------------------
@@ -755,10 +757,10 @@ export function renderProfile(ctx) {
 
       <main class="app-main" style="padding-top:8px">
         <div class="card" style="padding:16px;display:flex;gap:13px;align-items:center">
-          <div style="width:48px;height:48px;border-radius:999px;background:var(--accent-weak);color:var(--accent);
-            display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:640;flex:none">
-            ${esc((state.me?.displayName || 'U').charAt(0).toUpperCase())}
-          </div>
+          <button class="avatar-edit" id="profile-avatar" aria-label="${state.me?.avatarUrl ? 'Change profile picture' : 'Add a profile picture'}">
+            ${avatar({ url: state.me?.avatarUrl, name: state.me?.displayName || state.me?.email, size: 56 })}
+            <span class="avatar-edit-badge" aria-hidden="true">${icon('upload', 12)}</span>
+          </button>
           <div style="min-width:0;flex:1">
             <div style="font-size:15px;font-weight:620;overflow:hidden;text-overflow:ellipsis">${esc(state.me?.displayName || '')}</div>
             <div style="font-size:12.5px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis">${esc(state.me?.email || '')}</div>
@@ -798,7 +800,7 @@ export function renderProfile(ctx) {
               <span style="flex:1">
                 ${esc(w.name)}
                 <span style="display:block;font-size:11.5px;color:var(--text-2)">${esc(
-                  w.type === 'PERSONAL' ? 'Personal workspace' : `${w.organizationName || 'Organization'} · ${w.role || ''}`
+                  w.type === 'PERSONAL' ? 'Personal workspace' : `${w.organizationName || 'Organization'} · ${roleLabel(w.role)}`
                 )}</span>
               </span>
               ${icon('chevron', 16)}
@@ -818,7 +820,7 @@ export function renderProfile(ctx) {
                      ${icon('building', 20)}
                      <span style="flex:1">
                        ${esc(o.name)}
-                       <span style="display:block;font-size:11.5px;color:var(--text-2)">${esc(o.role)} · ${esc(o.plan)}</span>
+                       <span style="display:block;font-size:11.5px;color:var(--text-2)">${esc(roleLabel(o.role))} · ${esc(o.plan)}</span>
                      </span>
                      ${icon('chevron', 16)}
                    </button>`
@@ -879,6 +881,16 @@ export function renderProfile(ctx) {
           }
         </div>
 
+        ${
+          (state.workspaces || []).some((w) => w.type !== 'PERSONAL')
+            ? `<div class="card nav-mobile-only" style="overflow:hidden;margin-top:22px">
+                 <button class="row" id="profile-workspace" style="padding:12px 14px">
+                   ${icon('building', 20)} <span style="flex:1">Workspace settings</span> ${icon('chevron', 16)}
+                 </button>
+               </div>`
+            : ''
+        }
+
         <h2 style="font-size:14px;font-weight:640;margin:22px 0 9px">Help</h2>
         <div class="card" style="overflow:hidden">
           <button class="row" id="profile-guide" style="padding:12px 14px">
@@ -907,6 +919,8 @@ export function renderProfile(ctx) {
       ${ctx.bottomNav('profile')}`,
     mount(root) {
       root.querySelector('#profile-edit')?.addEventListener('click', () => ctx.openEditNameSheet())
+      root.querySelector('#profile-avatar')?.addEventListener('click', () => ctx.openAvatarSheet())
+      root.querySelector('#profile-workspace')?.addEventListener('click', () => ctx.navigate('/workspace'))
       root.querySelector('#profile-guide')?.addEventListener('click', () => ctx.navigate('/guide'))
       root.querySelector('#profile-shortcuts')?.addEventListener('click', () => ctx.openShortcutsSheet())
       root.querySelector('#profile-tags')?.addEventListener('click', () => ctx.openTagsSheet({ manage: true }))
@@ -1002,15 +1016,12 @@ export function renderAdmin(ctx) {
                   .map(
                     (m) => `
             <div class="list-row">
-              <div style="width:38px;height:38px;border-radius:999px;background:var(--surface-2);flex:none;
-                display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600">
-                ${esc((m.displayName || m.email || 'U').charAt(0).toUpperCase())}
-              </div>
+              ${avatar({ url: m.avatarUrl, name: m.displayName || m.email, size: 38 })}
               <div style="flex:1;min-width:0">
                 <div style="font-size:14.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis">${esc(m.displayName || m.email)}</div>
                 <div style="font-size:12px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis">${esc(m.email)}</div>
                 <div style="font-size:11.5px;color:var(--text-3);margin-top:2px">
-                  ${esc(m.role)} · ${m.workspaceCount} workspace${m.workspaceCount === 1 ? '' : 's'}
+                  ${esc(roleLabel(m.role))} · ${m.workspaceCount} workspace${m.workspaceCount === 1 ? '' : 's'}
                 </div>
               </div>
               <button class="btn btn-ghost" data-member="${esc(m.userId)}" style="min-width:44px;padding:0 6px" aria-label="Member options">${icon('more', 19)}</button>
@@ -1045,7 +1056,13 @@ export function renderAdmin(ctx) {
           }
         </div>
 
-        ${shareDomainCard(ctx.adminShareDomain)}
+        <div class="card" style="padding:14px;margin-top:22px;display:flex;gap:12px;align-items:center">
+          ${icon('globe', 19)}
+          <p style="flex:1;font-size:13px;color:var(--text-2);margin:0;line-height:1.5">
+            Custom share URLs, invitations and access tiers are set per workspace.
+          </p>
+          <button class="btn btn-secondary" id="admin-open-workspace" style="min-height:36px;padding:0 12px">Workspace settings</button>
+        </div>
 
         <h2 style="font-size:14px;font-weight:640;margin:22px 0 9px">Created with AI</h2>
         <div class="card" style="overflow:hidden">
@@ -1079,140 +1096,9 @@ export function renderAdmin(ctx) {
         ctx.openCreateWorkspaceSheet({ organizationId: org.id, organizationName: org.name })
       )
       root.querySelector('#admin-menu')?.addEventListener('click', () => ctx.openAdminMenuSheet())
-      mountShareDomainCard(root, ctx, org)
+      root.querySelector('#admin-open-workspace')?.addEventListener('click', () => ctx.navigate('/workspace'))
     }
   }
-}
-
-// ---------------------------------------------------------------
-// Admin: custom share domain
-//
-// Lets an owner or admin issue the organization's share links on their own
-// hostname. The server decides every state; this card only shows it and the
-// two DNS records to add, and offers Check now / Remove.
-// ---------------------------------------------------------------
-
-const SHARE_DOMAIN_STATUS = {
-  PENDING_DNS: ['Waiting for DNS', 'Add both records below, then choose Check now.'],
-  PENDING_CERT: ['Setting up', 'Ownership confirmed. Waiting for the CNAME record and the certificate.'],
-  ACTIVE: ['Active', 'New share links use this domain.'],
-  ERROR: ['Needs attention', 'Cloudflare could not set up this hostname.']
-}
-
-function shareDomainCard(info) {
-  if (!info) return ''
-  const heading = `<h2 style="font-size:14px;font-weight:640;margin:22px 0 9px">Share link domain</h2>`
-
-  if (!info.available) {
-    return `${heading}
-      <div class="card" style="padding:14px">
-        <p style="font-size:13px;color:var(--text-2);margin:0;line-height:1.55">
-          Share links use ${esc(window.location.host)}. Custom share domains are not set up on this deployment yet.
-        </p>
-      </div>`
-  }
-
-  const domain = info.domain
-  if (!domain) {
-    return `${heading}
-      <div class="card" style="padding:14px">
-        <p style="font-size:13px;color:var(--text-2);margin:0 0 12px;line-height:1.55">
-          Share links use ${esc(window.location.host)}. Use a hostname on your own domain instead, like share.yourcompany.com.
-        </p>
-        <label for="share-domain-input" style="font-size:13px;font-weight:600;display:block;margin-bottom:7px">Hostname</label>
-        <input id="share-domain-input" class="input" type="text" inputmode="url" autocomplete="off"
-          autocapitalize="off" spellcheck="false" placeholder="share.yourcompany.com">
-        <button class="btn btn-primary btn-block" id="share-domain-save" style="margin-top:12px">Use this domain</button>
-      </div>`
-  }
-
-  const [label, detail] = SHARE_DOMAIN_STATUS[domain.status] || SHARE_DOMAIN_STATUS.PENDING_DNS
-  const records = (domain.records || [])
-    .map(
-      (r) => `
-        <div style="padding:10px 0;border-top:1px solid var(--border)">
-          <div style="font-size:12px;color:var(--text-2)">${esc(r.type)} · ${esc(r.purpose || '')}</div>
-          <div style="font-size:12.5px;margin-top:4px;word-break:break-all">
-            <span style="color:var(--text-2)">Name</span>
-            <code style="font-family:var(--font-mono)">${esc(r.name)}</code>
-          </div>
-          <div style="font-size:12.5px;margin-top:2px;word-break:break-all">
-            <span style="color:var(--text-2)">Value</span>
-            <code style="font-family:var(--font-mono)">${esc(r.value)}</code>
-          </div>
-        </div>`
-    )
-    .join('')
-
-  return `${heading}
-    <div class="card" style="padding:14px">
-      <div style="display:flex;align-items:center;gap:10px">
-        ${icon('globe', 19)}
-        <span style="flex:1;min-width:0;font-size:14.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis">${esc(domain.hostname)}</span>
-        <span class="chip">${esc(label)}</span>
-      </div>
-      <p style="font-size:13px;color:var(--text-2);margin:8px 0 0;line-height:1.55">${esc(detail)}</p>
-      ${
-        domain.lastError && domain.status !== 'ACTIVE'
-          ? `<p style="font-size:12.5px;color:var(--danger);margin:8px 0 0;line-height:1.5">${esc(domain.lastError)}</p>`
-          : ''
-      }
-      ${domain.status === 'ACTIVE' ? '' : `<div style="margin-top:12px">${records}</div>`}
-      <div style="display:flex;gap:9px;margin-top:12px">
-        <button class="btn btn-secondary" id="share-domain-check" style="flex:1">${icon('refresh', 16)} Check now</button>
-        <button class="btn btn-danger" id="share-domain-remove" style="flex:1">Remove</button>
-      </div>
-    </div>`
-}
-
-function mountShareDomainCard(root, ctx, org) {
-  const busy = (button, fn) => async () => {
-    if (button.disabled) return
-    button.disabled = true
-    try {
-      await fn()
-    } catch (err) {
-      toast(err.message || 'Something went wrong', 'error')
-    } finally {
-      button.disabled = false
-    }
-  }
-
-  const save = root.querySelector('#share-domain-save')
-  save?.addEventListener(
-    'click',
-    busy(save, async () => {
-      const hostname = (root.querySelector('#share-domain-input')?.value || '').trim()
-      if (!hostname) {
-        toast('Enter a hostname', 'error')
-        return
-      }
-      await ctx.api.setShareDomain(org.id, hostname)
-      toast('Domain added. Add the DNS records next.', 'success')
-      await ctx.reload()
-    })
-  )
-
-  const check = root.querySelector('#share-domain-check')
-  check?.addEventListener(
-    'click',
-    busy(check, async () => {
-      const result = await ctx.api.checkShareDomain(org.id)
-      toast(result?.domain?.status === 'ACTIVE' ? 'Share links now use this domain' : 'Checked', 'success')
-      await ctx.reload()
-    })
-  )
-
-  const remove = root.querySelector('#share-domain-remove')
-  remove?.addEventListener(
-    'click',
-    busy(remove, async () => {
-      if (!window.confirm('Stop using this domain? Links already sent with it will stop opening.')) return
-      await ctx.api.removeShareDomain(org.id)
-      toast('Share links use Artifactry again', 'success')
-      await ctx.reload()
-    })
-  )
 }
 
 // ---------------------------------------------------------------
