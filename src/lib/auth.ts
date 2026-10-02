@@ -37,7 +37,7 @@ export interface DeliverResult {
  * Implemented against Resend's HTTP API; swap the body for another provider
  * without touching callers.
  */
-async function sendEmail(
+export async function sendEmail(
   env: Env,
   to: string,
   subject: string,
