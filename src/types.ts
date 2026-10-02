@@ -389,6 +389,8 @@ export interface Principal {
    * workspace (never for its owner or an organization owner/admin).
    */
   customPermissions?: Record<string, Permission[]>
+  /** Workspaces this person was deactivated in (no inherited org visibility). */
+  deactivatedWorkspaces?: string[]
   /** AI grant scopes, when kind === 'AI_GRANT' */
   scopes: AiScope[]
   integrationId?: string

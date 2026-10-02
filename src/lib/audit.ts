@@ -51,6 +51,11 @@ export type AuditAction =
   | 'SHARE_DOMAIN_VERIFIED'
   | 'SHARE_DOMAIN_ACTIVATED'
   | 'SHARE_DOMAIN_REMOVE'
+  | 'WORKSPACE_UPDATE'
+  | 'INVITATION_CREATE'
+  | 'INVITATION_REVOKE'
+  | 'INVITATION_ACCEPT'
+  | 'PROFILE_UPDATE'
 
 export interface AuditInput {
   organizationId?: string | null

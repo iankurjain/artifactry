@@ -6,14 +6,14 @@
 -- tiers, invitations, and uploaded pictures for users and workspaces.
 
 -- Identity and preferences. settings_json holds:
---   regional:    { timeZone, dateFormat, language }
+--   regional:    { timeZone, dateFormat }
 --   invitations: { allowedDomains: string[], requireApproval: bool,
 --                  defaultRole, defaultCustomRoleId }
 ALTER TABLE workspaces ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}';
 ALTER TABLE workspaces ADD COLUMN logo_r2_key TEXT;
 ALTER TABLE workspaces ADD COLUMN logo_updated_at TEXT;
 
--- Profile pictures: 1:1, 320x320, at most 1 MB, stored in R2.
+-- Profile pictures and logos: any PNG/JPEG/WebP/GIF up to 1 MB, stored in R2.
 ALTER TABLE users ADD COLUMN avatar_r2_key TEXT;
 ALTER TABLE users ADD COLUMN avatar_updated_at TEXT;
 

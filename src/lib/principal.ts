@@ -93,7 +93,7 @@ export async function resolvePrincipal(c: Context): Promise<Principal> {
     .bind(nowIso(), session.id)
     .run()
 
-  const { orgRoles, workspaceRoles, customPermissions } = await loadRoles(db, user.id)
+  const { orgRoles, workspaceRoles, customPermissions, deactivatedWorkspaces } = await loadRoles(db, user.id)
 
   return {
     kind: 'SESSION',
@@ -102,6 +102,7 @@ export async function resolvePrincipal(c: Context): Promise<Principal> {
     orgRoles,
     workspaceRoles,
     customPermissions,
+    deactivatedWorkspaces,
     scopes: []
   }
 }
@@ -128,7 +129,7 @@ async function resolveAiGrant(db: D1Database, rawToken: string): Promise<Princip
     [grant.integration_id]
   )
 
-  const { orgRoles, workspaceRoles, customPermissions } = await loadRoles(db, user.id)
+  const { orgRoles, workspaceRoles, customPermissions, deactivatedWorkspaces } = await loadRoles(db, user.id)
 
   await db
     .prepare(`UPDATE integration_grants SET last_used_at = ? WHERE id = ?`)
@@ -150,6 +151,7 @@ async function resolveAiGrant(db: D1Database, rawToken: string): Promise<Princip
     orgRoles,
     workspaceRoles,
     customPermissions,
+    deactivatedWorkspaces,
     scopes,
     integrationId: grant.integration_id,
     grantId: grant.id,
@@ -166,7 +168,8 @@ async function resolveAiGrant(db: D1Database, rawToken: string): Promise<Princip
   }
 }
 
-async function loadRoles(db: D1Database, userId: string) {  const orgRows = await all<{ organization_id: string; role: OrgRole }>(
+async function loadRoles(db: D1Database, userId: string) {
+  const orgRows = await all<{ organization_id: string; role: OrgRole }>(
     db,
     `SELECT organization_id, role FROM organization_members
       WHERE user_id = ? AND status = 'ACTIVE'`,
@@ -196,7 +199,16 @@ async function loadRoles(db: D1Database, userId: string) {  const orgRows = awai
     }
   }
 
-  return { orgRoles, workspaceRoles, customPermissions }
+  // Workspaces this person was deactivated in. Plain organization membership
+  // would otherwise still let them read the workspace.
+  const removed = await all<{ workspace_id: string }>(
+    db,
+    `SELECT workspace_id FROM workspace_members WHERE user_id = ? AND status = 'REMOVED'`,
+    [userId]
+  )
+  const deactivatedWorkspaces = removed.map((r) => r.workspace_id)
+
+  return { orgRoles, workspaceRoles, customPermissions, deactivatedWorkspaces }
 }
 
 /**
@@ -252,8 +264,9 @@ export function effectiveWorkspaceRole(
   if (workspace.organization_id && workspace.organization_id in principal.orgRoles) {
     const role = principal.orgRoles[workspace.organization_id]
     if (role === 'ORG_OWNER' || role === 'ORG_ADMIN') return 'WORKSPACE_ADMIN'
-    // Plain org membership grants read-only visibility of org workspaces
-    if (role === 'MEMBER') return 'VIEWER'
+    // Plain org membership grants read-only visibility of org workspaces,
+    // unless a workspace admin deactivated this person there.
+    if (role === 'MEMBER') return principal.deactivatedWorkspaces?.includes(workspace.id) ? null : 'VIEWER'
   }
 
   return null
@@ -346,8 +359,10 @@ export async function readableWorkspaces(
     `SELECT DISTINCT w.* FROM workspaces w
        LEFT JOIN workspace_members wm ON wm.workspace_id = w.id AND wm.user_id = ? AND wm.status = 'ACTIVE'
        LEFT JOIN organization_members om ON om.organization_id = w.organization_id AND om.user_id = ? AND om.status = 'ACTIVE'
+       LEFT JOIN workspace_members wr ON wr.workspace_id = w.id AND wr.user_id = om.user_id AND wr.status = 'REMOVED'
       WHERE w.archived_at IS NULL
-        AND (w.owner_user_id = ? OR wm.user_id IS NOT NULL OR om.user_id IS NOT NULL)
+        AND (w.owner_user_id = ? OR wm.user_id IS NOT NULL
+             OR (om.user_id IS NOT NULL AND (om.role IN ('ORG_OWNER', 'ORG_ADMIN') OR wr.user_id IS NULL)))
       ORDER BY w.workspace_type ASC, w.name ASC`,
     [principal.userId, principal.userId, principal.userId]
   )

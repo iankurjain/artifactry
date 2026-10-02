@@ -10,16 +10,6 @@
 import type { WorkspaceRole } from '../types'
 import { badRequest } from './http'
 
-export const LANGUAGES = ['en', 'zh', 'hi', 'es'] as const
-export type Language = (typeof LANGUAGES)[number]
-
-export const LANGUAGE_LABELS: Record<Language, string> = {
-  en: 'English',
-  zh: '中文 (Mandarin)',
-  hi: 'हिन्दी (Hindi)',
-  es: 'Español (Spanish)'
-}
-
 export const DATE_FORMATS = ['D MMM YYYY', 'MMM D, YYYY', 'DD/MM/YYYY', 'MM/DD/YYYY', 'YYYY-MM-DD'] as const
 export type DateFormat = (typeof DATE_FORMATS)[number]
 
@@ -30,7 +20,6 @@ export interface WorkspaceSettings {
     /** IANA zone, e.g. "Asia/Kolkata"; "UTC" by default. */
     timeZone: string
     dateFormat: DateFormat
-    language: Language
   }
   invitations: {
     /** Email domains allowed to join through an invite link; empty means any. */
@@ -44,7 +33,7 @@ export interface WorkspaceSettings {
 }
 
 export const DEFAULT_SETTINGS: WorkspaceSettings = {
-  regional: { timeZone: 'UTC', dateFormat: 'D MMM YYYY', language: 'en' },
+  regional: { timeZone: 'UTC', dateFormat: 'D MMM YYYY' },
   invitations: { allowedDomains: [], requireApproval: false, defaultRole: 'VIEWER', defaultCustomRoleId: null }
 }
 
@@ -79,8 +68,7 @@ export function parseWorkspaceSettings(json: string | null | undefined): Workspa
   return {
     regional: {
       timeZone: typeof regional.timeZone === 'string' && isValidTimeZone(regional.timeZone) ? regional.timeZone : d.regional.timeZone,
-      dateFormat: DATE_FORMATS.includes(regional.dateFormat as DateFormat) ? (regional.dateFormat as DateFormat) : d.regional.dateFormat,
-      language: LANGUAGES.includes(regional.language as Language) ? (regional.language as Language) : d.regional.language
+      dateFormat: DATE_FORMATS.includes(regional.dateFormat as DateFormat) ? (regional.dateFormat as DateFormat) : d.regional.dateFormat
     },
     invitations: {
       allowedDomains: Array.isArray(inv.allowedDomains)
@@ -114,10 +102,6 @@ export function mergeWorkspaceSettings(current: WorkspaceSettings, patch: Settin
     if (r.dateFormat !== undefined) {
       if (!DATE_FORMATS.includes(r.dateFormat as DateFormat)) throw badRequest('Choose a supported date format')
       next.regional.dateFormat = r.dateFormat as DateFormat
-    }
-    if (r.language !== undefined) {
-      if (!LANGUAGES.includes(r.language as Language)) throw badRequest('Language must be English, Mandarin, Hindi or Spanish')
-      next.regional.language = r.language as Language
     }
   }
 

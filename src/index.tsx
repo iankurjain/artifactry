@@ -27,6 +27,7 @@ import taxonomyRoutes from './routes/taxonomy'
 import teamRoutes from './routes/teams'
 import workspaceRoutes from './routes/workspaces'
 import shareDomainRoutes from './routes/sharedomains'
+import workspaceManageRoutes from './routes/workspacemanage'
 import integrationRoutes from './routes/integrations'
 import previewRoutes from './routes/preview'
 import oauthRoutes from './routes/oauth'
@@ -123,6 +124,7 @@ app.route('/api/v1', workspaceRoutes)
 app.route('/api/v1', integrationRoutes)
 app.route('/api/v1', teamRoutes)
 app.route('/api/v1', shareDomainRoutes)
+app.route('/api/v1', workspaceManageRoutes)
 
 // ---------------------------------------------------------------
 // Canonical artifact URL (§12)
