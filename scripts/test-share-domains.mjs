@@ -166,6 +166,11 @@ for (const [id, name, owner] of [['org_a', 'Acme', 'usr_a'], ['org_b', 'Beta', '
     name, description: null, created_at: T, created_by: owner, archived_at: null
   })
 }
+// A second Acme workspace without a domain: same org, different links.
+db.insert('workspaces', {
+  id: 'ws_org_a2', organization_id: 'org_a', owner_user_id: 'usr_a', workspace_type: 'ORGANIZATION',
+  name: 'Acme Internal', description: null, created_at: T, created_by: 'usr_a', archived_at: null
+})
 db.insert('workspaces', {
   id: 'ws_personal', organization_id: null, owner_user_id: 'usr_a', workspace_type: 'PERSONAL',
   name: 'My Files', description: null, created_at: T, created_by: 'usr_a', archived_at: null
@@ -211,6 +216,7 @@ function addArtifact({ id, workspaceId, orgId, html = false, interactive = false
 addArtifact({ id: 'art_a', workspaceId: 'ws_org_a', orgId: 'org_a' })
 addArtifact({ id: 'art_a_html', workspaceId: 'ws_org_a', orgId: 'org_a', html: true, interactive: true })
 addArtifact({ id: 'art_p', workspaceId: 'ws_personal', orgId: null })
+addArtifact({ id: 'art_a2', workspaceId: 'ws_org_a2', orgId: 'org_a' })
 addArtifact({ id: 'art_b', workspaceId: 'ws_org_b', orgId: 'org_b' })
 addArtifact({ id: 'art_b_html', workspaceId: 'ws_org_b', orgId: 'org_b', html: true, interactive: true })
 
@@ -288,7 +294,7 @@ async function onDomain(path, { host = HOST, secret = EDGE_SECRET, ip = '203.0.1
   })
 }
 const data = async (res) => (await res.json().catch(() => null))?.data ?? null
-const domainRow = (org) => db.sqlite.prepare('SELECT * FROM organization_share_domains WHERE organization_id = ?').get(org)
+const domainRow = (org) => db.sqlite.prepare('SELECT * FROM workspace_share_domains WHERE workspace_id = ?').get(org)
 async function share(user, targetId, extra = {}) {
   const res = await call('/api/v1/shares', { user, body: { targetType: 'ARTIFACT', targetId, accessType: 'PUBLIC_LINK', ...extra } })
   return data(res)
@@ -299,9 +305,9 @@ section('1. Off unless configured')
 // ---------------------------------------------------------------
 
 {
-  const got = await data(await call('/api/v1/organizations/org_a/share-domain', { user: 'usr_a', useEnv: baseEnv }))
+  const got = await data(await call('/api/v1/workspaces/ws_org_a/share-domain', { user: 'usr_a', useEnv: baseEnv }))
   check('GET reports the feature unavailable', got?.available === false && got?.domain === null, JSON.stringify(got))
-  const put = await call('/api/v1/organizations/org_a/share-domain', { user: 'usr_a', method: 'PUT', body: { hostname: HOST }, useEnv: baseEnv })
+  const put = await call('/api/v1/workspaces/ws_org_a/share-domain', { user: 'usr_a', method: 'PUT', body: { hostname: HOST }, useEnv: baseEnv })
   check('PUT is refused with 503', put.status === 503, String(put.status))
   const s = await share('usr_a', 'art_a')
   check('share links stay on the app origin', s?.url?.startsWith(`${APP}/s/`), s?.url)
@@ -314,11 +320,15 @@ section('2. Admin API')
 // ---------------------------------------------------------------
 
 {
-  const member = await call('/api/v1/organizations/org_a/share-domain', { user: 'usr_m' })
-  check('a plain member gets 404', member.status === 404, String(member.status))
-  const other = await call('/api/v1/organizations/org_a/share-domain', { user: 'usr_b' })
-  check('another org\'s owner gets 404', other.status === 404, String(other.status))
-  const anon = await call('/api/v1/organizations/org_a/share-domain')
+  const member = await call('/api/v1/workspaces/ws_org_a/share-domain', { user: 'usr_m' })
+  check('a member who is not a workspace admin is refused', member.status === 403, String(member.status))
+  const other = await call('/api/v1/workspaces/ws_org_a/share-domain', { user: 'usr_b' })
+  check('another org\'s owner is refused', other.status === 403, String(other.status))
+  const personalPut = await call('/api/v1/workspaces/ws_personal/share-domain', { user: 'usr_a', method: 'PUT', body: { hostname: 'me.acme.test' } })
+  check('a personal workspace cannot have a domain', personalPut.status === 400, String(personalPut.status))
+  const personalGet = await data(await call('/api/v1/workspaces/ws_personal/share-domain', { user: 'usr_a' }))
+  check('a personal workspace reports not eligible', personalGet?.eligible === false, JSON.stringify(personalGet))
+  const anon = await call('/api/v1/workspaces/ws_org_a/share-domain')
   check('signed out gets 401', anon.status === 401, String(anon.status))
 
   for (const [bad, why] of [
@@ -330,11 +340,11 @@ section('2. Admin API')
     ['share.acme.test:8443', 'port'],
     ['sh@re.acme.test', 'bad characters']
   ]) {
-    const res = await call('/api/v1/organizations/org_a/share-domain', { user: 'usr_a', method: 'PUT', body: { hostname: bad } })
+    const res = await call('/api/v1/workspaces/ws_org_a/share-domain', { user: 'usr_a', method: 'PUT', body: { hostname: bad } })
     check(`rejects ${bad} (${why})`, res.status === 400, String(res.status))
   }
 
-  const res = await call('/api/v1/organizations/org_a/share-domain', { user: 'usr_a', method: 'PUT', body: { hostname: 'HTTPS://Share.Acme.test./' } })
+  const res = await call('/api/v1/workspaces/ws_org_a/share-domain', { user: 'usr_a', method: 'PUT', body: { hostname: 'HTTPS://Share.Acme.test./' } })
   const got = await data(res)
   check('PUT normalizes the hostname and returns 201', res.status === 201 && got?.domain?.hostname === HOST, JSON.stringify(got))
   check('starts in PENDING_DNS', got?.domain?.status === 'PENDING_DNS')
@@ -355,7 +365,7 @@ section('3. Verification and activation')
 // ---------------------------------------------------------------
 
 {
-  const checkNow = () => call('/api/v1/organizations/org_a/share-domain/check', { user: 'usr_a', method: 'POST' })
+  const checkNow = () => call('/api/v1/workspaces/ws_org_a/share-domain/check', { user: 'usr_a', method: 'POST' })
 
   let got = await data(await checkNow())
   check('no TXT record: stays PENDING_DNS with a reason', got?.domain?.status === 'PENDING_DNS' && /TXT record/.test(got?.domain?.lastError ?? ''), JSON.stringify(got?.domain))
@@ -393,6 +403,7 @@ section('4. Share links use the domain')
 let acmeToken
 let acmeHtmlToken
 let personalToken
+let siblingToken
 let betaToken
 {
   const s = await share('usr_a', 'art_a')
@@ -407,6 +418,10 @@ let betaToken
   const b = await share('usr_b', 'art_b')
   check('another organization\'s links stay on the app origin', b?.url?.startsWith(`${APP}/s/`), b?.url)
   betaToken = b.token
+
+  const sibling = await share('usr_a', 'art_a2')
+  check('another workspace in the same org stays on the app origin', sibling?.url?.startsWith(`${APP}/s/`), sibling?.url)
+  siblingToken = sibling.token
 
   const list = await data(await call('/api/v1/shares', { user: 'usr_a' }))
   const acmeRow = list?.shares?.find((r) => r.targetId === 'art_a')
@@ -450,7 +465,7 @@ section('5. The custom hostname serves only the recipient surface')
     ['/api/v1/mcp', { method: 'POST', body: {} }],
     ['/oauth/authorize', {}],
     ['/.well-known/oauth-authorization-server', {}],
-    ['/api/v1/organizations/org_a/share-domain', {}],
+    ['/api/v1/workspaces/ws_org_a/share-domain', {}],
     [`/api/v1/shares/${acmeToken}/view`, { method: 'POST', body: {} }]
   ]) {
     const res = await onDomain(path, opts)
@@ -466,6 +481,8 @@ section('5. The custom hostname serves only the recipient surface')
   check('another org\'s share does not exist on this host', other?.exists === false, JSON.stringify(other))
   const otherView = await onDomain(`/api/v1/shares/${betaToken}/content`)
   check('another org\'s content is 404 on this host', otherView.status === 404, String(otherView.status))
+  const sib = await data(await onDomain(`/api/v1/shares/${siblingToken}/meta`))
+  check('a share from a sibling workspace of the same org does not exist on this host', sib?.exists === false, JSON.stringify(sib))
   const personal = await data(await onDomain(`/api/v1/shares/${personalToken}/meta`))
   check('a personal share does not exist on this host', personal?.exists === false)
   const viewer = await onDomain(`/s/${betaToken}/artifact/art_b`)
@@ -523,38 +540,38 @@ section('7. Conflicts, removal and fail-soft issuing')
 // ---------------------------------------------------------------
 
 {
-  const claim = await call('/api/v1/organizations/org_b/share-domain', { user: 'usr_b', method: 'PUT', body: { hostname: HOST } })
+  const claim = await call('/api/v1/workspaces/ws_org_b/share-domain', { user: 'usr_b', method: 'PUT', body: { hostname: HOST } })
   check('another org cannot claim a verified hostname', claim.status === 409, String(claim.status))
 
   // Beta claims a different name first, then both race for one unverified name.
   const raceHost = 'docs.contested.test'
-  await call('/api/v1/organizations/org_b/share-domain', { user: 'usr_b', method: 'PUT', body: { hostname: raceHost } })
-  const bRow = domainRow('org_b')
+  await call('/api/v1/workspaces/ws_org_b/share-domain', { user: 'usr_b', method: 'PUT', body: { hostname: raceHost } })
+  const bRow = domainRow('ws_org_b')
   check('an unverified hostname can be claimed (nobody can squat a name)', bRow?.hostname === raceHost)
 
   // Removing a domain releases it at Cloudflare and puts links back on the app.
-  const cfId = domainRow('org_a').cf_custom_hostname_id
-  const del = await call('/api/v1/organizations/org_a/share-domain', { user: 'usr_a', method: 'DELETE' })
+  const cfId = domainRow('ws_org_a').cf_custom_hostname_id
+  const del = await call('/api/v1/workspaces/ws_org_a/share-domain', { user: 'usr_a', method: 'DELETE' })
   check('DELETE succeeds', del.status === 200, String(del.status))
   check('the Cloudflare hostname is removed', !cf.hostnames.has(cfId))
-  check('the row is gone', !domainRow('org_a'))
+  check('the row is gone', !domainRow('ws_org_a'))
   const after = await share('usr_a', 'art_a')
   check('new links are back on the app origin', after?.url?.startsWith(`${APP}/s/`), after?.url)
   const gone = await onDomain(`/s/${acmeToken}`)
   check('the removed hostname serves nothing', gone.status === 404, String(gone.status))
 
   // Now Beta can verify the hostname Acme gave up.
-  await call('/api/v1/organizations/org_b/share-domain', { user: 'usr_b', method: 'PUT', body: { hostname: HOST } })
-  const bTxt = (await data(await call('/api/v1/organizations/org_b/share-domain', { user: 'usr_b' }))).domain.records.find((r) => r.type === 'TXT').value
+  await call('/api/v1/workspaces/ws_org_b/share-domain', { user: 'usr_b', method: 'PUT', body: { hostname: HOST } })
+  const bTxt = (await data(await call('/api/v1/workspaces/ws_org_b/share-domain', { user: 'usr_b' }))).domain.records.find((r) => r.type === 'TXT').value
   dns.set(`_artifactry-challenge.${HOST}`, [bTxt])
-  const bCheck = await data(await call('/api/v1/organizations/org_b/share-domain/check', { user: 'usr_b', method: 'POST' }))
+  const bCheck = await data(await call('/api/v1/workspaces/ws_org_b/share-domain/check', { user: 'usr_b', method: 'POST' }))
   check('a released hostname can be verified by its new owner', bCheck?.domain?.status === 'PENDING_CERT', JSON.stringify(bCheck?.domain))
 
   // Issuing must never depend on the share-domain table.
-  db.exec('ALTER TABLE organization_share_domains RENAME TO osd_hidden')
+  db.exec('ALTER TABLE workspace_share_domains RENAME TO osd_hidden')
   const soft = await share('usr_b', 'art_b')
   check('sharing still works if the share-domain table is missing', soft?.url?.startsWith(`${APP}/s/`), JSON.stringify(soft))
-  db.exec('ALTER TABLE osd_hidden RENAME TO organization_share_domains')
+  db.exec('ALTER TABLE osd_hidden RENAME TO workspace_share_domains')
 }
 
 // ---------------------------------------------------------------

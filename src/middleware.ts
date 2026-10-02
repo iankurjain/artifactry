@@ -52,7 +52,7 @@ export const shareDomainGate: MiddlewareHandler<AppEnv> = async (c, next) => {
   c.set('shareDomain', {
     hostname: domain.hostname,
     origin: `https://${domain.hostname}`,
-    organizationId: domain.organization_id,
+    workspaceId: domain.workspace_id,
     clientIp: forwarded.clientIp
   })
   await next()

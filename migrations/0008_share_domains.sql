@@ -2,9 +2,10 @@
 -- 0008 — Custom share domains
 -- ---------------------------------------------------------------------------
 --
--- An organization owner or admin can put every share link the organization
--- issues on a hostname they control (for example share.acme.com) instead of
--- artifactry.app. The hostname only ever serves the external recipient
+-- A workspace admin can put every share link the workspace issues on a
+-- hostname they control (for example share.acme.com) instead of
+-- artifactry.app. People who want a link on artifactry.app keep that artifact
+-- in a different workspace. The hostname only ever serves the external recipient
 -- surface: /s/:token and the share APIs behind it. Sign-in, the library and
 -- every other route stay on the application origin, so a session cookie never
 -- reaches a customer's domain.
@@ -17,13 +18,14 @@
 --   ACTIVE        share links are issued on this hostname and it serves them
 --   ERROR         Cloudflare refused the hostname; last_error says why
 --
--- One domain per organization. A hostname may be claimed by several
--- organizations while unproven (so nobody can squat a name they do not own),
--- but only one row per hostname can ever pass verification.
+-- One domain per workspace, organization workspaces only. A hostname may be
+-- claimed by several workspaces while unproven (so nobody can squat a name
+-- they do not own), but only one row per hostname can ever pass verification.
 
-CREATE TABLE IF NOT EXISTS organization_share_domains (
+CREATE TABLE IF NOT EXISTS workspace_share_domains (
   id                     TEXT PRIMARY KEY,
-  organization_id        TEXT NOT NULL UNIQUE,
+  workspace_id           TEXT NOT NULL UNIQUE,
+  organization_id        TEXT,
   hostname               TEXT NOT NULL,
   status                 TEXT NOT NULL DEFAULT 'PENDING_DNS',
   verification_token     TEXT NOT NULL,
@@ -38,6 +40,6 @@ CREATE TABLE IF NOT EXISTS organization_share_domains (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_share_domains_verified_host
-  ON organization_share_domains(hostname) WHERE verified_at IS NOT NULL;
+  ON workspace_share_domains(hostname) WHERE verified_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_share_domains_host
-  ON organization_share_domains(hostname, status);
+  ON workspace_share_domains(hostname, status);

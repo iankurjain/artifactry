@@ -1,14 +1,15 @@
 /**
- * Custom share domain for an organization (lib/sharedomains.ts).
+ * Custom share domain for a workspace (lib/sharedomains.ts).
  *
- *   GET    /api/v1/organizations/:orgId/share-domain         → current state + DNS records
- *   PUT    /api/v1/organizations/:orgId/share-domain         → claim a hostname { hostname }
- *   POST   /api/v1/organizations/:orgId/share-domain/check   → re-check DNS and certificate
- *   DELETE /api/v1/organizations/:orgId/share-domain         → stop using it
+ *   GET    /api/v1/workspaces/:id/share-domain         → current state + DNS records
+ *   PUT    /api/v1/workspaces/:id/share-domain         → claim a hostname { hostname }
+ *   POST   /api/v1/workspaces/:id/share-domain/check   → re-check DNS and certificate
+ *   DELETE /api/v1/workspaces/:id/share-domain         → stop using it
  *
- * Organization owners and admins only, signed in to the app (an AI connector
- * cannot change where an organization's links point). Anyone else gets the
- * same 404 as for an organization that does not exist.
+ * Workspace admins (which includes the workspace owner and the organization's
+ * owners and admins), signed in to the app: an AI connector cannot change where
+ * a workspace's links point. Organization workspaces only; a personal
+ * workspace gets a clear refusal rather than a hostname nobody is billed for.
  *
  * Every share token also opens on the application origin, so removing or
  * replacing a domain only breaks links that were sent with the old hostname in
@@ -20,6 +21,8 @@ import { Hono } from 'hono'
 import type { Context } from 'hono'
 import type { AppEnv } from '../middleware'
 import { guarded, rateLimit, requirePrincipal } from '../middleware'
+import { assertWorkspaceAccess } from '../lib/principal'
+import type { WorkspaceRow } from '../types'
 import { first, nowIso, run } from '../lib/db'
 import { conflict, forbidden, HttpError, notFound, ok, readJson } from '../lib/http'
 import { prefixed, randomToken, ulid } from '../lib/ids'
@@ -39,12 +42,21 @@ import {
 
 const shareDomains = new Hono<AppEnv>()
 
-function requireOrgAdmin(c: Context<AppEnv>, orgId: string) {
+async function requireWorkspaceAdmin(c: Context<AppEnv>, workspaceId: string) {
   const principal = requirePrincipal(c)
   if (principal.kind === 'AI_GRANT') throw forbidden('Share domains are managed in the app')
-  const role = principal.orgRoles[orgId]
-  if (role !== 'ORG_OWNER' && role !== 'ORG_ADMIN') throw notFound('Organization not found')
-  return principal
+  const workspace = await assertWorkspaceAccess(c.env.DB, principal, workspaceId, 'workspace.manage')
+  return { principal, workspace }
+}
+
+function requireOrgWorkspace(workspace: WorkspaceRow) {
+  if (!workspace.organization_id) {
+    throw new HttpError(
+      400,
+      'PERSONAL_WORKSPACE',
+      'Custom domains are available for organization workspaces. Create the workspace in an organization to use one.'
+    )
+  }
 }
 
 function unavailable(): HttpError {
@@ -55,11 +67,11 @@ function unavailable(): HttpError {
   )
 }
 
-async function loadDomain(c: Context<AppEnv>, orgId: string): Promise<ShareDomainRow | null> {
+async function loadDomain(c: Context<AppEnv>, workspaceId: string): Promise<ShareDomainRow | null> {
   return first<ShareDomainRow>(
     c.env.DB,
-    `SELECT * FROM organization_share_domains WHERE organization_id = ?`,
-    [orgId]
+    `SELECT * FROM workspace_share_domains WHERE workspace_id = ?`,
+    [workspaceId]
   )
 }
 
@@ -78,7 +90,7 @@ function present(c: Context<AppEnv>, row: ShareDomainRow | null) {
         type: 'TXT',
         name: challengeName(row.hostname),
         value: challengeValue(row.verification_token),
-        purpose: 'Proves your organization controls this hostname'
+        purpose: 'Proves you control this hostname'
       }
     ],
     lastError: row.last_error,
@@ -89,50 +101,53 @@ function present(c: Context<AppEnv>, row: ShareDomainRow | null) {
 }
 
 shareDomains.get(
-  '/organizations/:orgId/share-domain',
+  '/workspaces/:id/share-domain',
   guarded(async (c) => {
-    const orgId = c.req.param('orgId')
-    requireOrgAdmin(c, orgId)
+    const workspaceId = c.req.param('id')
+    const { workspace } = await requireWorkspaceAdmin(c, workspaceId)
     return ok(c, {
       available: shareDomainsAvailable(c.env),
+      eligible: !!workspace.organization_id,
       cnameTarget: c.env.SHARE_DOMAIN_CNAME_TARGET?.trim() || null,
-      domain: present(c, await loadDomain(c, orgId))
+      domain: present(c, await loadDomain(c, workspaceId))
     })
   })
 )
 
 shareDomains.put(
-  '/organizations/:orgId/share-domain',
+  '/workspaces/:id/share-domain',
   rateLimit({ bucket: 'share-domain:set', limit: 20, windowSeconds: 3600 }),
   guarded(async (c) => {
-    const orgId = c.req.param('orgId')
-    const principal = requireOrgAdmin(c, orgId)
+    const workspaceId = c.req.param('id')
+    const { principal, workspace } = await requireWorkspaceAdmin(c, workspaceId)
+    requireOrgWorkspace(workspace)
     if (!shareDomainsAvailable(c.env)) throw unavailable()
 
     const body = await readJson<{ hostname?: string }>(c)
     const hostname = normalizeShareHostname(body.hostname ?? '', c.env)
 
-    const taken = await first<{ organization_id: string }>(
+    const taken = await first<{ workspace_id: string }>(
       c.env.DB,
-      `SELECT organization_id FROM organization_share_domains
-        WHERE hostname = ? AND verified_at IS NOT NULL AND organization_id <> ?`,
-      [hostname, orgId]
+      `SELECT workspace_id FROM workspace_share_domains
+        WHERE hostname = ? AND verified_at IS NOT NULL AND workspace_id <> ?`,
+      [hostname, workspaceId]
     )
-    if (taken) throw conflict('That hostname is already in use by another organization.')
+    if (taken) throw conflict('That hostname is already in use by another workspace.')
 
-    const existing = await loadDomain(c, orgId)
+    const existing = await loadDomain(c, workspaceId)
     if (existing?.hostname === hostname) {
       return ok(c, { domain: present(c, existing) })
     }
 
     // Replacing a hostname: release the old one at Cloudflare first, so a
-    // half-finished swap can never leave two hostnames serving this org.
+    // half-finished swap can never leave two hostnames serving this workspace.
     if (existing) await releaseDomain(c, existing)
 
     const timestamp = nowIso()
     const row: ShareDomainRow = {
       id: prefixed('sdm', ulid()),
-      organization_id: orgId,
+      workspace_id: workspaceId,
+      organization_id: workspace.organization_id,
       hostname,
       status: 'PENDING_DNS',
       verification_token: randomToken(24),
@@ -147,14 +162,15 @@ shareDomains.put(
     }
     await run(
       c.env.DB,
-      `INSERT INTO organization_share_domains
-         (id, organization_id, hostname, status, verification_token, created_by_user_id, created_at, updated_at)
-       VALUES (?, ?, ?, 'PENDING_DNS', ?, ?, ?, ?)`,
-      [row.id, orgId, hostname, row.verification_token, principal.userId, timestamp, timestamp]
+      `INSERT INTO workspace_share_domains
+         (id, workspace_id, organization_id, hostname, status, verification_token, created_by_user_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'PENDING_DNS', ?, ?, ?, ?)`,
+      [row.id, workspaceId, workspace.organization_id, hostname, row.verification_token, principal.userId, timestamp, timestamp]
     )
 
     await recordAudit(c.env.DB, {
-      organizationId: orgId,
+      organizationId: workspace.organization_id,
+      workspaceId,
       actorUserId: principal.userId,
       actorType: 'USER',
       action: 'SHARE_DOMAIN_SET',
@@ -177,21 +193,23 @@ shareDomains.put(
  * Idempotent; the admin screen calls it from a "Check now" button.
  */
 shareDomains.post(
-  '/organizations/:orgId/share-domain/check',
+  '/workspaces/:id/share-domain/check',
   rateLimit({ bucket: 'share-domain:check', limit: 60, windowSeconds: 600 }),
   guarded(async (c) => {
-    const orgId = c.req.param('orgId')
-    const principal = requireOrgAdmin(c, orgId)
+    const workspaceId = c.req.param('id')
+    const { principal, workspace } = await requireWorkspaceAdmin(c, workspaceId)
+    requireOrgWorkspace(workspace)
     if (!shareDomainsAvailable(c.env)) throw unavailable()
+    const orgId = workspace.organization_id
 
-    let row = await loadDomain(c, orgId)
-    if (!row) throw notFound('No share domain is set for this organization')
+    let row = await loadDomain(c, workspaceId)
+    if (!row) throw notFound('No share domain is set for this workspace')
 
     const update = async (fields: Partial<ShareDomainRow>) => {
       const merged = { ...row!, ...fields, last_checked_at: nowIso(), updated_at: nowIso() }
       await run(
         c.env.DB,
-        `UPDATE organization_share_domains
+        `UPDATE workspace_share_domains
             SET status = ?, cf_custom_hostname_id = ?, last_error = ?, verified_at = ?,
                 activated_at = ?, last_checked_at = ?, updated_at = ?
           WHERE id = ?`,
@@ -224,23 +242,24 @@ shareDomains.post(
         return ok(c, { domain: present(c, row) })
       }
 
-      // Ownership is proven. Only one organization can ever hold a verified
+      // Ownership is proven. Only one workspace can ever hold a verified
       // hostname; the partial unique index enforces it even under a race.
       const clash = await first<{ id: string }>(
         c.env.DB,
-        `SELECT id FROM organization_share_domains
+        `SELECT id FROM workspace_share_domains
           WHERE hostname = ? AND verified_at IS NOT NULL AND id <> ?`,
         [row.hostname, row.id]
       )
-      if (clash) throw conflict('That hostname is already in use by another organization.')
+      if (clash) throw conflict('That hostname is already in use by another workspace.')
       try {
         await update({ status: 'PENDING_CERT', verified_at: nowIso(), last_error: null })
       } catch {
-        throw conflict('That hostname is already in use by another organization.')
+        throw conflict('That hostname is already in use by another workspace.')
       }
 
       await recordAudit(c.env.DB, {
         organizationId: orgId,
+      workspaceId,
         actorUserId: principal.userId,
         actorType: 'USER',
         action: 'SHARE_DOMAIN_VERIFIED',
@@ -275,6 +294,7 @@ shareDomains.post(
         if (firstActivation) {
           await recordAudit(c.env.DB, {
             organizationId: orgId,
+      workspaceId,
             actorUserId: principal.userId,
             actorType: 'USER',
             action: 'SHARE_DOMAIN_ACTIVATED',
@@ -305,18 +325,20 @@ shareDomains.post(
 )
 
 shareDomains.delete(
-  '/organizations/:orgId/share-domain',
+  '/workspaces/:id/share-domain',
   guarded(async (c) => {
-    const orgId = c.req.param('orgId')
-    const principal = requireOrgAdmin(c, orgId)
+    const workspaceId = c.req.param('id')
+    const { principal, workspace } = await requireWorkspaceAdmin(c, workspaceId)
+    const orgId = workspace.organization_id
 
-    const row = await loadDomain(c, orgId)
+    const row = await loadDomain(c, workspaceId)
     if (!row) return ok(c, { removed: false })
 
     await releaseDomain(c, row)
 
     await recordAudit(c.env.DB, {
       organizationId: orgId,
+      workspaceId,
       actorUserId: principal.userId,
       actorType: 'USER',
       action: 'SHARE_DOMAIN_REMOVE',
@@ -350,7 +372,7 @@ async function releaseDomain(c: Context<AppEnv>, row: ShareDomainRow): Promise<v
       }
     }
   }
-  await run(c.env.DB, `DELETE FROM organization_share_domains WHERE id = ?`, [row.id])
+  await run(c.env.DB, `DELETE FROM workspace_share_domains WHERE id = ?`, [row.id])
 }
 
 export default shareDomains

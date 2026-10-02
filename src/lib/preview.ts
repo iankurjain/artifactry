@@ -91,8 +91,8 @@ export async function resolvePreviewRequest(
   // with a spoofed Host header could otherwise mint a token naming an arbitrary
   // framer. Pinning it here means such a token is refused instead of served.
   //
-  // The one other accepted framer is an organization's ACTIVE custom share
-  // domain, and only for that organization's own artifacts: a recipient on
+  // The one other accepted framer is a workspace's ACTIVE custom share
+  // domain, and only for that workspace's own artifacts: a recipient on
   // share.acme.com frames the document from there.
   const configuredApp = normalizeOrigin(env.APP_ORIGIN)
   const isAppOrigin = !configuredApp || normalizeOrigin(payload.o) === configuredApp
@@ -100,7 +100,7 @@ export async function resolvePreviewRequest(
   const artifact = await loadArtifact(db, payload.a)
   if (!isAppOrigin) {
     const permitted =
-      !!artifact && (await isActiveShareOriginFor(db, payload.o, artifact.organization_id))
+      !!artifact && (await isActiveShareOriginFor(db, payload.o, artifact.workspace_id))
     if (!permitted) return deny(403, 'ORIGIN_NOT_PERMITTED', appOrigin)
   }
   if (!artifact) return deny(404, 'ARTIFACT_UNAVAILABLE', appOrigin)

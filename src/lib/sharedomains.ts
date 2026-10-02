@@ -1,8 +1,10 @@
 /**
  * Custom share domains.
  *
- * An organization owner or admin can issue every share link on a hostname they
- * control (share.acme.com) instead of the application origin. Only the external
+ * A workspace admin can issue every share link of that workspace on a hostname
+ * they control (share.acme.com) instead of the application origin. The domain
+ * is per workspace: someone who wants an artifact shared from artifactry.app
+ * keeps it in a different workspace. Only the external
  * recipient surface is served there; see `isShareDomainPath`.
  *
  * How a request on a customer hostname reaches this app:
@@ -13,7 +15,7 @@
  *        and SHARE_EDGE_SECRET proving the headers came from the edge Worker.
  *
  * The app never trusts those headers without the secret, and never trusts the
- * hostname without an ACTIVE row for it in organization_share_domains. A
+ * hostname without an ACTIVE row for it in workspace_share_domains. A
  * request that fails either check is a plain 404.
  *
  * Fail-soft rule: everything that *issues* links (shareOriginForOrg) swallows
@@ -41,7 +43,8 @@ export type ShareDomainStatus = 'PENDING_DNS' | 'PENDING_CERT' | 'ACTIVE' | 'ERR
 
 export interface ShareDomainRow {
   id: string
-  organization_id: string
+  workspace_id: string
+  organization_id: string | null
   hostname: string
   status: ShareDomainStatus
   verification_token: string
@@ -59,7 +62,7 @@ export interface ShareDomainRow {
 export interface ShareDomainContext {
   hostname: string
   origin: string
-  organizationId: string
+  workspaceId: string
   clientIp: string | null
 }
 
@@ -182,11 +185,11 @@ export function isShareDomainPath(method: string, path: string): boolean {
 export async function activeShareDomainByHost(
   db: D1Database,
   hostname: string
-): Promise<Pick<ShareDomainRow, 'organization_id' | 'hostname'> | null> {
+): Promise<Pick<ShareDomainRow, 'workspace_id' | 'hostname'> | null> {
   try {
-    return await first<Pick<ShareDomainRow, 'organization_id' | 'hostname'>>(
+    return await first<Pick<ShareDomainRow, 'workspace_id' | 'hostname'>>(
       db,
-      `SELECT organization_id, hostname FROM organization_share_domains
+      `SELECT workspace_id, hostname FROM workspace_share_domains
         WHERE hostname = ? AND status = 'ACTIVE' AND verified_at IS NOT NULL`,
       [hostname]
     )
@@ -197,20 +200,20 @@ export async function activeShareDomainByHost(
 }
 
 /**
- * Origin share links for this organization should use, or null for the
+ * Origin share links for this workspace should use, or null for the
  * application origin. Fails soft: see the module comment.
  */
-export async function shareOriginForOrg(
+export async function shareOriginForWorkspace(
   db: D1Database,
-  organizationId: string | null | undefined
+  workspaceId: string | null | undefined
 ): Promise<string | null> {
-  if (!organizationId) return null
+  if (!workspaceId) return null
   try {
     const row = await first<{ hostname: string }>(
       db,
-      `SELECT hostname FROM organization_share_domains
-        WHERE organization_id = ? AND status = 'ACTIVE' AND verified_at IS NOT NULL`,
-      [organizationId]
+      `SELECT hostname FROM workspace_share_domains
+        WHERE workspace_id = ? AND status = 'ACTIVE' AND verified_at IS NOT NULL`,
+      [workspaceId]
     )
     return row ? `https://${row.hostname}` : null
   } catch {
@@ -219,21 +222,21 @@ export async function shareOriginForOrg(
 }
 
 /**
- * Whether `origin` is an ACTIVE share domain belonging to `organizationId`.
+ * Whether `origin` is the ACTIVE share domain of `workspaceId`.
  * Used by the preview origin to accept a framing origin other than APP_ORIGIN.
  */
 export async function isActiveShareOriginFor(
   db: D1Database,
   origin: string,
-  organizationId: string | null
+  workspaceId: string | null
 ): Promise<boolean> {
-  if (!organizationId) return false
+  if (!workspaceId) return false
   const normalized = normalizeOrigin(origin)
   if (!normalized || !normalized.startsWith('https://')) return false
   const hostname = new URL(normalized).hostname.toLowerCase()
   if (normalized !== `https://${hostname}`) return false
   const row = await activeShareDomainByHost(db, hostname)
-  return row?.organization_id === organizationId
+  return row?.workspace_id === workspaceId
 }
 
 /** The share-domain context of this request, if it arrived on one. */

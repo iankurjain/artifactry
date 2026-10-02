@@ -50,7 +50,7 @@ import { recordAudit } from '../lib/audit'
 import { loadArtifact } from '../lib/artifacts'
 import { previewCspFor } from '../lib/htmlpreview'
 import { buildPreviewDescriptor } from '../lib/preview'
-import { publicOrigin, shareDomainOf, shareOriginForOrg } from '../lib/sharedomains'
+import { publicOrigin, shareDomainOf, shareOriginForWorkspace } from '../lib/sharedomains'
 import type { ShareRow } from '../types'
 
 const shares = new Hono<AppEnv>()
@@ -203,18 +203,18 @@ shares.get(
 
     const origin = new URL(c.req.url).origin
 
-    // Each link is shown on the origin it was issued for: an organization with
-    // an active share domain issues its links there.
-    const orgOrigins = new Map<string, string | null>()
+    // Each link is shown on the origin it was issued for: a workspace with an
+    // active share domain issues its links there.
+    const wsOrigins = new Map<string, string | null>()
     for (const row of rows) {
-      const orgId = (row as unknown as ShareRow).organization_id
-      if (orgId && !orgOrigins.has(orgId)) orgOrigins.set(orgId, await shareOriginForOrg(c.env.DB, orgId))
+      const wsId = (row as unknown as ShareRow).workspace_id
+      if (wsId && !wsOrigins.has(wsId)) wsOrigins.set(wsId, await shareOriginForWorkspace(c.env.DB, wsId))
     }
 
     return ok(c, {
       shares: rows.map((row) => {
-        const orgId = (row as unknown as ShareRow).organization_id
-        const linkOrigin = (orgId ? orgOrigins.get(orgId) : null) ?? origin
+        const wsId = (row as unknown as ShareRow).workspace_id
+        const linkOrigin = (wsId ? wsOrigins.get(wsId) : null) ?? origin
         return {
           ...presentShare(row as unknown as ShareRow),
           targetTitle: row.target_title,
@@ -320,10 +320,9 @@ shares.delete(
 /**
  * Look up a share by token for the external recipient surface.
  *
- * On a customer share domain only that organization's shares exist: a link
- * issued by any other organization (or a personal workspace) is answered
- * exactly like an unknown token, so one customer's hostname can never present
- * another's content.
+ * On a customer share domain only that workspace's shares exist: a link issued
+ * from any other workspace is answered exactly like an unknown token, so one
+ * customer's hostname can never present another's content.
  */
 async function findShareOnSurface(
   c: { env: { DB: D1Database }; get: (key: never) => unknown },
@@ -332,7 +331,7 @@ async function findShareOnSurface(
   const share = await findShareByToken(c.env.DB, token)
   if (!share) return null
   const domain = shareDomainOf(c as never)
-  if (domain && share.organization_id !== domain.organizationId) return null
+  if (domain && share.workspace_id !== domain.workspaceId) return null
   return share
 }
 
