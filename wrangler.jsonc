@@ -97,7 +97,12 @@
     // a request arriving with a spoofed Host header cannot choose an arbitrary
     // framer. Set here (not derived from the request) so the expected value is
     // fixed configuration rather than attacker-influenced input.
-    "APP_ORIGIN": "https://artifactry.app"
+    "APP_ORIGIN": "https://artifactry.app",
+
+    // Where customers point the CNAME for a custom share domain. The feature
+    // stays off until SHARE_EDGE_SECRET, CF_API_TOKEN and CF_ZONE_ID are set as
+    // secrets too; see wrangler.share-edge.jsonc.
+    "SHARE_DOMAIN_CNAME_TARGET": "shares.artifactry.app"
   }
 
   // NOTE (BYOK path only): kv_namespaces and triggers are permitted here,

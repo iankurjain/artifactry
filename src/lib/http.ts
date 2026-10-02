@@ -131,6 +131,11 @@ export function readBearer(c: Context): string | null {
 
 /** Best-effort client address for audit records; never used for identity. */
 export function clientIp(c: Context): string | null {
+  // On a custom share domain the request is a subrequest from the share-edge
+  // Worker, so the visitor's address arrives in a header the edge set. It is
+  // only present on the context once the edge secret has been checked.
+  const forwarded = (c.get('shareDomain' as never) as { clientIp?: string | null } | undefined)?.clientIp
+  if (forwarded) return forwarded
   return (
     c.req.header('CF-Connecting-IP') ??
     c.req.header('X-Forwarded-For')?.split(',')[0]?.trim() ??

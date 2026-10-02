@@ -17,11 +17,45 @@ import type { Context, MiddlewareHandler, Next } from 'hono'
 import type { Env, Principal } from './types'
 import { resolvePrincipal, EMPTY_PRINCIPAL } from './lib/principal'
 import { classifyRequest } from './lib/htmlpreview'
-import { fail, HttpError, unauthorized } from './lib/http'
+import { clientIp, fail, HttpError, unauthorized } from './lib/http'
+import type { ShareDomainContext } from './lib/sharedomains'
+import { activeShareDomainByHost, edgeForwardedHost, isShareDomainPath } from './lib/sharedomains'
 
 export type AppEnv = {
   Bindings: Env
-  Variables: { principal: Principal }
+  Variables: { principal: Principal; shareDomain?: ShareDomainContext }
+}
+
+/**
+ * Serve a customer's share domain, and nothing else on it.
+ *
+ * A request forwarded by the share-edge Worker (proven by SHARE_EDGE_SECRET)
+ * names the customer hostname it arrived on. That hostname must be an ACTIVE
+ * share domain, and the path must be part of the recipient surface; anything
+ * else is a bare 404. Sign-in, the library and the rest of the API exist only
+ * on the application origin, so a session cookie is never set on, or sent to,
+ * a customer's domain.
+ *
+ * Requests without a valid edge secret are ordinary app requests and pass
+ * through untouched, whatever headers they carry.
+ */
+export const shareDomainGate: MiddlewareHandler<AppEnv> = async (c, next) => {
+  const forwarded = edgeForwardedHost(c.env, (name) => c.req.header(name))
+  if (!forwarded) {
+    await next()
+    return
+  }
+
+  const domain = await activeShareDomainByHost(c.env.DB, forwarded.hostname)
+  if (!domain || !isShareDomainPath(c.req.method, c.req.path)) return surfaceNotFound()
+
+  c.set('shareDomain', {
+    hostname: domain.hostname,
+    origin: `https://${domain.hostname}`,
+    workspaceId: domain.workspace_id,
+    clientIp: forwarded.clientIp
+  })
+  await next()
 }
 
 /**
@@ -88,6 +122,14 @@ export const withPrincipal: MiddlewareHandler<AppEnv> = async (c, next) => {
     return
   }
 
+  // A customer share domain is anonymous by construction too: only recipient
+  // routes exist there, and they authorise by share token and grant cookie.
+  if (c.get('shareDomain')) {
+    c.set('principal', EMPTY_PRINCIPAL)
+    await next()
+    return
+  }
+
   let principal: Principal = EMPTY_PRINCIPAL
   try {
     principal = await resolvePrincipal(c)
@@ -144,9 +186,11 @@ export const securityHeaders: MiddlewareHandler<AppEnv> = async (c, next) => {
   headers.set('X-Frame-Options', isPreviewDocument ? 'SAMEORIGIN' : 'DENY')
   headers.set('Referrer-Policy', 'no-referrer')
   headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), interest-cohort=()')
+  // includeSubDomains is ours to assert for artifactry.app, not for a
+  // customer's hostname: it would bind every subdomain of share.acme.com.
   headers.set(
     'Strict-Transport-Security',
-    'max-age=31536000; includeSubDomains'
+    c.get('shareDomain') ? 'max-age=31536000' : 'max-age=31536000; includeSubDomains'
   )
   // Cross-origin isolation for the app shell; the HTML preview endpoint
   // relaxes this deliberately via its own sandboxed document.
@@ -172,10 +216,7 @@ export function rateLimit(options: {
   keyFrom?: (c: Context) => string
 }): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
-    const ip =
-      c.req.header('CF-Connecting-IP') ??
-      c.req.header('X-Forwarded-For')?.split(',')[0]?.trim() ??
-      'unknown'
+    const ip = clientIp(c) ?? 'unknown'
     const key = options.keyFrom ? options.keyFrom(c) : ip
     const window = Math.floor(Date.now() / (options.windowSeconds * 1000))
     const bucketKey = `rl:${options.bucket}:${key}:${window}`

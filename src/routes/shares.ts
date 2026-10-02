@@ -36,6 +36,7 @@ import { all, first, nowIso, run } from '../lib/db'
 import { prefixed, randomToken, ulid } from '../lib/ids'
 import {
   badRequest,
+  clientIp,
   forbidden,
   notFound,
   ok,
@@ -49,6 +50,7 @@ import { recordAudit } from '../lib/audit'
 import { loadArtifact } from '../lib/artifacts'
 import { previewCspFor } from '../lib/htmlpreview'
 import { buildPreviewDescriptor } from '../lib/preview'
+import { publicOrigin, shareDomainOf, shareOriginForWorkspace } from '../lib/sharedomains'
 import type { ShareRow } from '../types'
 
 const shares = new Hono<AppEnv>()
@@ -201,14 +203,26 @@ shares.get(
 
     const origin = new URL(c.req.url).origin
 
+    // Each link is shown on the origin it was issued for: a workspace with an
+    // active share domain issues its links there.
+    const wsOrigins = new Map<string, string | null>()
+    for (const row of rows) {
+      const wsId = (row as unknown as ShareRow).workspace_id
+      if (wsId && !wsOrigins.has(wsId)) wsOrigins.set(wsId, await shareOriginForWorkspace(c.env.DB, wsId))
+    }
+
     return ok(c, {
-      shares: rows.map((row) => ({
-        ...presentShare(row as unknown as ShareRow),
-        targetTitle: row.target_title,
-        openCount: row.open_count,
-        // The full token is never recoverable after creation, by design (§36)
-        urlPrefix: `${origin}/s/${row.token_prefix}…`
-      }))
+      shares: rows.map((row) => {
+        const wsId = (row as unknown as ShareRow).workspace_id
+        const linkOrigin = (wsId ? wsOrigins.get(wsId) : null) ?? origin
+        return {
+          ...presentShare(row as unknown as ShareRow),
+          targetTitle: row.target_title,
+          openCount: row.open_count,
+          // The full token is never recoverable after creation, by design (§36)
+          urlPrefix: `${linkOrigin}/s/${row.token_prefix}…`
+        }
+      })
     })
   })
 )
@@ -304,6 +318,24 @@ shares.delete(
 // ---------------------------------------------------------------
 
 /**
+ * Look up a share by token for the external recipient surface.
+ *
+ * On a customer share domain only that workspace's shares exist: a link issued
+ * from any other workspace is answered exactly like an unknown token, so one
+ * customer's hostname can never present another's content.
+ */
+async function findShareOnSurface(
+  c: { env: { DB: D1Database }; get: (key: never) => unknown },
+  token: string
+): Promise<ShareRow | null> {
+  const share = await findShareByToken(c.env.DB, token)
+  if (!share) return null
+  const domain = shareDomainOf(c as never)
+  if (domain && share.workspace_id !== domain.workspaceId) return null
+  return share
+}
+
+/**
  * Resolve the visitor's proven email for a share, if any.
  * A grant cookie binds a short-lived session hash to a verified address.
  */
@@ -356,7 +388,7 @@ shares.get(
   rateLimit({ bucket: 'share:meta', limit: 120, windowSeconds: 300 }),
   guarded(async (c) => {
     const token = c.req.param('token')
-    const share = await findShareByToken(c.env.DB, token)
+    const share = await findShareOnSurface(c, token)
 
     if (!share) {
       return ok(c, { exists: false })
@@ -397,7 +429,7 @@ shares.post(
     const body = await readJson<{ email?: string }>(c)
     const email = (body.email ?? '').trim()
 
-    const share = await findShareByToken(c.env.DB, token)
+    const share = await findShareOnSurface(c, token)
     if (!share) throw notFound('This share link is not valid')
 
     const evaluation = await evaluateShareAccess(c.env.DB, share, null)
@@ -435,7 +467,7 @@ shares.post(
     const token = c.req.param('token')
     const body = await readJson<{ email?: string; code?: string }>(c)
 
-    const share = await findShareByToken(c.env.DB, token)
+    const share = await findShareOnSurface(c, token)
     if (!share) throw notFound('This share link is not valid')
 
     const { normalizeEmail, isValidEmail } = await import('../lib/validate')
@@ -523,7 +555,7 @@ shares.get(
   rateLimit({ bucket: 'share:view', limit: 300, windowSeconds: 300 }),
   guarded(async (c) => {
     const token = c.req.param('token')
-    const share = await findShareByToken(c.env.DB, token)
+    const share = await findShareOnSurface(c, token)
     if (!share) throw notFound('This share link is not valid')
 
     // `verifiedGrantFor` (not `verifiedEmailFor`) because the ARTIFACT branch
@@ -570,10 +602,10 @@ shares.get(
       actorType: 'ANONYMOUS',
       actorLabel: verifiedEmail,
       accessChannel: channel,
-      sessionSeed: c.req.header('CF-Connecting-IP') ?? null
+      sessionSeed: clientIp(c)
     })
 
-    const origin = new URL(c.req.url).origin
+    const origin = publicOrigin(c)
 
     if (share.target_type === 'ARTIFACT') {
       const artifact = await loadArtifact(c.env.DB, share.target_id)
@@ -588,7 +620,7 @@ shares.get(
         actorType: 'ANONYMOUS',
         actorLabel: verifiedEmail,
         accessChannel: channel,
-        sessionSeed: c.req.header('CF-Connecting-IP') ?? null
+        sessionSeed: clientIp(c)
       })
 
       return ok(c, {
@@ -648,7 +680,7 @@ shares.get(
     const token = c.req.param('token')
     const artifactId = c.req.query('artifactId') ?? null
 
-    const share = await findShareByToken(c.env.DB, token)
+    const share = await findShareOnSurface(c, token)
     if (!share) throw notFound('This share link is not valid')
 
     const verifiedEmail = await verifiedEmailFor(c as never, share)
@@ -702,7 +734,7 @@ shares.get(
       actorType: 'ANONYMOUS',
       actorLabel: verifiedEmail,
       accessChannel: channel,
-      sessionSeed: c.req.header('CF-Connecting-IP') ?? null
+      sessionSeed: clientIp(c)
     })
 
     return new Response(object.body, {
@@ -728,7 +760,7 @@ shares.get(
     const token = c.req.param('token')
     const artifactId = c.req.query('artifactId') ?? null
 
-    const share = await findShareByToken(c.env.DB, token)
+    const share = await findShareOnSurface(c, token)
     if (!share) throw notFound('This share link is not valid')
 
     const verifiedEmail = await verifiedEmailFor(c as never, share)
@@ -779,6 +811,6 @@ shares.get(
   })
 )
 
-export { verifiedEmailFor, verifiedGrantFor }
+export { findShareOnSurface, verifiedEmailFor, verifiedGrantFor }
 export default shares
 export { findOrCreateUser }

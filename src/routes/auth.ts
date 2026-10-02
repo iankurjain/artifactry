@@ -36,7 +36,9 @@ import {
 import { isValidEmail, normalizeEmail } from '../lib/validate'
 import { all, first } from '../lib/db'
 import { recordAudit } from '../lib/audit'
-import { readableWorkspaces } from '../lib/principal'
+import { can, readableWorkspaces } from '../lib/principal'
+import { parseWorkspaceSettings } from '../lib/workspacesettings'
+import { logoUrl } from './workspacemanage'
 import { connectedIntegrations } from '../lib/ai'
 
 const auth = new Hono<AppEnv>()
@@ -186,7 +188,10 @@ auth.get(
         name: w.name,
         type: w.workspace_type,
         organizationId: w.organization_id,
-        role: principal.workspaceRoles[w.id] ?? (w.owner_user_id === principal.userId ? 'WORKSPACE_ADMIN' : null)
+        role: principal.workspaceRoles[w.id] ?? (w.owner_user_id === principal.userId ? 'WORKSPACE_ADMIN' : null),
+        logoUrl: logoUrl(w),
+        canManage: can(principal, 'workspace.manage', w) || can(principal, 'member.manage', w),
+        regional: parseWorkspaceSettings(w.settings_json).regional
       })),
       organizations: organizations.map((o) => ({
         id: o.id,

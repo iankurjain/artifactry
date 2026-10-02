@@ -505,6 +505,60 @@ Other operational notes for this deployment path:
    limitation above. A failed send writes **no** `auth_otp` row and burns **no** cooldown, so a
    delivery failure never locks a recipient out or leaves a false audit record.
 
+### Workspace management
+
+The **Workspace** item at the bottom of the desktop rail (on phones: **Profile → Workspace settings**)
+opens `/workspace/:id`, one screen per organization workspace:
+
+- **Identity**: name, description and a logo.
+- **Custom URL**: the share-link domain for every artifact in this workspace (below).
+- **Regional**: time zone and date format; every date in the app follows the workspace being viewed.
+- **Team directory**: active members, people awaiting approval, open invitations, deactivated people.
+  Deactivating someone also removes the read-only view plain organization members otherwise get.
+- **Roles & permissions**: built-in tiers Owner, Admin, Member, Guest (stored as `WORKSPACE_ADMIN`,
+  `CONTRIBUTOR`, `VIEWER`) plus custom tiers that pick from the artifact, share, analytics and team
+  permissions. Managing settings and people always stays with Admins.
+- **Invitation controls**: email invitations (sent through Resend when `EMAIL_API_KEY` is set; otherwise
+  the link is shown to copy), invite links with a use limit and expiry (never Admin), allowed email
+  domains, admin approval for new joiners, and the default tier. Links open `/join/:token`; only a hash of
+  each token is stored.
+
+Profile pictures (Profile → tap the picture) and workspace logos accept any PNG, JPEG, WebP or GIF up to
+1 MB, whatever the shape; the app crops them to a circle. Personal workspaces have no management screen.
+Code: `src/routes/workspacemanage.ts`, `src/lib/workspacesettings.ts`, `src/lib/images.ts`,
+`public/static/workspace.js`; schema in `migrations/0009_workspace_management.sql`; tests in
+`scripts/test-workspace-manage.mjs`.
+
+### Custom share domains — built, needs one-time setup
+
+An admin of an organization workspace can put that workspace's share links on their own hostname
+(**Workspace → Custom URL**), e.g. `share.acme.com` instead of `artifactry.app`. It applies to every
+artifact in that workspace; artifacts that should keep standard links go in another workspace. The
+customer adds a `CNAME` to `shares.artifactry.app` and a `TXT` at `_artifactry-challenge.<host>`;
+**Check now** verifies the TXT, registers the hostname with Cloudflare for SaaS, and switches new
+links over once the certificate is active. Old links keep working on `artifactry.app`.
+
+Only the recipient surface exists on a customer hostname (`/s/*`, the recipient share APIs, `/guide`);
+sign-in, the library and every other API are `404` there, no session is ever resolved, and only that
+workspace's shares open. Code: `src/lib/sharedomains.ts`, `src/routes/sharedomains.ts`,
+`shareDomainGate` in `src/middleware.ts`, `src/share-edge-worker.ts`.
+
+The feature stays **off** until all of this is done (the Custom URL card says so until then):
+
+1. Apply migrations `0008` and `0009` (`npm run db:migrate:prod`).
+2. On the `artifactry.app` zone: enable **SSL/TLS → Custom Hostnames** (Cloudflare for SaaS), add an
+   originless proxied record `shares.artifactry.app AAAA 100::`, and set it as the **Fallback Origin**.
+3. Secrets on the Pages project `artifact-library`: `SHARE_EDGE_SECRET` (random, 32+ chars),
+   `CF_API_TOKEN` (Zone → SSL and Certificates → Edit, this zone only), `CF_ZONE_ID`.
+4. Deploy the share-edge Worker: `npx wrangler secret put SHARE_EDGE_SECRET -c wrangler.share-edge.jsonc`
+   (same value), then `npm run deploy:share-edge`. Pages cannot be the origin of a custom hostname,
+   so this Worker (route `*/*` on the zone, passing `artifactry.app` and `preview.artifactry.app`
+   straight through) forwards customer traffic to the app with the hostname, visitor IP and secret.
+
+Not included: the workspace logo on the recipient page (it still shows the Artifactry lockup), apex
+domains (customers need a subdomain they can `CNAME`), and a background job to re-check pending
+domains (an admin presses **Check now**).
+
 ---
 
 ## Brand
@@ -594,6 +648,7 @@ bash scripts/run-gates.sh
 | `test-mcp-jobs` | 89 assertions over the MCP job surface, teams, tag states and the confirmation gate |
 | `test-tag-decisions` | 41 assertions over tag decisions on both the REST and MCP surfaces |
 | `test-oauth` | 83 assertions: the full connector OAuth flow through the real app bundle, the MCP transport, and every `save` source |
+| `test-share-domains` | 93 assertions: custom share domain admin flow, link issuing, what a customer hostname may serve, preview framing, and the share-edge Worker |
 
 `scripts/check-undefined.mjs` exists because a bundle that builds clean can still reference a symbol
 that was never imported — that caused three separate `500`s in the preview path, and the gate caught

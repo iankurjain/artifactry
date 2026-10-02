@@ -21,7 +21,7 @@ import type {
   WorkspaceRole,
   WorkspaceRow
 } from '../types'
-import { ROLE_PERMISSIONS as ROLE_PERMS } from '../types'
+import { CUSTOMIZABLE_PERMISSIONS, ROLE_PERMISSIONS as ROLE_PERMS } from '../types'
 import { all, first, nowIso } from './db'
 import { forbidden, readBearer, readSessionCookie, unauthorized } from './http'
 import { hashGrantToken, hashSessionToken } from './crypto'
@@ -93,7 +93,7 @@ export async function resolvePrincipal(c: Context): Promise<Principal> {
     .bind(nowIso(), session.id)
     .run()
 
-  const { orgRoles, workspaceRoles } = await loadRoles(db, user.id)
+  const { orgRoles, workspaceRoles, customPermissions, deactivatedWorkspaces } = await loadRoles(db, user.id)
 
   return {
     kind: 'SESSION',
@@ -101,6 +101,8 @@ export async function resolvePrincipal(c: Context): Promise<Principal> {
     user,
     orgRoles,
     workspaceRoles,
+    customPermissions,
+    deactivatedWorkspaces,
     scopes: []
   }
 }
@@ -127,7 +129,7 @@ async function resolveAiGrant(db: D1Database, rawToken: string): Promise<Princip
     [grant.integration_id]
   )
 
-  const { orgRoles, workspaceRoles } = await loadRoles(db, user.id)
+  const { orgRoles, workspaceRoles, customPermissions, deactivatedWorkspaces } = await loadRoles(db, user.id)
 
   await db
     .prepare(`UPDATE integration_grants SET last_used_at = ? WHERE id = ?`)
@@ -148,6 +150,8 @@ async function resolveAiGrant(db: D1Database, rawToken: string): Promise<Princip
     user,
     orgRoles,
     workspaceRoles,
+    customPermissions,
+    deactivatedWorkspaces,
     scopes,
     integrationId: grant.integration_id,
     grantId: grant.id,
@@ -164,26 +168,76 @@ async function resolveAiGrant(db: D1Database, rawToken: string): Promise<Princip
   }
 }
 
-async function loadRoles(db: D1Database, userId: string) {  const orgRows = await all<{ organization_id: string; role: OrgRole }>(
+async function loadRoles(db: D1Database, userId: string) {
+  const orgRows = await all<{ organization_id: string; role: OrgRole }>(
     db,
     `SELECT organization_id, role FROM organization_members
       WHERE user_id = ? AND status = 'ACTIVE'`,
     [userId]
   )
-  const wsRows = await all<{ workspace_id: string; role: WorkspaceRole }>(
-    db,
-    `SELECT workspace_id, role FROM workspace_members
-      WHERE user_id = ? AND status = 'ACTIVE'`,
-    [userId]
-  )
+  const wsRows = await loadWorkspaceRows(db, userId)
 
   const orgRoles: Record<string, OrgRole> = {}
   for (const row of orgRows) orgRoles[row.organization_id] = row.role
 
   const workspaceRoles: Record<string, WorkspaceRole> = {}
-  for (const row of wsRows) workspaceRoles[row.workspace_id] = row.role
+  const customPermissions: Record<string, Permission[]> = {}
+  for (const row of wsRows) {
+    workspaceRoles[row.workspace_id] = row.role
+    if (row.permissions_json) {
+      try {
+        const parsed = JSON.parse(row.permissions_json)
+        if (Array.isArray(parsed)) {
+          // Only what a custom tier may ever hold, whatever the row says.
+          customPermissions[row.workspace_id] = parsed.filter((p): p is Permission =>
+            CUSTOMIZABLE_PERMISSIONS.includes(p as Permission)
+          )
+        }
+      } catch {
+        customPermissions[row.workspace_id] = ['artifact.read']
+      }
+    }
+  }
 
-  return { orgRoles, workspaceRoles }
+  // Workspaces this person was deactivated in. Plain organization membership
+  // would otherwise still let them read the workspace.
+  const removed = await all<{ workspace_id: string }>(
+    db,
+    `SELECT workspace_id FROM workspace_members WHERE user_id = ? AND status = 'REMOVED'`,
+    [userId]
+  )
+  const deactivatedWorkspaces = removed.map((r) => r.workspace_id)
+
+  return { orgRoles, workspaceRoles, customPermissions, deactivatedWorkspaces }
+}
+
+/**
+ * Active memberships with their custom tier, if any. Falls back to the
+ * pre-0009 query so a deploy that lands before its migration still signs
+ * people in with their built-in roles.
+ */
+async function loadWorkspaceRows(
+  db: D1Database,
+  userId: string
+): Promise<Array<{ workspace_id: string; role: WorkspaceRole; permissions_json: string | null }>> {
+  try {
+    return await all(
+      db,
+      `SELECT wm.workspace_id, wm.role, cr.permissions_json
+         FROM workspace_members wm
+         LEFT JOIN workspace_custom_roles cr
+           ON cr.id = wm.custom_role_id AND cr.workspace_id = wm.workspace_id AND cr.archived_at IS NULL
+        WHERE wm.user_id = ? AND wm.status = 'ACTIVE'`,
+      [userId]
+    )
+  } catch {
+    const rows = await all<{ workspace_id: string; role: WorkspaceRole }>(
+      db,
+      `SELECT workspace_id, role FROM workspace_members WHERE user_id = ? AND status = 'ACTIVE'`,
+      [userId]
+    )
+    return rows.map((r) => ({ ...r, permissions_json: null }))
+  }
 }
 
 export function requireAuth(principal: Principal): Principal {
@@ -210,8 +264,9 @@ export function effectiveWorkspaceRole(
   if (workspace.organization_id && workspace.organization_id in principal.orgRoles) {
     const role = principal.orgRoles[workspace.organization_id]
     if (role === 'ORG_OWNER' || role === 'ORG_ADMIN') return 'WORKSPACE_ADMIN'
-    // Plain org membership grants read-only visibility of org workspaces
-    if (role === 'MEMBER') return 'VIEWER'
+    // Plain org membership grants read-only visibility of org workspaces,
+    // unless a workspace admin deactivated this person there.
+    if (role === 'MEMBER') return principal.deactivatedWorkspaces?.includes(workspace.id) ? null : 'VIEWER'
   }
 
   return null
@@ -234,7 +289,23 @@ export function can(
 
   if (!workspace) return true
   const role = effectiveWorkspaceRole(principal, workspace)
+
+  // A custom access tier replaces the built-in role's permissions, except for
+  // people who administer the workspace by ownership or organization role.
+  const custom = principal.customPermissions?.[workspace.id]
+  if (custom && workspace.owner_user_id !== principal.userId && !isOrgAdminOf(principal, workspace)) {
+    return custom.includes(permission)
+  }
   return permissionsForRole(role).includes(permission)
+}
+
+function isOrgAdminOf(
+  principal: Principal,
+  workspace: Pick<WorkspaceRow, 'organization_id'>
+): boolean {
+  if (!workspace.organization_id) return false
+  const role = principal.orgRoles[workspace.organization_id]
+  return role === 'ORG_OWNER' || role === 'ORG_ADMIN'
 }
 
 /** Map an artifact-facing permission onto the AI scope vocabulary. */
@@ -288,8 +359,10 @@ export async function readableWorkspaces(
     `SELECT DISTINCT w.* FROM workspaces w
        LEFT JOIN workspace_members wm ON wm.workspace_id = w.id AND wm.user_id = ? AND wm.status = 'ACTIVE'
        LEFT JOIN organization_members om ON om.organization_id = w.organization_id AND om.user_id = ? AND om.status = 'ACTIVE'
+       LEFT JOIN workspace_members wr ON wr.workspace_id = w.id AND wr.user_id = om.user_id AND wr.status = 'REMOVED'
       WHERE w.archived_at IS NULL
-        AND (w.owner_user_id = ? OR wm.user_id IS NOT NULL OR om.user_id IS NOT NULL)
+        AND (w.owner_user_id = ? OR wm.user_id IS NOT NULL
+             OR (om.user_id IS NOT NULL AND (om.role IN ('ORG_OWNER', 'ORG_ADMIN') OR wr.user_id IS NULL)))
       ORDER BY w.workspace_type ASC, w.name ASC`,
     [principal.userId, principal.userId, principal.userId]
   )

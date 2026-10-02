@@ -18,7 +18,7 @@ if ! flock -n 9; then
   exit 3
 fi
 
-ALL=(build check-imports check-undefined test-preview test-preview-security test-preview-ui test-authz test-index-sync test-semantic test-extract test-autotag test-mcp-jobs test-tag-decisions test-oauth)
+ALL=(build check-imports check-undefined test-preview test-preview-security test-preview-ui test-authz test-index-sync test-semantic test-extract test-autotag test-mcp-jobs test-tag-decisions test-oauth test-share-domains test-workspace-manage)
 GATES=("$@")
 [ ${#GATES[@]} -eq 0 ] && GATES=("${ALL[@]}")
 
@@ -59,6 +59,14 @@ run_gate() {
     # from the migrations. Walks the full OAuth connector sign-in (discovery,
     # registration, consent, PKCE, refresh, disconnect) and every save source.
     test-oauth)            node scripts/test-oauth.mjs ;;
+    # Headless: the real app, preview Worker and share-edge Worker against a
+    # real SQLite from the migrations, with DNS-over-HTTPS and the Cloudflare
+    # custom hostname API faked. Covers the admin flow and what a customer
+    # share domain may and may not serve.
+    test-share-domains)    node scripts/test-share-domains.mjs ;;
+    # Headless, same harness: workspace settings, custom tiers, invitations,
+    # deactivation and profile pictures.
+    test-workspace-manage) node scripts/test-workspace-manage.mjs ;;
     *) echo "unknown gate: $g" >&2; return 1 ;;
   esac > "$log" 2>&1
   rc=$?

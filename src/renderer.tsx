@@ -586,6 +586,19 @@ const DESIGN_TOKENS = `
   .rail-brand { display: none; }
   .home-brand { margin: 2px 0 14px; }
 
+  /* The Workspace destination lives on the desktop rail; on phones and
+     tablets the bottom bar keeps its five items and Profile links to it. */
+  .nav-rail-only { display: none !important; }
+
+  /* Profile picture with an upload badge. Pictures always fill a circle. */
+  .avatar-edit { position: relative; border: 0; padding: 0; background: none; cursor: pointer; flex: none; border-radius: 999px; }
+  .avatar-edit-badge {
+    position: absolute; right: -2px; bottom: -2px; width: 22px; height: 22px; border-radius: 999px;
+    background: var(--surface, #fff); border: 1px solid var(--border); color: var(--text-2);
+    display: flex; align-items: center; justify-content: center;
+  }
+  img.avatar { object-fit: cover; }
+
   /* Desktop — persistent left rail replaces the bottom bar; wide content. */
   @media (min-width: 1024px) {
     :root {
@@ -646,6 +659,8 @@ const DESIGN_TOKENS = `
        on every side; the padding and margin here give several times that. */
     .rail-brand { display: block; order: -1; padding: 6px 14px 22px; }
     .home-brand { display: none; }
+    .nav-rail-only { display: flex !important; order: 10; margin-top: auto; }
+    .nav-mobile-only { display: none; }
 
     .app-main { padding-bottom: 56px; }
     .app-header { padding-top: 0; }

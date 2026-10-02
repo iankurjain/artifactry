@@ -1,0 +1,32 @@
+{
+  // Share-edge Worker (src/share-edge-worker.ts): forwards customer share-domain
+  // traffic (Cloudflare for SaaS custom hostnames) to the app.
+  //
+  // One-time setup on the artifactry.app zone, in this order:
+  //   1. SSL/TLS > Custom Hostnames: enable Cloudflare for SaaS.
+  //   2. DNS: add an originless proxied record for the fallback origin and the
+  //      CNAME target, e.g.  shares.artifactry.app  AAAA  100::  (proxied),
+  //      and set shares.artifactry.app as the Fallback Origin.
+  //   3. Set the secret here and on the Pages project (same value):
+  //        npx wrangler secret put SHARE_EDGE_SECRET -c wrangler.share-edge.jsonc
+  //        npx wrangler pages secret put SHARE_EDGE_SECRET --project-name artifact-library
+  //      plus CF_API_TOKEN and CF_ZONE_ID on the Pages project.
+  //   4. npm run deploy:share-edge
+  //
+  // The routes below send every hostname on the zone to this Worker; the
+  // Worker passes artifactry.app and preview.artifactry.app straight through
+  // (PASSTHROUGH_HOSTS), and the explicit no-Worker routes for those two
+  // hostnames are added in the dashboard as a second guard.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "artifactry-share-edge",
+  "main": "src/share-edge-worker.ts",
+  "compatibility_date": "2026-09-17",
+  "workers_dev": false,
+  "routes": [
+    { "pattern": "*/*", "zone_name": "artifactry.app" }
+  ],
+  "vars": {
+    "APP_ORIGIN": "https://artifactry.app",
+    "PASSTHROUGH_HOSTS": "artifactry.app,preview.artifactry.app,www.artifactry.app"
+  }
+}

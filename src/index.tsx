@@ -3,7 +3,8 @@
  *
  * Route order matters and is deliberate:
  *   1. security headers on everything
- *   2. surface gate: keep the app origin and the isolated preview origin disjoint
+ *   2. surface gates: a customer share domain serves only the recipient
+ *      surface, and the app origin and isolated preview origin stay disjoint
  *   3. principal resolution once per request
  *   4. the isolated preview document surface (/p/:token)
  *   5. JSON API surface under /api/v1
@@ -15,8 +16,8 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import type { AppEnv } from './middleware'
-import { securityHeaders, withPrincipal, previewSurfaceGate, guarded } from './middleware'
-import { ok, fail, HttpError, notFound } from './lib/http'
+import { securityHeaders, shareDomainGate, withPrincipal, previewSurfaceGate, guarded } from './middleware'
+import { ok, fail, HttpError, notFound, clientIp } from './lib/http'
 
 import authRoutes from './routes/auth'
 import artifactRoutes from './routes/artifacts'
@@ -25,6 +26,8 @@ import shareRoutes from './routes/shares'
 import taxonomyRoutes from './routes/taxonomy'
 import teamRoutes from './routes/teams'
 import workspaceRoutes from './routes/workspaces'
+import shareDomainRoutes from './routes/sharedomains'
+import workspaceManageRoutes from './routes/workspacemanage'
 import integrationRoutes from './routes/integrations'
 import previewRoutes from './routes/preview'
 import oauthRoutes from './routes/oauth'
@@ -32,16 +35,12 @@ import { wwwAuthenticate } from './lib/oauth'
 
 import { renderShell } from './renderer'
 import { first } from './lib/db'
-import {
-  evaluateShareAccess,
-  findShareByToken,
-  shareCoversArtifact,
-  shareEffectiveStatus
-} from './lib/sharing'
+import { evaluateShareAccess, shareCoversArtifact, shareEffectiveStatus } from './lib/sharing'
 import { loadArtifact } from './lib/artifacts'
 import { buildPreviewDescriptor } from './lib/preview'
 import { classifyRequest, previewOrigin, previewSandbox } from './lib/htmlpreview'
-import { verifiedEmailFor, verifiedGrantFor } from './routes/shares'
+import { findShareOnSurface, verifiedEmailFor, verifiedGrantFor } from './routes/shares'
+import { publicOrigin } from './lib/sharedomains'
 import { recordEvent } from './lib/analytics'
 
 const app = new Hono<AppEnv>()
@@ -51,6 +50,10 @@ const app = new Hono<AppEnv>()
 // ---------------------------------------------------------------
 
 app.use('*', securityHeaders)
+// Customer share domains: verify the edge Worker's forwarding, then allow only
+// the recipient surface. Before withPrincipal so no session is ever resolved
+// on a customer's hostname.
+app.use('*', shareDomainGate)
 // After securityHeaders so a gated 404 still carries them, before withPrincipal
 // so the preview origin never resolves a session.
 app.use('*', previewSurfaceGate)
@@ -120,6 +123,8 @@ app.route('/api/v1', taxonomyRoutes)
 app.route('/api/v1', workspaceRoutes)
 app.route('/api/v1', integrationRoutes)
 app.route('/api/v1', teamRoutes)
+app.route('/api/v1', shareDomainRoutes)
+app.route('/api/v1', workspaceManageRoutes)
 
 // ---------------------------------------------------------------
 // Canonical artifact URL (§12)
@@ -159,7 +164,7 @@ app.get(
   '/s/:token',
   guarded(async (c) => {
     const token = c.req.param('token')
-    const share = await findShareByToken(c.env.DB, token)
+    const share = await findShareOnSurface(c as never, token)
 
     // An unknown token gets the same shell, which then renders a neutral
     // "link not valid" state — no hint about what might have existed.
@@ -233,7 +238,7 @@ app.get(
     const token = c.req.param('token')
     const artifactId = c.req.param('artifactId')
 
-    const share = await findShareByToken(c.env.DB, token)
+    const share = await findShareOnSurface(c as never, token)
     if (!share) return viewerMessage('Link not valid', 'This share link does not exist or has been removed.')
 
     const grant = await verifiedGrantFor(c, share)
@@ -277,11 +282,13 @@ app.get(
       actorType: 'ANONYMOUS',
       actorLabel: verifiedEmail,
       accessChannel: channel,
-      sessionSeed: c.req.header('CF-Connecting-IP') ?? null
+      sessionSeed: clientIp(c)
     })
 
     const title = artifact.title || artifact.filename || 'Shared artifact'
-    const origin = new URL(c.req.url).origin
+    // The framing origin of an Interactive preview is the hostname the
+    // recipient is actually on: a customer share domain, or the app origin.
+    const origin = publicOrigin(c)
 
     /**
      * How this share should render, decided server-side.
@@ -398,8 +405,14 @@ const SPA_ROUTES = [
   '/profile',
   '/admin',
   '/settings',
-  '/guide'
+  '/guide',
+  '/workspace'
 ]
+
+// Workspace management for one workspace, and the page an invitation link opens.
+// Both are signed-in screens; the client reads the id or token from the path.
+app.get('/workspace/:workspaceId', (c) => renderShell(c, { route: 'workspace' }))
+app.get('/join/:token', (c) => renderShell(c, { route: 'join' }))
 
 for (const route of SPA_ROUTES) {
   app.get(route, (c) => {

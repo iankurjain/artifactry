@@ -36,6 +36,55 @@ export function formatBytes(bytes) {
   return `${value >= 10 || i === 0 ? Math.round(value) : value.toFixed(1)} ${units[i]}`
 }
 
+// ---------------------------------------------------------------
+// Dates follow the current workspace's regional settings (time zone and
+// date format, set in workspace management). Until a workspace is loaded they
+// fall back to the browser's own zone and "D MMM YYYY".
+// ---------------------------------------------------------------
+
+const regional = { timeZone: undefined, dateFormat: 'D MMM YYYY' }
+
+export function setRegional(settings) {
+  regional.timeZone = settings?.timeZone || undefined
+  regional.dateFormat = settings?.dateFormat || 'D MMM YYYY'
+}
+
+function dateParts(date) {
+  let parts
+  try {
+    parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: regional.timeZone,
+      day: 'numeric',
+      month: 'numeric',
+      year: 'numeric'
+    }).formatToParts(date)
+  } catch {
+    parts = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'numeric', year: 'numeric' }).formatToParts(date)
+  }
+  const get = (type) => Number(parts.find((p) => p.type === type)?.value || 0)
+  return { d: get('day'), m: get('month'), y: get('year') }
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const pad = (n) => String(n).padStart(2, '0')
+
+/** Format a date in a given pattern: D MMM YYYY, MMM D, YYYY, DD/MM/YYYY, MM/DD/YYYY or YYYY-MM-DD. */
+export function formatDatePattern(date, pattern) {
+  const { d, m, y } = dateParts(date)
+  switch (pattern) {
+    case 'MMM D, YYYY':
+      return `${MONTHS[m - 1]} ${d}, ${y}`
+    case 'DD/MM/YYYY':
+      return `${pad(d)}/${pad(m)}/${y}`
+    case 'MM/DD/YYYY':
+      return `${pad(m)}/${pad(d)}/${y}`
+    case 'YYYY-MM-DD':
+      return `${y}-${pad(m)}-${pad(d)}`
+    default:
+      return `${d} ${MONTHS[m - 1]} ${y}`
+  }
+}
+
 export function timeAgo(iso) {
   if (!iso) return ''
   const then = new Date(iso).getTime()
@@ -47,21 +96,63 @@ export function timeAgo(iso) {
   const days = Math.floor(seconds / 86400)
   if (days === 1) return 'yesterday'
   if (days < 30) return `${days} days ago`
-  return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+  return formatDate(iso)
 }
 
 export function formatDate(iso) {
   if (!iso) return ''
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return ''
-  return date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+  return formatDatePattern(date, regional.dateFormat)
 }
 
 export function formatDateTime(iso) {
   if (!iso) return ''
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return ''
-  return `${formatDate(iso)} ${date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
+  let time
+  try {
+    time = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', timeZone: regional.timeZone })
+  } catch {
+    time = date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  }
+  return `${formatDate(iso)} ${time}`
+}
+
+// ---------------------------------------------------------------
+// People
+// ---------------------------------------------------------------
+
+/** Built-in access tiers as people see them. */
+export const ROLE_LABELS = {
+  OWNER: 'Owner',
+  WORKSPACE_ADMIN: 'Admin',
+  CONTRIBUTOR: 'Member',
+  VIEWER: 'Guest',
+  ORG_OWNER: 'Org owner',
+  ORG_ADMIN: 'Org admin',
+  MEMBER: 'Org member'
+}
+
+export function roleLabel(role) {
+  return ROLE_LABELS[role] || role || ''
+}
+
+/**
+ * A round picture for a person (or a workspace logo). Any uploaded picture is
+ * cropped to fill the circle, whatever its shape; without one, the initial.
+ */
+export function avatar({ url, name, size = 38, square = false }) {
+  const radius = square ? '10px' : '999px'
+  const box = `width:${size}px;height:${size}px;border-radius:${radius};flex:none`
+  const src = url ? safeUrl(url) : '#'
+  if (src !== '#') {
+    return `<img class="avatar" src="${esc(src)}" alt="" loading="lazy" style="${box};object-fit:cover;display:block;background:var(--surface-2)">`
+  }
+  return `<span class="avatar" aria-hidden="true" style="${box};background:var(--accent-weak);color:var(--accent);
+    display:flex;align-items:center;justify-content:center;font-size:${Math.round(size * 0.38)}px;font-weight:640">${esc(
+      (name || 'U').trim().charAt(0).toUpperCase() || 'U'
+    )}</span>`
 }
 
 /** Human label for an artifact kind, used on cards and detail headers. */

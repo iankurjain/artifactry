@@ -31,7 +31,8 @@ import { badRequest, conflict, forbidden, notFound, ok, readJson } from '../lib/
 import { recordAudit } from '../lib/audit'
 import { isValidEmail, normalizeEmail } from '../lib/validate'
 import { workspaceTotals } from '../lib/analytics'
-import type { OrgRole, WorkspaceRole } from '../types'
+import type { OrgRole, Permission, WorkspaceRole } from '../types'
+import { avatarUrl, baseRoleFor } from './workspacemanage'
 
 const workspaces = new Hono<AppEnv>()
 
@@ -452,11 +453,17 @@ workspaces.get(
       created_at: string
       email: string
       display_name: string | null
+      custom_role_id: string | null
+      custom_name: string | null
+      avatar_r2_key: string | null
+      avatar_updated_at: string | null
     }>(
       c.env.DB,
-      `SELECT wm.id, wm.user_id, wm.role, wm.status, wm.created_at, u.email, u.display_name
+      `SELECT wm.id, wm.user_id, wm.role, wm.status, wm.created_at, u.email, u.display_name,
+              wm.custom_role_id, cr.name AS custom_name, u.avatar_r2_key, u.avatar_updated_at
          FROM workspace_members wm
          JOIN users u ON u.id = wm.user_id
+         LEFT JOIN workspace_custom_roles cr ON cr.id = wm.custom_role_id AND cr.archived_at IS NULL
         WHERE wm.workspace_id = ?
         ORDER BY wm.created_at ASC`,
       [workspace.id]
@@ -469,6 +476,9 @@ workspaces.get(
         email: m.email,
         displayName: m.display_name,
         role: m.role,
+        customRoleId: m.custom_name ? m.custom_role_id : null,
+        customRoleName: m.custom_name,
+        avatarUrl: avatarUrl({ id: m.user_id, avatar_r2_key: m.avatar_r2_key, avatar_updated_at: m.avatar_updated_at }),
         status: m.status,
         joinedAt: m.created_at,
         isWorkspaceOwner: m.user_id === workspace.owner_user_id
@@ -569,8 +579,27 @@ workspaces.patch(
       throw badRequest('The workspace owner\'s role cannot be changed')
     }
 
-    const body = await readJson<{ role?: WorkspaceRole }>(c)
-    if (!WORKSPACE_ROLES.includes(body.role as WorkspaceRole)) {
+    // Either a built-in role, or a custom tier (stored as its base role +
+    // custom_role_id). Choosing a built-in role clears any custom tier.
+    const body = await readJson<{ role?: WorkspaceRole; customRoleId?: string | null }>(c)
+    let customRoleId: string | null = null
+    if (body.customRoleId) {
+      const tier = await first<{ id: string; permissions_json: string }>(
+        c.env.DB,
+        `SELECT id, permissions_json FROM workspace_custom_roles
+          WHERE id = ? AND workspace_id = ? AND archived_at IS NULL`,
+        [body.customRoleId, workspaceId]
+      )
+      if (!tier) throw badRequest('That access tier does not exist in this workspace')
+      customRoleId = tier.id
+      let perms: Permission[] = []
+      try {
+        perms = JSON.parse(tier.permissions_json)
+      } catch {
+        perms = []
+      }
+      body.role = baseRoleFor(perms)
+    } else if (!WORKSPACE_ROLES.includes(body.role as WorkspaceRole)) {
       throw badRequest(`Role must be one of: ${WORKSPACE_ROLES.join(', ')}`)
     }
 
@@ -581,8 +610,9 @@ workspaces.patch(
     )
     if (!membership) throw notFound('That person is not a member of this workspace')
 
-    await run(c.env.DB, `UPDATE workspace_members SET role = ? WHERE id = ?`, [
+    await run(c.env.DB, `UPDATE workspace_members SET role = ?, custom_role_id = ? WHERE id = ?`, [
       body.role,
+      customRoleId,
       membership.id
     ])
 
@@ -594,10 +624,10 @@ workspaces.patch(
       action: 'ROLE_CHANGE',
       targetType: 'user',
       targetId: targetUserId,
-      metadata: { role: body.role }
+      metadata: { role: body.role, customRoleId }
     })
 
-    return ok(c, { updated: true, userId: targetUserId, role: body.role })
+    return ok(c, { updated: true, userId: targetUserId, role: body.role, customRoleId })
   })
 )
 

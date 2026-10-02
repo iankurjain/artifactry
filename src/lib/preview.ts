@@ -23,6 +23,7 @@ import type { AccessChannel, ArtifactRow, Env, ShareRow } from '../types'
 import { first, nowIso, run } from './db'
 import { loadArtifact } from './artifacts'
 import { evaluateShareAccess, shareCoversArtifact } from './sharing'
+import { isActiveShareOriginFor } from './sharedomains'
 import {
   mintPreviewToken,
   normalizeOrigin,
@@ -89,12 +90,19 @@ export async function resolvePreviewRequest(
   // the app origin derives it from its own request URL — so a request arriving
   // with a spoofed Host header could otherwise mint a token naming an arbitrary
   // framer. Pinning it here means such a token is refused instead of served.
+  //
+  // The one other accepted framer is a workspace's ACTIVE custom share
+  // domain, and only for that workspace's own artifacts: a recipient on
+  // share.acme.com frames the document from there.
   const configuredApp = normalizeOrigin(env.APP_ORIGIN)
-  if (configuredApp && normalizeOrigin(payload.o) !== configuredApp) {
-    return deny(403, 'ORIGIN_NOT_PERMITTED', appOrigin)
-  }
+  const isAppOrigin = !configuredApp || normalizeOrigin(payload.o) === configuredApp
 
   const artifact = await loadArtifact(db, payload.a)
+  if (!isAppOrigin) {
+    const permitted =
+      !!artifact && (await isActiveShareOriginFor(db, payload.o, artifact.workspace_id))
+    if (!permitted) return deny(403, 'ORIGIN_NOT_PERMITTED', appOrigin)
+  }
   if (!artifact) return deny(404, 'ARTIFACT_UNAVAILABLE', appOrigin)
   if (artifact.mime_type !== 'text/html') return deny(415, 'NOT_HTML', appOrigin)
   if (!artifact.current_version_id) return deny(404, 'NO_CONTENT', appOrigin)

@@ -47,6 +47,20 @@ export interface Env {
   // closes the case where a spoofed Host header could otherwise choose who is
   // allowed to frame an artifact. Unset means the check is skipped.
   APP_ORIGIN?: string
+
+  // Custom share domains (lib/sharedomains.ts). All four are required before
+  // an organization can put its share links on its own hostname.
+  //
+  // SHARE_EDGE_SECRET is shared with the share-edge Worker, which forwards
+  // customer-hostname traffic here; it proves the forwarded hostname header is
+  // genuine. CF_API_TOKEN (Zone > SSL and Certificates > Edit) and CF_ZONE_ID
+  // register customer hostnames with Cloudflare for SaaS on the app's zone.
+  // SHARE_DOMAIN_CNAME_TARGET is the hostname customers point their CNAME at.
+  // The two credentials are secrets, never committed vars.
+  SHARE_EDGE_SECRET?: string
+  CF_API_TOKEN?: string
+  CF_ZONE_ID?: string
+  SHARE_DOMAIN_CNAME_TARGET?: string
 }
 
 // ---------------------------------------------------------------
@@ -173,6 +187,29 @@ export type Permission =
   | 'team.read'
   | 'team.manage'
 
+/**
+ * Permissions a custom access tier may contain. Administration (workspace and
+ * member management) is deliberately absent: that is what the Admin tier is
+ * for, and keeping it out means a custom tier can never be an admin in
+ * disguise.
+ */
+export const CUSTOMIZABLE_PERMISSIONS: Permission[] = [
+  'artifact.read',
+  'artifact.download',
+  'artifact.create',
+  'artifact.update',
+  'artifact.version.create',
+  'artifact.tag.apply',
+  'artifact.delete',
+  'collection.manage',
+  'share.create',
+  'share.revoke',
+  'analytics.read.artifact',
+  'analytics.read.workspace',
+  'team.read',
+  'team.manage'
+]
+
 const VIEWER_PERMS: Permission[] = ['artifact.read', 'artifact.download', 'team.read']
 
 const CONTRIBUTOR_PERMS: Permission[] = [
@@ -222,6 +259,9 @@ export interface UserRow {
   email_verified_at: string | null
   display_name: string | null
   avatar_url: string | null
+  /** Migration 0009: uploaded profile picture (320x320, <= 1 MB) in R2. */
+  avatar_r2_key?: string | null
+  avatar_updated_at?: string | null
   status: string
   created_at: string
   updated_at: string
@@ -237,6 +277,10 @@ export interface WorkspaceRow {
   created_at: string
   created_by: string | null
   archived_at: string | null
+  /** Migration 0009: regional + invitation settings, and the uploaded logo. */
+  settings_json?: string
+  logo_r2_key?: string | null
+  logo_updated_at?: string | null
 }
 
 export interface ArtifactRow {
@@ -339,6 +383,14 @@ export interface Principal {
   orgRoles: Record<string, OrgRole>
   /** Workspace roles keyed by workspace_id */
   workspaceRoles: Record<string, WorkspaceRole>
+  /**
+   * Permissions of a custom access tier, keyed by workspace_id, for members
+   * assigned one. They replace the built-in role's permissions in that
+   * workspace (never for its owner or an organization owner/admin).
+   */
+  customPermissions?: Record<string, Permission[]>
+  /** Workspaces this person was deactivated in (no inherited org visibility). */
+  deactivatedWorkspaces?: string[]
   /** AI grant scopes, when kind === 'AI_GRANT' */
   scopes: AiScope[]
   integrationId?: string
