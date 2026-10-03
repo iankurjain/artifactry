@@ -230,7 +230,7 @@
         ['', ' })\n\n'],
         ['c', '// Artifactry answers, only with what you can see'],
         ['', '\n1 result  ·  Q3 Finance Review.pptx\n  workspace: Finance  ·  tags: q3, board\n  '],
-        ['s', 'https://artifactry.app/a/01J9X…'],
+        ['s', 'https://app.artifactry.app/a/01J9X…'],
         ['', '\n  matched: keyword + semantic']
       ],
       save: [
@@ -253,7 +253,7 @@
         ['', ' })\n\n'],
         ['c', '// stored byte for byte, indexed, tagged'],
         ['', '\nSaved  ·  Board Q&A  ·  v1\n  '],
-        ['s', 'https://artifactry.app/a/01J9Y…'],
+        ['s', 'https://app.artifactry.app/a/01J9Y…'],
         ['', '\n  suggested tags: board, q3, finance']
       ],
       share: [
@@ -264,7 +264,7 @@
         ['', '({ '],
         ['k', 'artifact'],
         ['', ': '],
-        ['s', '"https://artifactry.app/a/01J9Y…"'],
+        ['s', '"https://app.artifactry.app/a/01J9Y…"'],
         ['', ',\n        '],
         ['k', 'team'],
         ['', ': '],

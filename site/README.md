@@ -1,20 +1,26 @@
 # Artifactry marketing site
 
-Static, dependency-free marketing site: Home, Features, Resources (User Guide + MCP setup),
-Request a Feature, Terms, Privacy and Cookie Policy. It is separate from the app and is not
-part of the app's build, so merging it does not change artifactry.app.
+Static, dependency-free sites built from one source:
+
+| Output | Host | Pages |
+|---|---|---|
+| `public/` | `artifactry.app` | Home, Features, Request a Feature, Terms, Privacy, Cookie Policy, 404 |
+| `docs/` | `docs.artifactry.app` | User Guide + MCP Integration (from `pages/resources.html`) |
+
+Login / Sign up links go to `app.artifactry.app/login` and `/signup`. Neither site is part
+of the app's build, so merging does not change the app.
 
 ## Layout
 
-- `pages/*.html` — page bodies. Each starts with a JSON header comment (title, description,
-  path, nav).
-- `build.mjs` — wraps each page in the shared head, navbar and footer and writes
-  `public/*.html`, `sitemap.xml` and `robots.txt`. `APP_URL`, `SITE_URL` and `MCP_URL` live
-  at the top of this file.
-- `public/` — the deployable output (committed, so the host needs no build step).
-  `assets/site.css`, `assets/site.js`, brand files and `og.png` live here.
+- `pages/*.html`: page bodies. Each starts with a JSON header comment (title, description,
+  path, nav). Bodies use placeholders (`{{SITE}}`, `{{DOCS}}`, `{{LOGIN_URL}}`,
+  `{{MCP_URL}}`, `{{CONTACT}}`, …) so a page works on either host.
+- `assets/`, `_headers`: shared CSS, JS, brand files and `og.png`, copied into both outputs.
+- `build.mjs`: hosts, URLs and the contact email live at the top. It writes `public/` and
+  `docs/` (both committed, so the hosts need no build step), plus sitemaps, robots.txt and
+  apex redirects (`/resources`, `/docs`, `/guide` → docs; `/login`, `/signup` → app).
 
-After editing a page or the layout:
+After editing anything:
 
 ```bash
 node site/build.mjs
@@ -23,23 +29,25 @@ node site/build.mjs
 ## Preview locally
 
 ```bash
-cd site/public && python3 -m http.server 8787
-# open http://localhost:8787/index.html  (clean URLs like /features work on Cloudflare Pages)
+(cd site/public && python3 -m http.server 8787) &   # http://localhost:8787/index.html
+(cd site/docs && python3 -m http.server 8788) &     # http://localhost:8788/
 ```
 
 ## Deploy (Cloudflare Pages)
 
-Create a **new** Pages project for the site; do not deploy it to `artifact-library`,
-which serves the app.
+Two new Pages projects, neither of them `artifact-library` (the app):
 
 ```bash
 npx wrangler pages project create artifactry-site --production-branch main
 npx wrangler pages deploy site/public --project-name artifactry-site --branch main
+
+npx wrangler pages project create artifactry-docs --production-branch main
+npx wrangler pages deploy site/docs --project-name artifactry-docs --branch main
 ```
 
-Then add a custom domain (for example `www.artifactry.app`) under the project's Custom
-domains. If you use a different domain, change `SITE_URL` in `build.mjs` and rebuild so
-canonical links, Open Graph tags and the sitemap point at it.
+Then attach `docs.artifactry.app` to `artifactry-docs`. `artifactry.app` is currently the
+app's custom domain, so it can move to `artifactry-site` only after the app is serving on
+`app.artifactry.app`.
 
 ## Request a Feature form
 

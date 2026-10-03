@@ -1,7 +1,7 @@
-<!--{"title": "Resources: User Guide and MCP setup", "description": "A complete beginner-friendly guide to Artifactry, plus step-by-step MCP setup for ChatGPT, Claude, Claude Code and Gemini with copy-paste configs.", "path": "/resources", "nav": "resources"}-->
+<!--{"title": "Docs: User Guide and MCP setup", "description": "A complete beginner-friendly guide to Artifactry, plus step-by-step MCP setup for ChatGPT, Claude, Claude Code and Gemini with copy-paste configs.", "path": "/resources", "nav": "resources"}-->
 <section class="page-hero">
   <div class="container">
-    <span class="eyebrow fade-in">Resources</span>
+    <span class="eyebrow fade-in">Docs</span>
     <h1 class="fade-in d1">Learn Artifactry <span class="grad-text">in an afternoon.</span></h1>
     <p class="fade-in d2">Start with the User Guide to understand the basics, then follow the MCP guide for your AI app. Every step is written for complete beginners, with copy-paste commands.</p>
   </div>
@@ -46,14 +46,14 @@
               <li><strong>Links never break.</strong> Each artifact has one permanent address that survives renames, moves and new versions.</li>
               <li><strong>You stay in control.</strong> An AI can only do what you allow, can never see more than you can, and has to ask before sharing anything outside your organization.</li>
             </ul>
-            <div class="callout tip"><span class="callout-icon" aria-hidden="true">💡</span><div><p><strong>Nothing to install.</strong> Artifactry is a hosted service. You don't download anything, run a server or set up a database. You sign in at <a href="{{APP_URL}}">artifactry.app</a> and connect your AI apps with a web address.</p></div></div>
+            <div class="callout tip"><span class="callout-icon" aria-hidden="true">💡</span><div><p><strong>Nothing to install.</strong> Artifactry is a hosted service. You don't download anything, run a server or set up a database. You sign in at <a href="{{LOGIN_URL}}">{{APP_HOST}}</a> and connect your AI apps with a web address.</p></div></div>
           </section>
 
           <section id="getting-started">
             <h2>2. Getting started: create your account</h2>
             <p>Artifactry has no passwords. You sign in with a short code sent to your email, and the same steps create your account the first time.</p>
             <ol class="steps-list">
-              <li>Open <a href="{{APP_URL}}">artifactry.app</a> in any browser, on your computer or phone.</li>
+              <li>Open <a href="{{LOGIN_URL}}">{{APP_HOST}}</a> in any browser, on your computer or phone.</li>
               <li>Type your email address and choose <strong>Send code</strong>.</li>
               <li>Open the email from Artifactry and type the <strong>6-digit code</strong> on the next screen.</li>
               <li>You're in. A <strong>personal workspace</strong> is created for you automatically, and you are its admin.</li>
@@ -195,7 +195,7 @@
   -H "Authorization: Bearer $ARTIFACTRY_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":4,"method":"tools/call",
-       "params":{"name":"get","arguments":{"artifact":"https://artifactry.app/a/YOUR_ARTIFACT_ID"}}}'</code></pre></div>
+       "params":{"name":"get","arguments":{"artifact":"{{APP_ORIGIN}}/a/YOUR_ARTIFACT_ID"}}}'</code></pre></div>
             <div class="callout tip"><span class="callout-icon" aria-hidden="true">💡</span><div><p>Pipe the output through <code>jq</code> to make it readable: add <code>| jq</code> to the end of any command. On Windows PowerShell, <code>Invoke-RestMethod</code> works too.</p></div></div>
           </section>
 
@@ -246,7 +246,7 @@
               <li><strong>HTML preview:</strong> Safe Preview (the default) renders HTML and CSS but runs no JavaScript. Owners can switch on Interactive Preview per artifact, which runs scripts in an isolated sandbox with network access blocked.</li>
               <li><strong>Scanned PDFs</strong> have no text layer, so they're findable by title, tags and dates rather than their words.</li>
               <li><strong>Thumbnails</strong> aren't generated yet; files show a type badge.</li>
-              <li><strong>Beta:</strong> features may change while Artifactry is in beta. Have an idea? <a href="/request-feature">Request a feature</a>.</li>
+              <li><strong>Beta:</strong> features may change while Artifactry is in beta. Have an idea? <a href="{{SITE}}/request-feature">Request a feature</a>.</li>
             </ul>
           </section>
         </article>
@@ -282,7 +282,7 @@
             <div class="endpoint-box"><code>{{MCP_URL}}</code></div>
             <h3>You'll need</h3>
             <ul>
-              <li>An Artifactry account. <a href="{{APP_URL}}">Create one free</a> if you haven't.</li>
+              <li>An Artifactry account. <a href="{{SIGNUP_URL}}">Create one free</a> if you haven't.</li>
               <li>The AI app you want to connect, signed in.</li>
               <li>About two minutes.</li>
             </ul>
@@ -308,7 +308,7 @@ MCP Server URL:  {{MCP_URL}}
 Authentication:  OAuth</code></pre></div>
               </li>
               <li>Tick that you trust the app and choose <strong>Create</strong>.</li>
-              <li>A window opens on artifactry.app. Sign in with your email code and choose <strong>Allow</strong>.</li>
+              <li>A window opens on {{APP_HOST}}. Sign in with your email code and choose <strong>Allow</strong>.</li>
               <li>Start a new chat. Open the <strong>+</strong> menu, choose <strong>Developer mode</strong> and switch on <strong>Artifactry</strong>.</li>
             </ol>
             <h3>Authentication</h3>
@@ -376,7 +376,7 @@ Turn this conversation into a polished HTML brief and save it to Artifactry.
 
 Search Artifactry for the Q3 finance deck and share it with the Board prep team for 7 days.</code></pre></div>
             <div class="code"><div class="code-head"><span>Tool call</span><button class="copy-btn" type="button">Copy</button></div><pre><code>share({
-  "artifact": "https://artifactry.app/a/01J9Y…",
+  "artifact": "{{APP_ORIGIN}}/a/01J9Y…",
   "team": "Board prep",
   "permission": "view",
   "expires_in_days": 7
@@ -465,11 +465,11 @@ Find the latest API design doc in Artifactry and check this branch against it.</
   }
 }</code></pre></div>
             <h3>Gemini Enterprise</h3>
-            <p>Gemini Enterprise asks for an OAuth client ID and secret rather than registering itself. Artifactry can issue one for your organization; during beta, <a href="/request-feature">send a request</a> and we'll set it up. Then add an MCP server in Gemini Enterprise with:</p>
+            <p>Gemini Enterprise asks for an OAuth client ID and secret rather than registering itself. Artifactry can issue one for your organization; during beta, email <a href="mailto:{{CONTACT}}">{{CONTACT}}</a> and we'll set it up. Then add an MCP server in Gemini Enterprise with:</p>
             <div class="code"><div class="code-head"><span>Gemini Enterprise settings</span><button class="copy-btn" type="button">Copy</button></div><pre><code>Server URL:         {{MCP_URL}}
 Authentication:     OAuth 2.0
-Authorization URL:  https://artifactry.app/oauth/authorize
-Token URL:          https://artifactry.app/oauth/token
+Authorization URL:  {{APP_ORIGIN}}/oauth/authorize
+Token URL:          {{APP_ORIGIN}}/oauth/token
 Client ID / Secret: (the values we send you)</code></pre></div>
             <h3>Try it</h3>
             <div class="code"><div class="code-head"><span>Say this in Gemini CLI</span><button class="copy-btn" type="button">Copy</button></div><pre><code>Use Artifactry to list my workspaces.
@@ -507,10 +507,10 @@ codex mcp login artifactry</code></pre></div>
             <ol class="steps-list">
               <li><strong>Is Artifactry reachable?</strong> Open <a href="{{MCP_URL}}" target="_blank" rel="noopener">{{MCP_URL}}</a> in a browser. You should see a JSON list of tools.</li>
               <li><strong>Is your AI connected?</strong> Ask it: <em>"List my Artifactry workspaces."</em> You should get your workspace names back.</li>
-              <li><strong>Can it save?</strong> Ask: <em>"Save a short test note to Artifactry called Connection test."</em> It should reply with a link starting <code>https://artifactry.app/a/</code>.</li>
-              <li><strong>Does it show up?</strong> Open <a href="{{APP_URL}}">artifactry.app</a>. The note is at the top of your Library, and <strong>Profile → Connected AI apps</strong> shows the app as connected.</li>
+              <li><strong>Can it save?</strong> Ask: <em>"Save a short test note to Artifactry called Connection test."</em> It should reply with a link starting <code>{{APP_ORIGIN}}/a/</code>.</li>
+              <li><strong>Does it show up?</strong> Open <a href="{{LOGIN_URL}}">{{APP_HOST}}</a>. The note is at the top of your Library, and <strong>Profile → Connected AI apps</strong> shows the app as connected.</li>
             </ol>
-            <div class="callout tip"><span class="callout-icon" aria-hidden="true">💡</span><div><p>Stuck? See <a href="#troubleshooting">Troubleshooting</a>, or tell us what happened through <a href="/request-feature">Request a Feature</a>.</p></div></div>
+            <div class="callout tip"><span class="callout-icon" aria-hidden="true">💡</span><div><p>Stuck? See <a href="#troubleshooting">Troubleshooting</a>, or tell us what happened through <a href="{{SITE}}/request-feature">Request a Feature</a>.</p></div></div>
           </section>
         </article>
       </div>

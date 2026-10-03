@@ -43,14 +43,14 @@
         <h2>The app, MCP, and plain HTTP.</h2>
         <p>Use Artifactry however suits the moment. Everything goes through the same permissions, so a file is exactly as private from an AI as it is from the web app.</p>
         <ul class="checks">
-          <li><span><strong>Web app</strong> at artifactry.app, built mobile-first: upload, browse, search, share and manage workspaces from any screen.</span></li>
+          <li><span><strong>Web app</strong> at {{APP_HOST}}, built mobile-first: upload, browse, search, share and manage workspaces from any screen.</span></li>
           <li><span><strong>MCP endpoint</strong> for Claude, ChatGPT, Gemini, Cursor, Codex and any other MCP client.</span></li>
           <li><span><strong>HTTP</strong> for scripts and automations. The MCP endpoint is plain JSON over HTTPS, so <code>curl</code> or any language can call it with a personal token.</span></li>
         </ul>
       </div>
       <div class="visual-panel reveal reveal-d1">
         <div class="mini-list">
-          <div class="mini-item"><span class="fc-badge">APP</span><strong>artifactry.app</strong><small>browser · phone</small></div>
+          <div class="mini-item"><span class="fc-badge">APP</span><strong>{{APP_HOST}}</strong><small>browser · phone</small></div>
           <div class="mini-item"><span class="fc-badge">MCP</span><strong>/api/v1/mcp</strong><small>OAuth 2.1</small></div>
           <div class="mini-item"><span class="fc-badge">HTTP</span><strong>curl -H "Authorization: Bearer …"</strong><small>token</small></div>
         </div>
@@ -77,7 +77,7 @@
           <span class="v-dot">v3</span><span class="v-line"></span>
           <span class="v-dot on">v4</span>
         </div>
-        <div class="url-pill">https://artifactry.app/a/01J9XQ4M7R…</div>
+        <div class="url-pill">{{APP_ORIGIN}}/a/01J9XQ4M7R…</div>
         <p class="muted small" style="margin:12px 0 0">Same link since v1. Renamed twice, moved once.</p>
       </div>
     </div>
@@ -181,8 +181,8 @@
       <h2>Ready when your AI is.</h2>
       <p>Create a library, connect an AI app, and save your first artifact in a couple of minutes.</p>
       <div class="hero-ctas">
-        <a class="btn btn-primary" href="{{APP_URL}}" data-app-link>Start using Artifactry free <span class="arrow" aria-hidden="true">→</span></a>
-        <a class="btn btn-secondary" href="/resources">Read the guide</a>
+        <a class="btn btn-primary" href="{{SIGNUP_URL}}" data-app-link>Start using Artifactry free <span class="arrow" aria-hidden="true">→</span></a>
+        <a class="btn btn-secondary" href="{{DOCS}}/">Read the guide</a>
       </div>
     </div>
   </div>

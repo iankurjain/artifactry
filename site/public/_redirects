@@ -1,0 +1,5 @@
+/resources https://docs.artifactry.app/ 301
+/docs https://docs.artifactry.app/ 301
+/guide https://docs.artifactry.app/#guide 301
+/login https://app.artifactry.app/login 302
+/signup https://app.artifactry.app/signup 302
