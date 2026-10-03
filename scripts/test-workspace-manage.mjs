@@ -10,6 +10,7 @@
  *   4. invitations: email and link, domain restriction, approval, expiry, revoke
  *   5. the directory: active, awaiting approval, invited, deactivated
  *   6. deactivation removes inherited organization visibility too
+ *   7. personal workspaces: inviting converts to shared, only once confirmed
  *
  * Run: node scripts/test-workspace-manage.mjs
  */
@@ -332,9 +333,7 @@ let reviewer
 section('4. Invitations')
 // ---------------------------------------------------------------
 {
-  let res = await call('/api/v1/workspaces/ws_personal/invitations', { user: 'usr_o', body: { kind: 'LINK' } })
-  check('personal workspaces cannot invite', res.status === 400 && (await json(res)).error === 'PERSONAL_WORKSPACE', JSON.stringify(await json(res)))
-  res = await call('/api/v1/workspaces/ws_a/invitations', { user: 'usr_m', body: { kind: 'LINK' } })
+  let res = await call('/api/v1/workspaces/ws_a/invitations', { user: 'usr_m', body: { kind: 'LINK' } })
   check('a member cannot invite', res.status === 403)
   res = await call('/api/v1/workspaces/ws_a/invitations', { user: 'usr_o', body: { kind: 'LINK', role: 'WORKSPACE_ADMIN' } })
   check('a link can never grant Admin', res.status === 400)
@@ -457,6 +456,62 @@ section('5–6. Deactivation')
   check('an admin can reactivate them', res.status === 200)
   res = await call('/api/v1/artifacts/art_1', { user: 'usr_m' })
   check('…and access returns', res.status === 200)
+}
+
+// ---------------------------------------------------------------
+section('7. Personal workspaces become shared on the first invitation')
+// ---------------------------------------------------------------
+{
+  insert('workspace_members', { id: 'wsm_p', workspace_id: 'ws_personal', user_id: 'usr_o', role: 'WORKSPACE_ADMIN', created_at: T, created_by: 'usr_o', status: 'ACTIVE' })
+  insert('artifacts', {
+    id: 'art_p', organization_id: null, workspace_id: 'ws_personal', owner_user_id: 'usr_o', title: 'Notes', description: null,
+    canonical_slug: 'notes', filename: 'notes.txt', extension: 'txt', mime_type: 'text/plain', size_bytes: 5, checksum: 'x',
+    current_version_id: 'art_p_v1', version_count: 1, source_type: 'UPLOAD', source_provider: null, status: 'READY',
+    status_detail: null, metadata_json: '{}', created_at: T, updated_at: T, deleted_at: null
+  })
+  insert('collections', { id: 'col_p', organization_id: null, workspace_id: 'ws_personal', name: 'Mine', created_at: T, updated_at: T })
+
+  let res = await call('/api/v1/workspaces/ws_personal/manage', { user: 'usr_o' })
+  check('a personal workspace owner may invite', (await data(res)).workspace?.canManageMembers === true)
+
+  res = await call('/api/v1/workspaces/ws_personal/members', { user: 'usr_o', body: { email: 'someone@other.test', role: 'VIEWER' } })
+  check('members cannot be added to a personal workspace directly', res.status === 400, `got ${res.status}`)
+
+  for (const kind of ['EMAIL', 'LINK']) {
+    res = await call('/api/v1/workspaces/ws_personal/invitations', { user: 'usr_o', body: { kind, email: 'someone@other.test', role: 'VIEWER' } })
+    check(`an unconfirmed ${kind.toLowerCase()} invitation asks to convert first`, res.status === 409 && (await json(res)).error === 'CONVERT_TO_SHARED', JSON.stringify(await json(res)))
+  }
+  check('…and nothing changed', q(`SELECT organization_id FROM workspaces WHERE id='ws_personal'`)[0].organization_id === null &&
+    q(`SELECT COUNT(*) AS n FROM workspace_invitations WHERE workspace_id='ws_personal'`)[0].n === 0)
+
+  res = await call('/api/v1/workspaces/ws_personal/invitations', {
+    user: 'usr_o',
+    body: { kind: 'EMAIL', email: 'someone@other.test', role: 'CONTRIBUTOR', convertToShared: true }
+  })
+  let d = await data(res)
+  check('confirmed: the invitation is created', res.status === 201 && d.url?.startsWith(`${APP}/join/`) && d.convertedToShared === true, JSON.stringify(await json(res)))
+  const ws = q(`SELECT organization_id, workspace_type FROM workspaces WHERE id='ws_personal'`)[0]
+  check('the workspace is now shared, in an organization of its own', ws.workspace_type === 'ORGANIZATION' && ws.organization_id && !['org_a', 'org_b'].includes(ws.organization_id))
+  const org = q(`SELECT name FROM organizations WHERE id=?`, ws.organization_id)[0]
+  check('the organization is named after the workspace', org?.name === 'My Files')
+  check('its owner owns the organization', q(`SELECT role FROM organization_members WHERE organization_id=? AND user_id='usr_o'`, ws.organization_id)[0]?.role === 'ORG_OWNER')
+  check('its artifacts and collections moved with it',
+    q(`SELECT organization_id FROM artifacts WHERE id='art_p'`)[0].organization_id === ws.organization_id &&
+    q(`SELECT organization_id FROM collections WHERE id='col_p'`)[0].organization_id === ws.organization_id)
+  check('the conversion is audited', q(`SELECT COUNT(*) AS n FROM audit_events WHERE action='WORKSPACE_CONVERT_SHARED' AND target_id='ws_personal'`)[0].n === 1)
+
+  const token = d.url.split('/join/')[1]
+  res = await call(`/api/v1/invitations/${token}/accept`, { user: 'usr_x', method: 'POST' })
+  check('the invitee joins', res.status === 200 && (await data(res)).status === 'ACTIVE', JSON.stringify(await json(res)))
+  res = await call('/api/v1/artifacts/art_p', { user: 'usr_x' })
+  check('…and sees what was in the workspace', res.status === 200, `got ${res.status}`)
+
+  res = await call('/api/v1/workspaces/ws_personal/invitations', { user: 'usr_o', body: { kind: 'LINK', role: 'VIEWER' } })
+  d = await data(res)
+  check('a shared workspace invites without asking again', res.status === 201 && d.convertedToShared === false)
+  check('only one organization was created', q(`SELECT COUNT(*) AS n FROM organizations`)[0].n === 3)
+  res = await call('/api/v1/workspaces/ws_personal/manage', { user: 'usr_o' })
+  check('the screen now treats it as shared', (await data(res)).workspace?.type === 'ORGANIZATION')
 }
 
 console.log(`\n${passes} passed, ${failures} failed`)

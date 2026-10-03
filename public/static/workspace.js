@@ -8,6 +8,10 @@
  * Everything shown comes from the server, which decides who may change what.
  * People who cannot manage the workspace see identity and regional settings
  * read-only, and nothing else.
+ *
+ * Personal workspaces (one person) get identity, regional and invitations.
+ * Shared workspaces add custom URL, team and roles. The first invitation from
+ * a personal workspace asks its owner to confirm it becomes shared.
  */
 
 import {
@@ -115,6 +119,7 @@ export function renderWorkspaceManage(ctx) {
   const personal = workspace.type === 'PERSONAL'
   const canSettings = workspace.canManageSettings
   const canMembers = workspace.canManageMembers && !personal
+  const canInvite = workspace.canManageMembers && (!personal || workspace.isOwner)
 
   const picker =
     allWorkspaces.length > 1
@@ -130,7 +135,7 @@ export function renderWorkspaceManage(ctx) {
 
   const jump = `
     <nav aria-label="Sections" style="display:flex;gap:7px;overflow-x:auto;padding:6px 0 2px;margin:0 -2px;scrollbar-width:none">
-      ${SECTIONS.filter(([id]) => canMembers || ['identity', 'custom-url', 'regional'].includes(id))
+      ${SECTIONS.filter(([id]) => canMembers || ['identity', 'custom-url', 'regional'].includes(id) || (id === 'invitations' && canInvite))
         .map(([id, text]) => `<a class="chip" href="#wm-${id}" data-jump="${id}" style="white-space:nowrap;text-decoration:none">${esc(text)}</a>`)
         .join('')}
     </nav>`
@@ -138,13 +143,13 @@ export function renderWorkspaceManage(ctx) {
   const body = `
     ${picker}
     ${jump}
-    ${personal ? `<div class="card" style="padding:14px;margin-top:12px">${muted('This is a personal workspace, so only you use it. Custom URL, team, roles and invitations are available in organization workspaces.')}</div>` : ''}
+    ${personal ? `<div class="card" style="padding:14px;margin-top:12px">${muted('This is a personal workspace, so only you use it. Custom URL, team and roles are available in shared workspaces. Inviting someone turns it into a shared workspace.')}</div>` : ''}
     ${identitySection(workspace, canSettings)}
     ${customUrlSection(wm.shareDomain, personal, canSettings)}
     ${regionalSection(settings, options, canSettings)}
     ${canMembers ? directorySection(wm.directory, tiers, workspace) : ''}
     ${canMembers ? rolesSection(tiers, options) : ''}
-    ${canMembers ? invitationsSection(settings, tiers, wm.lastInvite) : ''}
+    ${canInvite ? invitationsSection(settings, tiers, wm.lastInvite, personal) : ''}
     ${!canSettings ? `<p style="font-size:12px;color:var(--text-3);margin:18px 0 0">${icon('lock', 12)} Only workspace admins may change these settings.</p>` : ''}`
 
   return {
@@ -164,8 +169,8 @@ export function renderWorkspaceManage(ctx) {
       if (canMembers) {
         mountDirectory(root, ctx, workspace, tiers)
         mountRoles(root, ctx, workspace, tiers, options)
-        mountInvitations(root, ctx, workspace, tiers)
       }
+      if (canInvite) mountInvitations(root, ctx, workspace, tiers)
     }
   }
 }
@@ -260,7 +265,7 @@ function customUrlSection(info, personal, canEdit) {
   const card = (inner) => `${heading}<div class="card" style="padding:14px">${inner}</div>`
   const host = esc(window.location.host)
 
-  if (personal) return card(muted(`Share links use ${host}. Custom URLs are available for organization workspaces.`))
+  if (personal) return card(muted(`Share links use ${host}. Custom URLs are available for shared workspaces.`))
   if (!info) return card(muted(`Share links use ${host}.`))
   if (!info.available) {
     return card(muted(`Share links use ${host}. Custom URLs are not set up on this deployment yet.`))
@@ -671,11 +676,17 @@ function mountRoles(root, ctx, workspace, tiers, options) {
 // Invitation controls
 // ---------------------------------------------------------------
 
-function invitationsSection(settings, tiers, lastInvite) {
+function invitationsSection(settings, tiers, lastInvite, personal) {
   const inv = settings.invitations
   const defaultTier = inv.defaultCustomRoleId || inv.defaultRole
   return `
-    ${sectionTitle('invitations', 'Invitation controls', 'Invite people by email or with a link, and decide who may join and how.')}
+    ${sectionTitle(
+      'invitations',
+      'Invitation controls',
+      personal
+        ? 'Invite people by email or with a link. Your first invitation turns this into a shared workspace.'
+        : 'Invite people by email or with a link, and decide who may join and how.'
+    )}
     <div class="card" style="padding:14px">
       <div style="font-size:14px;font-weight:620">${icon('mail', 16)} Invite by email</div>
       <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
@@ -728,10 +739,74 @@ function invitationsSection(settings, tiers, lastInvite) {
     </div>`
 }
 
+/**
+ * Ask the owner of a personal workspace to confirm it becomes shared. Resolves
+ * true only if they agree.
+ */
+function confirmConvertToShared(workspace) {
+  return new Promise((resolve) => {
+    let answered = false
+    const answer = (value) => {
+      if (answered) return
+      answered = true
+      resolve(value)
+    }
+    const handle = sheet({
+      title: 'Make this a shared workspace?',
+      content: `
+        <div style="padding:0 16px">
+          ${muted(`Inviting someone turns <strong>${esc(workspace.name)}</strong> from a personal workspace into a shared workspace. Everything in it stays, and the people you invite will see it.`)}
+          <p style="font-size:13px;color:var(--text-2);margin:10px 0 0;line-height:1.55">Shared workspaces get a team directory, roles and a custom URL. <strong>Plans are priced by the number of workspaces, so this may affect what you pay in future.</strong></p>
+        </div>`,
+      actions: [
+        { label: 'Make shared and invite', variant: 'primary', onClick: () => answer(true) },
+        { label: 'Cancel', variant: 'secondary', onClick: () => answer(false) }
+      ]
+    })
+    // Dismissing the sheet (backdrop, Escape) is a no.
+    const observer = new MutationObserver(() => {
+      if (!handle.panel.isConnected) {
+        observer.disconnect()
+        answer(false)
+      }
+    })
+    observer.observe(handle.panel.parentNode, { childList: true })
+  })
+}
+
 function mountInvitations(root, ctx, workspace) {
   const tierPayload = (value) => (value.startsWith('wcr_') ? { customRoleId: value } : { role: value })
   const remember = (result, note) => {
     ctx.wm.lastInvite = { url: result.url, note }
+  }
+
+  /**
+   * Create an invitation. From a personal workspace the owner confirms first
+   * that it becomes shared; the server insists on that confirmation too.
+   * Returns null if they decline.
+   */
+  const invite = async (payload) => {
+    let confirmed = false
+    if (workspace.type === 'PERSONAL') {
+      if (!(await confirmConvertToShared(workspace))) return null
+      confirmed = true
+    }
+    try {
+      return await ctx.api.createInvitation(workspace.id, confirmed ? { ...payload, convertToShared: true } : payload)
+    } catch (error) {
+      // The workspace was personal after all (another tab, stale screen).
+      if (error?.code !== 'CONVERT_TO_SHARED' || confirmed) throw error
+      if (!(await confirmConvertToShared(workspace))) return null
+      return ctx.api.createInvitation(workspace.id, { ...payload, convertToShared: true })
+    }
+  }
+  const afterInvite = async (result) => {
+    if (result.convertedToShared) {
+      toast(`${workspace.name} is now a shared workspace`, 'success')
+      await ctx.reloadShell()
+    } else {
+      await ctx.reload()
+    }
   }
 
   const send = root.querySelector('#wm-invite-send')
@@ -740,11 +815,12 @@ function mountInvitations(root, ctx, workspace) {
     busy(send, async () => {
       const email = root.querySelector('#wm-invite-email').value.trim()
       if (!email) return toast('Enter an email address', 'error')
-      const result = await ctx.api.createInvitation(workspace.id, {
+      const result = await invite({
         kind: 'EMAIL',
         email,
         ...tierPayload(root.querySelector('#wm-invite-tier').value)
       })
+      if (!result) return
       if (result.delivered === 'EMAIL') {
         toast(`Invitation sent to ${email}`, 'success')
         ctx.wm.lastInvite = null
@@ -754,7 +830,7 @@ function mountInvitations(root, ctx, workspace) {
           : `Email is not set up here. Send ${email} this link yourself. It is shown only once.`)
         toast('Invitation created', 'success')
       }
-      await ctx.reload()
+      await afterInvite(result)
     })
   )
 
@@ -763,15 +839,16 @@ function mountInvitations(root, ctx, workspace) {
     'click',
     busy(create, async () => {
       const uses = root.querySelector('#wm-link-uses').value
-      const result = await ctx.api.createInvitation(workspace.id, {
+      const result = await invite({
         kind: 'LINK',
         ...tierPayload(root.querySelector('#wm-link-tier').value),
         maxUses: uses ? Number(uses) : null,
         expiresInDays: Number(root.querySelector('#wm-link-days').value)
       })
+      if (!result) return
       remember(result, 'Copy this link now. For safety it is shown only once; you can revoke it from the team directory.')
       toast('Invite link created', 'success')
-      await ctx.reload()
+      await afterInvite(result)
     })
   )
 

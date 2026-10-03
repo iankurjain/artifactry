@@ -508,7 +508,18 @@ Other operational notes for this deployment path:
 ### Workspace management
 
 The **Workspace** item at the bottom of the desktop rail (on phones: **Profile → Workspace settings**)
-opens `/workspace/:id`, one screen per organization workspace:
+opens `/workspace/:id`, one screen per workspace. There are two kinds:
+
+- **Personal**: one person, its owner. Identity, Regional and Invitation controls.
+- **Shared**: a team. Everything below. Stored as `workspace_type = 'ORGANIZATION'` with an
+  organization of its own (the UI calls these "shared").
+
+The first invitation (email or link) from a personal workspace converts it to shared. The app asks its
+owner to confirm first, warning that plans will be priced by number of workspaces; the server refuses with
+`409 CONVERT_TO_SHARED` unless the request carries `convertToShared: true`. Conversion creates an
+organization named after the workspace with the owner as `ORG_OWNER`, and moves the workspace's artifacts,
+collections, shares and embedding rows into it. Members can't be added to a personal workspace directly.
+
 
 - **Identity**: name, description and a logo.
 - **Custom URL**: the share-link domain for every artifact in this workspace (below).
@@ -524,14 +535,14 @@ opens `/workspace/:id`, one screen per organization workspace:
   each token is stored.
 
 Profile pictures (Profile → tap the picture) and workspace logos accept any PNG, JPEG, WebP or GIF up to
-1 MB, whatever the shape; the app crops them to a circle. Personal workspaces have no management screen.
+1 MB, whatever the shape; the app crops them to a circle.
 Code: `src/routes/workspacemanage.ts`, `src/lib/workspacesettings.ts`, `src/lib/images.ts`,
 `public/static/workspace.js`; schema in `migrations/0009_workspace_management.sql`; tests in
 `scripts/test-workspace-manage.mjs`.
 
 ### Custom share domains — built, needs one-time setup
 
-An admin of an organization workspace can put that workspace's share links on their own hostname
+An admin of a shared workspace can put that workspace's share links on their own hostname
 (**Workspace → Custom URL**), e.g. `share.acme.com` instead of `artifactry.app`. It applies to every
 artifact in that workspace; artifacts that should keep standard links go in another workspace. The
 customer adds a `CNAME` to `shares.artifactry.app` and a `TXT` at `_artifactry-challenge.<host>`;

@@ -61,12 +61,13 @@ export const GUIDE_SECTIONS = [
   S(
     'library',
     'Browsing your library',
-    'library home cards grid filter sort type workspace switcher recent newest title',
+    'library home cards grid filter sort type workspace switcher recent newest title personal shared invite',
     `
     <p>The <strong>Library</strong> tab lists what you can access, newest first by default.</p>
     <p>You can narrow the list by <strong>type</strong> (document, presentation, image, web) and change the sort order to updated date, created date or title.</p>
     <p>The switcher at the top of the Home screen moves between your workspaces. Each workspace keeps its own artifacts, tags and members, so switching never mixes two projects together.</p>
     <p>To start another workspace, choose <strong>New workspace</strong> at the bottom of the switcher or on your Profile. Organization owners and admins can create a workspace for the organization from the Administration page. You become the new workspace's admin and decide who else joins.</p>
+    <p>There are two kinds of workspace. A <strong>personal</strong> workspace is just you. A <strong>shared</strong> workspace has a team, with a team directory, roles and an optional custom URL. In both, admins set the name, logo, time zone and date format, and can invite people. The first invitation you send from a personal workspace asks you to confirm that it becomes a shared workspace. Plans will be priced by the number of workspaces, personal and shared, so that change may affect what you pay in future.</p>
     <p>Anything you cannot access is not merely hidden from view — it is excluded from the results themselves, so it cannot leak through counts, titles or suggestions.</p>`
   ),
 
