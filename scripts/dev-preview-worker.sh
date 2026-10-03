@@ -29,7 +29,7 @@
 # The secret is never passed on argv: it is read from `.dev.vars` by wrangler,
 # so it cannot appear in the process list.
 set -euo pipefail
-cd /home/user/webapp
+cd "$(dirname "$0")/.."
 
 PORT="${PREVIEW_DEV_PORT:-3001}"
 ASSETS=".preview-dev"
@@ -39,7 +39,7 @@ rm -f "${ASSETS}/_worker.js"
 cp dist-preview/_worker.js "${ASSETS}/_worker.js"
 
 exec npx wrangler pages dev "${ASSETS}" \
-  --persist-to /home/user/webapp/.wrangler/state \
+  --persist-to "$PWD/.wrangler/state" \
   --inspector-port 9230 \
   --ip 0.0.0.0 \
   --port "${PORT}"

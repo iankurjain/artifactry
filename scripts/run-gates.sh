@@ -9,7 +9,7 @@
 #
 # Usage: bash scripts/run-gates.sh [gate ...]      (no args = all gates)
 set -uo pipefail
-cd /home/user/webapp
+cd "$(dirname "$0")/.."
 
 LOCK=/tmp/artifactry-gates.lock
 exec 9>"$LOCK"

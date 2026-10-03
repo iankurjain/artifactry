@@ -18,7 +18,7 @@
 # NO SECRETS HERE. PREVIEW_TOKEN_SECRET is stored in Cloudflare by
 # `wrangler pages secret put`, never on disk and never on argv.
 set -euo pipefail
-cd /home/user/webapp
+cd "$(dirname "$0")/.."
 
 echo "── building preview worker ──"
 npm run build:preview
