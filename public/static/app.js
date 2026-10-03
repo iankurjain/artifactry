@@ -517,8 +517,8 @@ async function loadAdminData() {
 
 /**
  * Workspace management: the workspace named in the URL, else the one being
- * viewed, else the first organization workspace this person can manage, else
- * any workspace. Personal workspaces get identity and regional settings.
+ * viewed, else the first shared workspace this person can manage, else any
+ * workspace. Personal workspaces get identity, regional and invitations.
  */
 async function loadWorkspaceManage(requestedId) {
   const workspaces = state.workspaces || []
@@ -1909,7 +1909,7 @@ ctx.openWorkspaceSheet = async (workspaceId) => {
       <div>
         <div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0">
           <span style="color:var(--text-2)">Type</span>
-          <span style="font-weight:560">${esc(workspace?.type === 'PERSONAL' ? 'Personal' : 'Organization')}</span>
+          <span style="font-weight:560">${esc(workspace?.type === 'PERSONAL' ? 'Personal' : 'Shared')}</span>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0">
           <span style="color:var(--text-2)">Your role</span>
@@ -1963,7 +1963,7 @@ ctx.openWorkspaceSheet = async (workspaceId) => {
           void refresh({ reload: true })
         }
       },
-      ...(canManage
+      ...(canManage && workspace?.type !== 'PERSONAL'
         ? [
             {
               label: 'Add member',
@@ -1973,7 +1973,7 @@ ctx.openWorkspaceSheet = async (workspaceId) => {
             }
           ]
         : []),
-      ...(workspace?.type !== 'PERSONAL'
+      ...(canManage
         ? [
             {
               label: 'Workspace settings',

@@ -16,7 +16,7 @@
  *   DELETE /api/v1/workspaces/:id/roles/:roleId
  *
  *   GET    /api/v1/workspaces/:id/invitations
- *   POST   /api/v1/workspaces/:id/invitations             → { kind: EMAIL | LINK, ... }
+ *   POST   /api/v1/workspaces/:id/invitations             → { kind: EMAIL | LINK, convertToShared?, ... }
  *   DELETE /api/v1/workspaces/:id/invitations/:inviteId
  *
  *   GET    /api/v1/invitations/:token                     → public summary for the join page
@@ -32,6 +32,12 @@
  *   - directory, tiers, invites:  member.manage
  * Both are held by workspace admins, the workspace owner and the organization's
  * owners and admins. An AI connector can never change any of it.
+ *
+ * Workspace types: a personal workspace is one person; a shared workspace
+ * (stored as ORGANIZATION, with its own organization) has a team. Both have
+ * identity, regional settings and invitations. Custom URL, team directory and
+ * roles are for shared workspaces only. The first invitation from a personal
+ * workspace converts it to shared, and only once its owner has confirmed.
  */
 
 import { Hono } from 'hono'
@@ -39,9 +45,9 @@ import type { Context } from 'hono'
 import type { AppEnv } from '../middleware'
 import { guarded, rateLimit, requirePrincipal } from '../middleware'
 import { assertWorkspaceAccess, can, effectiveWorkspaceRole, loadWorkspace } from '../lib/principal'
-import { all, first, nowIso, run } from '../lib/db'
+import { all, batch, first, nowIso, ps, run } from '../lib/db'
 import { badRequest, conflict, forbidden, HttpError, notFound, ok, readJson } from '../lib/http'
-import { prefixed, randomToken, ulid } from '../lib/ids'
+import { prefixed, randomToken, slugify, ulid } from '../lib/ids'
 import { hashShareToken, tokenPrefix } from '../lib/crypto'
 import { recordAudit } from '../lib/audit'
 import { devCodeMode, sendEmail } from '../lib/auth'
@@ -114,9 +120,70 @@ function requireOrgWorkspace(workspace: WorkspaceRow) {
     throw new HttpError(
       400,
       'PERSONAL_WORKSPACE',
-      'Workspace management is available for organization workspaces.'
+      'This is available in shared workspaces.'
     )
   }
+}
+
+/**
+ * Turn a personal workspace into a shared one: give it an organization of its
+ * own, owned by the workspace owner, and move everything the workspace holds
+ * into that organization. Running it twice, or twice at once, converts once:
+ * every write is guarded on the workspace still being personal.
+ */
+async function convertToShared(c: Context<AppEnv>, workspace: WorkspaceRow, actorId: string): Promise<WorkspaceRow> {
+  const db = c.env.DB
+  const orgId = prefixed('org', ulid())
+  const timestamp = nowIso()
+  let slug = slugify(workspace.name, 48) || 'workspace'
+  const clash = await first<{ id: string }>(db, `SELECT id FROM organizations WHERE slug = ?`, [slug])
+  if (clash) slug = `${slug}-${ulid().slice(-6).toLowerCase()}`
+
+  const stillPersonal = `EXISTS (SELECT 1 FROM workspaces WHERE id = ? AND organization_id IS NULL)`
+  const orgOfWorkspace = `(SELECT organization_id FROM workspaces WHERE id = ?)`
+  await batch(db, [
+    ps(
+      db,
+      `INSERT INTO organizations
+         (id, name, slug, plan, max_upload_bytes, settings_json, status, created_by, created_at, updated_at)
+       SELECT ?, ?, ?, 'FREE', ?, '{"showVerifiedExternalViewerIdentity":false}', 'ACTIVE', ?, ?, ?
+        WHERE ${stillPersonal}`,
+      [orgId, workspace.name, slug, Number(c.env.MAX_UPLOAD_BYTES || 26214400), actorId, timestamp, timestamp, workspace.id]
+    ),
+    ps(
+      db,
+      `INSERT INTO organization_members (id, organization_id, user_id, role, created_at, created_by, status)
+       SELECT ?, id, ?, 'ORG_OWNER', ?, ?, 'ACTIVE' FROM organizations WHERE id = ?`,
+      [prefixed('orgm', ulid()), workspace.owner_user_id, timestamp, actorId, orgId]
+    ),
+    ps(
+      db,
+      `UPDATE workspaces SET organization_id = ?, workspace_type = 'ORGANIZATION'
+        WHERE id = ? AND organization_id IS NULL AND EXISTS (SELECT 1 FROM organizations WHERE id = ?)`,
+      [orgId, workspace.id, orgId]
+    ),
+    ps(db, `UPDATE artifacts SET organization_id = ${orgOfWorkspace} WHERE workspace_id = ?`, [workspace.id, workspace.id]),
+    ps(db, `UPDATE collections SET organization_id = ${orgOfWorkspace} WHERE workspace_id = ?`, [workspace.id, workspace.id]),
+    ps(db, `UPDATE shares SET organization_id = ${orgOfWorkspace} WHERE workspace_id = ?`, [workspace.id, workspace.id]),
+    ps(db, `UPDATE artifact_embeddings SET organization_id = ${orgOfWorkspace} WHERE workspace_id = ?`, [workspace.id, workspace.id])
+  ])
+
+  const converted = await loadWorkspace(db, workspace.id)
+  if (!converted?.organization_id) throw new HttpError(500, 'CONVERT_FAILED', 'The workspace could not be made shared. Try again.')
+
+  if (converted.organization_id === orgId) {
+    await recordAudit(db, {
+      organizationId: orgId,
+      workspaceId: workspace.id,
+      actorUserId: actorId,
+      actorType: 'USER',
+      action: 'WORKSPACE_CONVERT_SHARED',
+      targetType: 'workspace',
+      targetId: workspace.id,
+      metadata: { from: 'PERSONAL', to: 'SHARED' }
+    })
+  }
+  return converted
 }
 
 export function logoUrl(w: Pick<WorkspaceRow, 'id' | 'logo_r2_key' | 'logo_updated_at'>): string | null {
@@ -696,8 +763,7 @@ manage.post(
   rateLimit({ bucket: 'workspace:invite', limit: 60, windowSeconds: 3600 }),
   guarded(async (c) => {
     const principal = sessionPrincipal(c)
-    const workspace = await assertWorkspaceAccess(c.env.DB, principal, c.req.param('id'), 'member.manage')
-    requireOrgWorkspace(workspace)
+    let workspace = await assertWorkspaceAccess(c.env.DB, principal, c.req.param('id'), 'member.manage')
     const settings = parseWorkspaceSettings(workspace.settings_json)
 
     const body = await readJson<{
@@ -707,8 +773,10 @@ manage.post(
       customRoleId?: string | null
       expiresInDays?: number
       maxUses?: number | null
+      convertToShared?: boolean
     }>(c)
     const kind = body.kind === 'LINK' ? 'LINK' : 'EMAIL'
+    const personal = !workspace.organization_id
 
     let email: string | null = null
     if (kind === 'EMAIL') {
@@ -745,6 +813,22 @@ manage.post(
       : body.maxUses === null || body.maxUses === undefined
         ? null
         : Math.max(1, Math.min(Math.floor(Number(body.maxUses)), 1000))
+
+    // Inviting someone into a personal workspace makes it shared, which counts
+    // as a separate workspace for billing later. Its owner must say yes first.
+    if (personal) {
+      if (workspace.owner_user_id !== principal.userId) {
+        throw forbidden('Only the owner of a personal workspace can invite people to it')
+      }
+      if (body.convertToShared !== true) {
+        throw new HttpError(
+          409,
+          'CONVERT_TO_SHARED',
+          'Inviting someone turns this personal workspace into a shared workspace. Confirm to continue.'
+        )
+      }
+      workspace = await convertToShared(c, workspace, principal.userId!)
+    }
 
     const token = randomToken(24)
     const id = prefixed('inv', ulid())
@@ -805,7 +889,7 @@ manage.post(
     const tiers = new Map((await customRoles(c.env.DB, workspace.id)).map((r) => [r.id, r.name]))
     const row = await first<InvitationRow>(c.env.DB, `SELECT * FROM workspace_invitations WHERE id = ?`, [id])
     // The raw link is returned exactly once, here, like a share token.
-    return ok(c, { invitation: presentInvitation(row!, tiers), url, delivered }, 201)
+    return ok(c, { invitation: presentInvitation(row!, tiers), url, delivered, convertedToShared: personal }, 201)
   })
 )
 

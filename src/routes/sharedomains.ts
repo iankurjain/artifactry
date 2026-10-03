@@ -54,7 +54,7 @@ function requireOrgWorkspace(workspace: WorkspaceRow) {
     throw new HttpError(
       400,
       'PERSONAL_WORKSPACE',
-      'Custom domains are available for organization workspaces. Create the workspace in an organization to use one.'
+      'Custom domains are available for shared workspaces. Invite someone to this workspace to make it shared.'
     )
   }
 }

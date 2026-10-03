@@ -494,6 +494,12 @@ workspaces.post(
     const workspaceId = c.req.param('id')
     const workspace = await assertWorkspaceAccess(c.env.DB, principal, workspaceId, 'member.manage')
 
+    // A personal workspace is one person. Inviting someone (Workspace settings)
+    // is how it becomes shared, with its owner's confirmation.
+    if (!workspace.organization_id) {
+      throw badRequest('A personal workspace is just you. Invite people from its workspace settings to make it shared.')
+    }
+
     const body = await readJson<{ email?: string; role?: WorkspaceRole }>(c)
     const email = normalizeEmail(body.email ?? '')
     if (!isValidEmail(email)) throw badRequest('Enter a valid email address')

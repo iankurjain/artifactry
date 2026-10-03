@@ -800,7 +800,7 @@ export function renderProfile(ctx) {
               <span style="flex:1">
                 ${esc(w.name)}
                 <span style="display:block;font-size:11.5px;color:var(--text-2)">${esc(
-                  w.type === 'PERSONAL' ? 'Personal workspace' : `${w.organizationName || 'Organization'} · ${roleLabel(w.role)}`
+                  w.type === 'PERSONAL' ? 'Personal workspace' : `Shared workspace · ${roleLabel(w.role)}`
                 )}</span>
               </span>
               ${icon('chevron', 16)}
