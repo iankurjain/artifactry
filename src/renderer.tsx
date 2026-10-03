@@ -660,6 +660,21 @@ const DESIGN_TOKENS = `
     .rail-brand { display: block; order: -1; padding: 6px 14px 22px; }
     .home-brand { display: none; }
     .nav-rail-only { display: flex !important; order: 10; margin-top: auto; }
+    /* Active workspace: under the logo, above Home. Opens its settings. */
+    .rail-workspace {
+      order: -1; margin: 0 0 14px !important; align-items: center; gap: 10px;
+      min-height: 52px; padding: 8px 10px; border-radius: 12px;
+      border: 1px solid var(--border); background: var(--surface, #fff);
+      color: var(--text); text-align: left; cursor: pointer; font: inherit;
+    }
+    .rail-workspace:hover { background: var(--surface-2); }
+    .rail-workspace:focus-visible, .nav-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .rail-workspace-text { display: flex; flex-direction: column; min-width: 0; }
+    .rail-workspace-name { font-size: 14px; font-weight: 620; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rail-workspace-kind { font-size: 12px; color: var(--text-2); }
+    /* Log out sits last, directly under Workspace. */
+    .rail-logout { order: 11; margin-top: 0 !important; color: var(--text-2); }
+    .rail-logout:hover { color: var(--danger); }
     .nav-mobile-only { display: none; }
 
     .app-main { padding-bottom: 56px; }

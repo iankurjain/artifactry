@@ -625,9 +625,29 @@ function navItem(key, path, label, iconName, active) {
     </button>`
 }
 
+/**
+ * The active workspace's logo (or initial) and name, shown on the desktop rail
+ * under the Artifactry logo. It opens that workspace's settings screen.
+ */
+function railWorkspace() {
+  const current = (state.workspaces || []).find((w) => w.id === state.currentWorkspaceId)
+  if (!current) return ''
+  const kind = current.type === 'PERSONAL' ? 'Personal workspace' : 'Shared workspace'
+  return `
+    <button class="rail-workspace nav-rail-only" data-nav="/workspace/${encodeURIComponent(current.id)}"
+            aria-label="${esc(`${current.name}, ${kind.toLowerCase()} settings`)}" title="${esc(current.name)}">
+      ${avatar({ url: current.logoUrl, name: current.name, size: 32 })}
+      <span class="rail-workspace-text">
+        <span class="rail-workspace-name">${esc(current.name)}</span>
+        <span class="rail-workspace-kind">${kind}</span>
+      </span>
+    </button>`
+}
+
 ctx.bottomNav = (active) => `
   <nav class="bottom-nav" aria-label="Primary navigation">
     <a class="rail-brand" href="/" data-nav="/" aria-label="Artifactry home">${brandLockup(32)}</a>
+    ${railWorkspace()}
     ${navItem('home', '/', 'Home', 'home', active)}
     ${navItem('library', '/library', 'Library', 'library', active)}
     <button class="nav-item" id="nav-add" aria-label="Add to library">
@@ -637,6 +657,10 @@ ctx.bottomNav = (active) => `
     ${navItem('search', '/search', 'Search', 'search', active)}
     ${navItem('profile', '/profile', 'Profile', 'user', active)}
     ${navItem('workspace', '/workspace', 'Workspace', 'building', active).replace('class="nav-item"', 'class="nav-item nav-rail-only"')}
+    <button class="nav-item nav-rail-only rail-logout" id="nav-logout">
+      ${icon('logout', 21)}
+      <span>Log out</span>
+    </button>
   </nav>`
 
 /**
@@ -2738,6 +2762,12 @@ function attachGlobalHandlers() {
     if (navTarget) {
       event.preventDefault()
       navigate(navTarget.dataset.nav)
+      return
+    }
+
+    if (event.target.closest('#nav-logout')) {
+      event.preventDefault()
+      ctx.signOut()
       return
     }
 
