@@ -29,7 +29,7 @@
 
   "vars": {
     // The only origin permitted to frame a preview document.
-    "APP_ORIGIN": "https://artifactry.app",
+    "APP_ORIGIN": "https://app.artifactry.app",
     // This surface's own origin; a token is inert on any other hostname.
     "PREVIEW_ORIGIN": "https://preview.artifactry.app"
     // PREVIEW_TOKEN_SECRET is NOT here. It is a secret, set with:

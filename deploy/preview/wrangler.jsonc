@@ -47,7 +47,7 @@
 
   "vars": {
     // The only origin permitted to frame a preview document.
-    "APP_ORIGIN": "https://artifactry.app",
+    "APP_ORIGIN": "https://app.artifactry.app",
     // This surface's own origin. A token is inert on any other hostname, so a
     // signed URL cannot be replayed against artifactry-preview.pages.dev.
     "PREVIEW_ORIGIN": "https://preview.artifactry.app"

@@ -16,7 +16,9 @@ no filesystem.
 | | |
 |---|---|
 | **Application (Cloudflare Pages)** | https://artifact-library.pages.dev — live (BYOK, user's own account) |
-| **Application custom domain** | https://artifactry.app — **live** (Pages custom domain on `artifact-library`, Cloudflare-managed TLS) |
+| **Application custom domain** | https://app.artifactry.app (Pages custom domain on `artifact-library`, Cloudflare-managed TLS). Until the cutover in `site/README.md`, the app is still also served at https://artifactry.app |
+| **Marketing site** | https://artifactry.app (Pages project `artifactry-site`, from `site/public`) |
+| **Docs** | https://docs.artifactry.app (Pages project `artifactry-docs`, from `site/docs`) |
 | **Isolated preview surface** | https://artifactry-preview.pages.dev — a **separate** Pages project that serves no app shell |
 | **Preview custom domain** | https://preview.artifactry.app — **live** (Pages custom domain on `artifactry-preview`) |
 | **Canonical artifact URL** | `/a/:artifactId` — permanent identity, survives renames, re-versioning and moves |

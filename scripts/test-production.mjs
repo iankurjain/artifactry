@@ -22,14 +22,14 @@
  *
  * Usage:
  *   node scripts/test-production.mjs
- *   APP_ORIGIN=https://artifactry.app PREVIEW_ORIGIN=https://preview.artifactry.app node scripts/test-production.mjs
+ *   APP_ORIGIN=https://app.artifactry.app PREVIEW_ORIGIN=https://preview.artifactry.app node scripts/test-production.mjs
  */
 
 import { chromium } from 'playwright'
 
 const APP = (process.env.PROD_APP_ORIGIN ?? 'https://artifact-library.pages.dev').replace(/\/$/, '')
 const PREVIEW = (process.env.PROD_PREVIEW_ORIGIN ?? 'https://artifactry-preview.pages.dev').replace(/\/$/, '')
-const EXPECTED_APP = 'https://artifactry.app'
+const EXPECTED_APP = 'https://app.artifactry.app'
 const EXPECTED_PREVIEW = 'https://preview.artifactry.app'
 
 let pass = 0
