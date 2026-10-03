@@ -32,7 +32,7 @@
 import fs from 'node:fs'
 import { chromium } from 'playwright'
 
-const APP = (process.env.PROD_APP_ORIGIN ?? 'https://artifactry.app').replace(/\/$/, '')
+const APP = (process.env.PROD_APP_ORIGIN ?? 'https://app.artifactry.app').replace(/\/$/, '')
 const PREVIEW = (process.env.PROD_PREVIEW_ORIGIN ?? 'https://preview.artifactry.app').replace(/\/$/, '')
 const JAR = process.env.PROD_JAR ?? '/tmp/prod.jar'
 const SESSION_COOKIE = 'al_session'

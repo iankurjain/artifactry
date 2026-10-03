@@ -358,6 +358,13 @@ async function loadShellData() {
     session: { authenticated: true, devMode: !!me.devMode }
   })
 
+  // /login and /signup are entry points from the marketing site; once signed
+  // in there is nothing to show at those addresses, so land on Home.
+  if (/^\/(login|signup)\/?$/.test(window.location.pathname)) {
+    window.history.replaceState({}, '', '/')
+    currentRoute = parseRoute('/')
+  }
+
   if (!state.currentWorkspaceId) {
     const personal = (me.workspaces || []).find((w) => w.type === 'PERSONAL')
     setState({ currentWorkspaceId: personal?.id || me.workspaces?.[0]?.id || null })

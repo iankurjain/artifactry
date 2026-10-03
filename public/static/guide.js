@@ -211,7 +211,7 @@ export const GUIDE_SECTIONS = [
     'Connecting AI apps',
     'ai mcp chatgpt claude gemini copilot microsoft connector scope token connect endpoint model context protocol oauth sign in',
     `
-    <p>AI applications can search, save and share in your library through <strong>MCP</strong> (Model Context Protocol). Every app uses the same address: <code>https://artifactry.app/api/v1/mcp</code>. You sign in to Artifactry and approve what the app may do; no token to copy.</p>
+    <p>AI applications can search, save and share in your library through <strong>MCP</strong> (Model Context Protocol). Every app uses the same address: <code>https://app.artifactry.app/api/v1/mcp</code>. You sign in to Artifactry and approve what the app may do; no token to copy.</p>
     <p><strong>ChatGPT</strong> (web and desktop, Plus, Pro, Business, Enterprise, Edu):</p>
     <ol>
       <li>Settings → Security and login → turn on <strong>Developer mode</strong>.</li>
@@ -219,7 +219,7 @@ export const GUIDE_SECTIONS = [
       <li>Sign in to Artifactry in the window that opens and choose <strong>Allow</strong>.</li>
       <li>In a chat, pick Developer mode → Artifactry, then ask “save this to Artifactry”.</li>
     </ol>
-    <p><strong>Claude</strong> (claude.ai, desktop and mobile): Settings → Connectors → <strong>Add custom connector</strong>, paste the address, then <strong>Connect</strong> and approve. On Team and Enterprise plans an owner adds it once for the organization. <strong>Claude Code</strong>: <code>claude mcp add --transport http artifactry https://artifactry.app/api/v1/mcp</code>, then <code>/mcp</code> to sign in.</p>
+    <p><strong>Claude</strong> (claude.ai, desktop and mobile): Settings → Connectors → <strong>Add custom connector</strong>, paste the address, then <strong>Connect</strong> and approve. On Team and Enterprise plans an owner adds it once for the organization. <strong>Claude Code</strong>: <code>claude mcp add --transport http artifactry https://app.artifactry.app/api/v1/mcp</code>, then <code>/mcp</code> to sign in.</p>
     <p><strong>Microsoft Copilot</strong> (Copilot Studio agents, published to Teams and Microsoft 365 Copilot): in your agent, Tools → Add a tool → <strong>Model Context Protocol</strong>, paste the address, choose <strong>OAuth 2.0 → Dynamic discovery</strong>, create the connection and sign in.</p>
     <p><strong>Gemini Enterprise</strong>: it asks for a client ID and secret, which your Artifactry admin creates for you. Then in Gemini Enterprise add an MCP server with the address, OAuth 2.0, the authorization and token URLs shown, and the client ID and secret. The consumer Gemini app does not support custom connectors yet. <strong>Gemini CLI</strong> signs in with OAuth on its own.</p>
     <p><strong>Saving files:</strong> HTML pages the AI writes are stored exactly as written. Files you upload or the AI generates in ChatGPT are handed over directly. Other apps can pass a public link to the file.</p>

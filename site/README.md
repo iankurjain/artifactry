@@ -45,9 +45,23 @@ npx wrangler pages project create artifactry-docs --production-branch main
 npx wrangler pages deploy site/docs --project-name artifactry-docs --branch main
 ```
 
-Then attach `docs.artifactry.app` to `artifactry-docs`. `artifactry.app` is currently the
-app's custom domain, so it can move to `artifactry-site` only after the app is serving on
-`app.artifactry.app`.
+## Cutover: app to app.artifactry.app, apex to the marketing site
+
+This is a clean break: old `artifactry.app/a/…` and `/s/…` links and AI connectors set up
+against `artifactry.app/api/v1/mcp` stop working once the apex moves.
+
+1. On the `artifact-library` Pages project, add the custom domain `app.artifactry.app`
+   and wait until it is Active.
+2. Merge the PR. The app redeploys with `APP_ORIGIN=https://app.artifactry.app`.
+3. Redeploy the preview surface, which does not auto-deploy: `npm run deploy:preview`.
+   Until then, HTML previews will not frame inside the app.
+4. Create and deploy `artifactry-site` and `artifactry-docs` (commands above). Attach
+   `docs.artifactry.app` to `artifactry-docs`.
+5. Remove `artifactry.app` (and `www.artifactry.app`, if set) from `artifact-library`, then
+   attach both to `artifactry-site`.
+6. In each AI app, remove the old Artifactry connector and add
+   `https://app.artifactry.app/api/v1/mcp`.
+7. Send one test entry through Request a Feature and check the Splitforms dashboard.
 
 ## Request a Feature form
 

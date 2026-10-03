@@ -26,7 +26,7 @@
     { "pattern": "*/*", "zone_name": "artifactry.app" }
   ],
   "vars": {
-    "APP_ORIGIN": "https://artifactry.app",
-    "PASSTHROUGH_HOSTS": "artifactry.app,preview.artifactry.app,www.artifactry.app"
+    "APP_ORIGIN": "https://app.artifactry.app",
+    "PASSTHROUGH_HOSTS": "artifactry.app,www.artifactry.app,app.artifactry.app,docs.artifactry.app,preview.artifactry.app"
   }
 }

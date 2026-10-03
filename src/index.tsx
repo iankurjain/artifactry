@@ -406,7 +406,11 @@ const SPA_ROUTES = [
   '/admin',
   '/settings',
   '/guide',
-  '/workspace'
+  '/workspace',
+  // Where the marketing site at artifactry.app sends people. Both show the
+  // sign-in screen, which also creates new accounts.
+  '/login',
+  '/signup'
 ]
 
 // Workspace management for one workspace, and the page an invitation link opens.
