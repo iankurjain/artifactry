@@ -1,0 +1,189 @@
+<!--{"title": "Features", "description": "MCP tools for Find, Save and Share, OAuth sign-in for AI apps, permanent links and versions, keyword and semantic search, team sharing, scoped access and an audit trail. Free during beta.", "path": "/features", "nav": "features"}-->
+<section class="page-hero">
+  <div class="container">
+    <span class="eyebrow fade-in">Features</span>
+    <h1 class="fade-in d1">Built for the way <span class="grad-text">AI actually works.</span></h1>
+    <p class="fade-in d2">Artifactry isn't a folder of files with an API bolted on. It's designed around three jobs your AI does all day: find what exists, save what it made, and share it with the right people.</p>
+  </div>
+</section>
+
+<div class="container">
+  <div class="beta-banner reveal"><strong>Every feature below is free during beta.</strong> <span>No credit card, no trial clock.</span></div>
+</div>
+
+<section class="section" style="padding-top:40px">
+  <div class="container">
+
+    <div class="feature-row">
+      <div class="feature-copy reveal">
+        <span class="eyebrow">MCP tools</span>
+        <h2>Find, Save, Share. In plain language.</h2>
+        <p>Artifactry speaks the Model Context Protocol (MCP), the open standard AI apps use to call tools. Your AI gets eleven focused tools instead of a pile of storage commands, so it does the right thing when you say "save this" or "share that".</p>
+        <ul class="checks">
+          <li><span><strong>Find:</strong> <code>search</code> and <code>get</code> look up artifacts by meaning, type, tags, workspace, owner or date.</span></li>
+          <li><span><strong>Save:</strong> <code>save</code>, <code>create_version</code> and <code>upload_part</code> store new work or a new version, even very large files.</span></li>
+          <li><span><strong>Share:</strong> <code>share</code> and <code>revoke_share</code> put work in front of a team, a workspace, specific people or a public link.</span></li>
+          <li><span><strong>Lookups:</strong> <code>list_workspaces</code>, <code>list_teams</code>, <code>list_tags</code> and <code>update_tags</code> so the AI never has to guess a name.</span></li>
+        </ul>
+      </div>
+      <div class="demo reveal reveal-d1" data-demo>
+        <div class="demo-bar"><i></i><i></i><i></i><span>artifactry · mcp</span></div>
+        <div class="demo-tabs" role="tablist" aria-label="Example tool calls">
+          <button class="demo-tab" role="tab" aria-selected="true" data-script="find">search</button>
+          <button class="demo-tab" role="tab" aria-selected="false" tabindex="-1" data-script="save">save</button>
+          <button class="demo-tab" role="tab" aria-selected="false" tabindex="-1" data-script="share">share</button>
+        </div>
+        <div class="demo-body" aria-live="polite"></div>
+      </div>
+    </div>
+
+    <div class="feature-row flip">
+      <div class="feature-copy reveal">
+        <span class="eyebrow">Three ways in</span>
+        <h2>The app, MCP, and plain HTTP.</h2>
+        <p>Use Artifactry however suits the moment. Everything goes through the same permissions, so a file is exactly as private from an AI as it is from the web app.</p>
+        <ul class="checks">
+          <li><span><strong>Web app</strong> at artifactry.app, built mobile-first: upload, browse, search, share and manage workspaces from any screen.</span></li>
+          <li><span><strong>MCP endpoint</strong> for Claude, ChatGPT, Gemini, Cursor, Codex and any other MCP client.</span></li>
+          <li><span><strong>HTTP</strong> for scripts and automations. The MCP endpoint is plain JSON over HTTPS, so <code>curl</code> or any language can call it with a personal token.</span></li>
+        </ul>
+      </div>
+      <div class="visual-panel reveal reveal-d1">
+        <div class="mini-list">
+          <div class="mini-item"><span class="fc-badge">APP</span><strong>artifactry.app</strong><small>browser · phone</small></div>
+          <div class="mini-item"><span class="fc-badge">MCP</span><strong>/api/v1/mcp</strong><small>OAuth 2.1</small></div>
+          <div class="mini-item"><span class="fc-badge">HTTP</span><strong>curl -H "Authorization: Bearer …"</strong><small>token</small></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="feature-row">
+      <div class="feature-copy reveal">
+        <span class="eyebrow">Your library, in the cloud</span>
+        <h2>Permanent links. Every version kept.</h2>
+        <p>Artifacts are stored for you on Cloudflare's global network, so there's nothing to host or back up. Each one keeps a single permanent address for life.</p>
+        <ul class="checks">
+          <li><span><strong>Versions:</strong> upload a new file and it becomes v2, v3, v4. Older versions stay downloadable and you can restore any of them.</span></li>
+          <li><span><strong>Checked on arrival:</strong> the real file type is verified against its contents, a checksum is recorded, and text is extracted for search.</span></li>
+          <li><span><strong>HTML stays HTML:</strong> pages your AI writes are stored exactly as written and open in a safe preview that runs no scripts by default.</span></li>
+          <li><span>PDF, DOCX, PPTX, HTML, PNG, JPG, BMP and GIF, up to 25 MB each.</span></li>
+        </ul>
+      </div>
+      <div class="visual-panel reveal reveal-d1">
+        <p class="muted small mono" style="margin-bottom:6px">Q3 Finance Review.pptx</p>
+        <div class="version-track" aria-label="Versions 1 to 4, version 4 current">
+          <span class="v-dot">v1</span><span class="v-line"></span>
+          <span class="v-dot">v2</span><span class="v-line"></span>
+          <span class="v-dot">v3</span><span class="v-line"></span>
+          <span class="v-dot on">v4</span>
+        </div>
+        <div class="url-pill">https://artifactry.app/a/01J9XQ4M7R…</div>
+        <p class="muted small" style="margin:12px 0 0">Same link since v1. Renamed twice, moved once.</p>
+      </div>
+    </div>
+
+    <div class="feature-row flip">
+      <div class="feature-copy reveal">
+        <span class="eyebrow">Search</span>
+        <h2>Find it by what it says.</h2>
+        <p>Search covers titles, filenames, descriptions, tags and the words inside your documents. Keyword matching runs alongside semantic search, which finds things by meaning even when the words differ.</p>
+        <ul class="checks">
+          <li><span>Every result says how it matched, keyword or semantic, so you never have to wonder.</span></li>
+          <li><span>Filter by workspace, type, tag, owner, collection and date.</span></li>
+          <li><span>Access is applied inside the search itself, so nothing you can't open can leak through a title, a count or a suggestion.</span></li>
+          <li><span>Tags are suggested from each file's content. You accept, reject or add your own.</span></li>
+        </ul>
+      </div>
+      <div class="visual-panel reveal reveal-d1">
+        <div class="mini-list">
+          <div class="mini-item"><span class="fc-badge">PPTX</span><strong>Q3 Finance Review</strong><small>keyword</small></div>
+          <div class="mini-item"><span class="fc-badge">PDF</span><strong>Quarterly revenue summary</strong><small>semantic</small></div>
+          <div class="mini-item"><span class="fc-badge">HTML</span><strong>Board Q&amp;A prep</strong><small>both</small></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="feature-row">
+      <div class="feature-copy reveal">
+        <span class="eyebrow">Teams and sharing</span>
+        <h2>Share with a name, not a list of emails.</h2>
+        <p>Start with a personal workspace. Invite people and it becomes a shared workspace with a team directory, roles and an optional custom share URL.</p>
+        <ul class="checks">
+          <li><span><strong>Teams</strong> are reusable audiences like "Board prep". Share once and new members get access automatically.</span></li>
+          <li><span><strong>Share however you need:</strong> a team, a workspace, specific emails, an email domain or a public link, each with an expiry and view-only or download permission.</span></li>
+          <li><span><strong>Roles:</strong> Owner, Admin, Member and Guest, plus your own custom tiers.</span></li>
+          <li><span><strong>Revoke any share instantly</strong>, even after someone opened it.</span></li>
+        </ul>
+      </div>
+      <div class="visual-panel reveal reveal-d1">
+        <div class="mini-list">
+          <div class="mini-item"><span class="fc-badge">TEAM</span><strong>Board prep</strong><small>6 people · 7 days</small></div>
+          <div class="mini-item"><span class="fc-badge">DOMAIN</span><strong>@acme.com</strong><small>view only</small></div>
+          <div class="mini-item"><span class="fc-badge">LINK</span><strong>Public link</strong><small>asks you first</small></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="feature-row flip">
+      <div class="feature-copy reveal">
+        <span class="eyebrow">Security model</span>
+        <h2>Least privilege, by default.</h2>
+        <p>AI apps sign in with OAuth 2.1 and you approve exactly what each one may do. Each tool needs its own permission (a "scope"), and an app can never do more than you can yourself. Try it:</p>
+        <ul class="checks">
+          <li><span><strong>Outside sharing needs your yes.</strong> A public link or an outside email address returns a confirmation request, and nothing is shared until you approve.</span></li>
+          <li><span><strong>Secrets are hashed.</strong> Sign-in codes, sessions, share links and AI tokens are stored only as hashes.</span></li>
+          <li><span><strong>Rate limits</strong> on sign-in, uploads, search and sharing keep abuse and runaway agents in check.</span></li>
+          <li><span><strong>Audit trail:</strong> every AI action is recorded with the app's name, the action, the artifact and the time.</span></li>
+        </ul>
+      </div>
+      <div class="visual-panel reveal reveal-d1" data-scopes>
+        <p class="small" style="margin-bottom:12px;color:var(--text)"><strong>Choose what "My AI app" may do</strong></p>
+        <div class="scope-grid">
+          <button type="button" class="scope" aria-pressed="true" data-scope="artifact.read">artifact.read</button>
+          <button type="button" class="scope" aria-pressed="true" data-scope="artifact.write">artifact.write</button>
+          <button type="button" class="scope" aria-pressed="false" data-scope="artifact.share">artifact.share</button>
+          <button type="button" class="scope" aria-pressed="true" data-scope="workspace.read">workspace.read</button>
+          <button type="button" class="scope" aria-pressed="false" data-scope="team.read">team.read</button>
+          <button type="button" class="scope" aria-pressed="false" data-scope="tags.read">tags.read</button>
+        </div>
+        <p class="scope-out" aria-live="polite"></p>
+      </div>
+    </div>
+
+    <div class="feature-row">
+      <div class="feature-copy reveal">
+        <span class="eyebrow">Dashboard and tokens</span>
+        <h2>See what's used, and who connected what.</h2>
+        <p>The web app is your dashboard for the whole library.</p>
+        <ul class="checks">
+          <li><span><strong>Usage analytics:</strong> views, unique viewers, downloads, and where each artifact was seen: inside the app, on a link, by email or by an AI.</span></li>
+          <li><span><strong>Connected AI apps:</strong> see every app you've connected, its permissions and when it was last used. Disconnect revokes it instantly.</span></li>
+          <li><span><strong>Personal tokens:</strong> for scripts and apps that can't do a browser sign-in, create a scoped token in Profile. It's shown once and stored only as a hash.</span></li>
+          <li><span><strong>Workspace settings:</strong> name, logo, time zone, date format and invitations.</span></li>
+        </ul>
+      </div>
+      <div class="visual-panel reveal reveal-d1">
+        <div class="mini-list">
+          <div class="mini-item"><span class="fc-badge">AI</span><strong>Claude</strong><small>read · write · share</small></div>
+          <div class="mini-item"><span class="fc-badge">AI</span><strong>ChatGPT</strong><small>read · write</small></div>
+          <div class="mini-item"><span class="fc-badge">KEY</span><strong>Nightly export script</strong><small>read</small></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<section class="section" style="padding-top:0">
+  <div class="container">
+    <div class="cta-banner reveal">
+      <span class="eyebrow" style="color:var(--volt)">Free during beta</span>
+      <h2>Ready when your AI is.</h2>
+      <p>Create a library, connect an AI app, and save your first artifact in a couple of minutes.</p>
+      <div class="hero-ctas">
+        <a class="btn btn-primary" href="{{APP_URL}}" data-app-link>Start using Artifactry free <span class="arrow" aria-hidden="true">→</span></a>
+        <a class="btn btn-secondary" href="/resources">Read the guide</a>
+      </div>
+    </div>
+  </div>
+</section>

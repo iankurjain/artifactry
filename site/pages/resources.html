@@ -1,0 +1,519 @@
+<!--{"title": "Resources: User Guide and MCP setup", "description": "A complete beginner-friendly guide to Artifactry, plus step-by-step MCP setup for ChatGPT, Claude, Claude Code and Gemini with copy-paste configs.", "path": "/resources", "nav": "resources"}-->
+<section class="page-hero">
+  <div class="container">
+    <span class="eyebrow fade-in">Resources</span>
+    <h1 class="fade-in d1">Learn Artifactry <span class="grad-text">in an afternoon.</span></h1>
+    <p class="fade-in d2">Start with the User Guide to understand the basics, then follow the MCP guide for your AI app. Every step is written for complete beginners, with copy-paste commands.</p>
+  </div>
+</section>
+
+<section class="section" style="padding-top:24px">
+  <div class="container">
+    <div class="tabs" role="tablist" aria-label="Resources">
+      <button class="tab" role="tab" id="tab-guide" aria-controls="panel-guide" aria-selected="true" data-panel="panel-guide" data-hash="guide">User Guide</button>
+      <button class="tab" role="tab" id="tab-mcp" aria-controls="panel-mcp" aria-selected="false" tabindex="-1" data-panel="panel-mcp" data-hash="mcp">MCP Integration</button>
+    </div>
+
+    <!-- ============================== USER GUIDE ============================== -->
+    <div role="tabpanel" id="panel-guide" aria-labelledby="tab-guide" tabindex="0">
+      <div class="docs">
+        <nav class="toc" aria-label="User Guide contents">
+          <h2>User Guide</h2>
+          <ol>
+            <li><a href="#what-is">1. What Artifactry is</a></li>
+            <li><a href="#getting-started">2. Getting started</a></li>
+            <li><a href="#first-artifact">3. Your first artifact</a></li>
+            <li><a href="#workspaces">4. Workspaces and teams</a></li>
+            <li><a href="#sharing">5. Sharing</a></li>
+            <li><a href="#connect-ai">6. Connecting AI apps</a></li>
+            <li><a href="#tokens">7. Personal access tokens</a></li>
+            <li><a href="#http">8. Using Artifactry from the command line</a></li>
+            <li><a href="#sessions">9. How agents use artifacts across sessions</a></li>
+            <li><a href="#troubleshooting">10. Troubleshooting</a></li>
+            <li><a href="#best-practices">11. Best practices</a></li>
+            <li><a href="#limits">12. Limits and file types</a></li>
+          </ol>
+        </nav>
+
+        <article class="prose">
+          <section id="what-is">
+            <h2>1. What Artifactry is, and why it exists</h2>
+            <p>When you ask an AI to write a report, build a web page or draft a deck, the result usually lives inside that one chat. Close the chat, switch to a different AI, or come back next week, and it's gone or buried.</p>
+            <p><strong>Artifactry is a library for those results.</strong> Think of it as a shared, organised filing cabinet that both you and your AI tools can open. An <strong>artifact</strong> is one saved file (a PDF, a Word document, a slide deck, a web page or an image) together with everything Artifactry knows about it: its title, tags, versions, who can see it and how it's been used.</p>
+            <p>Three things make it different from a normal file drive:</p>
+            <ul>
+              <li><strong>AI apps can use it directly.</strong> Claude, ChatGPT, Gemini and other assistants connect over MCP and can search, save and share for you.</li>
+              <li><strong>Links never break.</strong> Each artifact has one permanent address that survives renames, moves and new versions.</li>
+              <li><strong>You stay in control.</strong> An AI can only do what you allow, can never see more than you can, and has to ask before sharing anything outside your organization.</li>
+            </ul>
+            <div class="callout tip"><span class="callout-icon" aria-hidden="true">💡</span><div><p><strong>Nothing to install.</strong> Artifactry is a hosted service. You don't download anything, run a server or set up a database. You sign in at <a href="{{APP_URL}}">artifactry.app</a> and connect your AI apps with a web address.</p></div></div>
+          </section>
+
+          <section id="getting-started">
+            <h2>2. Getting started: create your account</h2>
+            <p>Artifactry has no passwords. You sign in with a short code sent to your email, and the same steps create your account the first time.</p>
+            <ol class="steps-list">
+              <li>Open <a href="{{APP_URL}}">artifactry.app</a> in any browser, on your computer or phone.</li>
+              <li>Type your email address and choose <strong>Send code</strong>.</li>
+              <li>Open the email from Artifactry and type the <strong>6-digit code</strong> on the next screen.</li>
+              <li>You're in. A <strong>personal workspace</strong> is created for you automatically, and you are its admin.</li>
+            </ol>
+            <div class="callout"><span class="callout-icon" aria-hidden="true">ℹ️</span><div><p>Codes expire after 10 minutes and work once. If one doesn't arrive, check spam, then ask for a new one after the short cooldown (about 30 seconds). Your sign-in lasts 30 days on that device; <strong>Log out</strong> ends it immediately.</p></div></div>
+            <h3>A quick tour</h3>
+            <ul>
+              <li><strong>Library</strong> lists everything you can open, newest first. Filter by type and change the sort.</li>
+              <li><strong>Search</strong> looks inside your files as well as their names.</li>
+              <li><strong>Add</strong> uploads a file or connects an AI app.</li>
+              <li><strong>Profile</strong> holds your connected AI apps, tags, active shares and the in-app guide.</li>
+              <li><strong>Workspace</strong> (the icon in the left rail on desktop) manages the current workspace's name, logo, members and invitations.</li>
+            </ul>
+          </section>
+
+          <section id="first-artifact">
+            <h2>3. Your first artifact</h2>
+            <ol class="steps-list">
+              <li>Choose <strong>Add</strong>, then pick a file from your device.</li>
+              <li>Give it a clear title and, if you like, a short description. Pick the workspace it belongs in.</li>
+              <li>Choose <strong>Upload</strong>. Artifactry checks the file's real type, records a checksum, scans it, and pulls out its text so it's searchable.</li>
+              <li>Open the artifact. You'll see <strong>suggested tags</strong> based on its content: accept the good ones, delete the rest, or add your own.</li>
+            </ol>
+            <p>To update it later, upload a new file <strong>to the same artifact</strong> rather than a new one. That creates version 2, keeps version 1 downloadable, and the link stays the same.</p>
+            <div class="callout tip"><span class="callout-icon" aria-hidden="true">💡</span><div><p>Only <strong>confirmed</strong> tags are searchable. A suggestion becomes part of your vocabulary once you accept it.</p></div></div>
+          </section>
+
+          <section id="workspaces">
+            <h2>4. Workspaces and teams (share mode)</h2>
+            <p>A <strong>workspace</strong> is a separate space with its own artifacts, tags and members, a bit like a project folder with its own guest list. Switching workspaces never mixes two projects together.</p>
+            <table>
+              <thead><tr><th>Type</th><th>Who it's for</th><th>What you get</th></tr></thead>
+              <tbody>
+                <tr><td><strong>Personal</strong></td><td>Just you</td><td>Name, logo, time zone, date format, invitations</td></tr>
+                <tr><td><strong>Shared</strong></td><td>A team</td><td>Everything in Personal, plus a team directory, roles (Owner, Admin, Member, Guest and custom tiers) and an optional custom share URL</td></tr>
+              </tbody>
+            </table>
+            <h3>Turning on team mode</h3>
+            <ol class="steps-list">
+              <li>Open <strong>Workspace</strong> and go to <strong>Invitations</strong>.</li>
+              <li>Enter a teammate's email and choose a role.</li>
+              <li>The first invitation from a personal workspace asks you to confirm it becomes a <strong>shared</strong> workspace. Confirm, and the invite is sent.</li>
+            </ol>
+            <h3>Teams: reusable audiences</h3>
+            <p>A <strong>team</strong> is a named group such as "Board prep" or "Finance reviews". Share with the name instead of typing emails each time. Membership stays live: someone added to the team later gets access to what was already shared with it, and removing someone takes it away.</p>
+            <div class="callout warn"><span class="callout-icon" aria-hidden="true">⚠️</span><div><p>If two of your teams share a name, Artifactry asks which one you mean instead of guessing. Confidential documents are no place for a coin flip.</p></div></div>
+          </section>
+
+          <section id="sharing">
+            <h2>5. Sharing</h2>
+            <p>Nothing is shared by default. When you share, you choose <strong>who</strong> and <strong>what they may do</strong>.</p>
+            <table>
+              <thead><tr><th>Audience</th><th>How the recipient gets in</th></tr></thead>
+              <tbody>
+                <tr><td>A team or workspace</td><td>Signs in to Artifactry as usual</td></tr>
+                <tr><td>Specific email addresses</td><td>Enters a code sent to that address</td></tr>
+                <tr><td>An email domain</td><td>Proves an address on that domain with a code</td></tr>
+                <tr><td>Anyone with the link</td><td>Opens the link, no sign-in</td></tr>
+              </tbody>
+            </table>
+            <p>For every share you can set an <strong>expiry</strong>, allow <strong>view only</strong> or <strong>download</strong>, and <strong>revoke</strong> it at any time, which ends access immediately. Recipients see only the item you shared, never the rest of your library.</p>
+          </section>
+
+          <section id="connect-ai">
+            <h2>6. Connecting AI apps</h2>
+            <p>AI apps reach Artifactry through one web address, its <strong>MCP endpoint</strong>:</p>
+            <div class="code"><div class="code-head"><span>MCP endpoint</span><button class="copy-btn" type="button">Copy</button></div><pre><code>{{MCP_URL}}</code></pre></div>
+            <p>Most apps use <strong>OAuth sign-in</strong>: you paste the address, a window opens, you sign in to Artifactry and choose <strong>Allow</strong>. There's no token to copy, and access refreshes itself. Step-by-step guides for each app are in the <a href="#mcp">MCP Integration</a> tab.</p>
+            <h3>What your AI can do once connected</h3>
+            <table>
+              <thead><tr><th>Job</th><th>Tools</th><th>Example request</th></tr></thead>
+              <tbody>
+                <tr><td><strong>Find</strong></td><td><code>search</code>, <code>get</code></td><td>"Find the Q3 finance deck."</td></tr>
+                <tr><td><strong>Save</strong></td><td><code>save</code>, <code>create_version</code>, <code>upload_part</code></td><td>"Save this page to my Marketing workspace."</td></tr>
+                <tr><td><strong>Share</strong></td><td><code>share</code>, <code>revoke_share</code></td><td>"Share it with Board prep for 7 days."</td></tr>
+                <tr><td><strong>Look up</strong></td><td><code>list_workspaces</code>, <code>list_teams</code>, <code>list_tags</code>, <code>update_tags</code></td><td>"Which workspaces do I have?"</td></tr>
+              </tbody>
+            </table>
+            <div class="callout"><span class="callout-icon" aria-hidden="true">🔒</span><div><p><strong>Sharing outside your organization always asks you first.</strong> If an AI tries to make a public link or share with outside emails or a domain, Artifactry returns a confirmation request. Nothing is shared until you agree, and the approval only works for that exact request.</p></div></div>
+          </section>
+
+          <section id="tokens">
+            <h2>7. Personal access tokens</h2>
+            <p>Some tools can't do a browser sign-in: scripts, scheduled jobs, or an MCP client without OAuth. For those, create a <strong>personal access token</strong>, a long secret string the tool sends with every request.</p>
+            <ol class="steps-list">
+              <li>In the app, open <strong>Profile</strong> and scroll to <strong>Connected AI apps</strong>.</li>
+              <li>Choose the app you're connecting (or <strong>Other MCP client</strong> for scripts) and choose <strong>Connect</strong>.</li>
+              <li>Tick only the permissions it needs. A read-only script needs just <code>artifact.read</code>.</li>
+              <li>Copy the token straight away. <strong>It is shown once</strong> and stored only as a hash, so it can't be shown again.</li>
+            </ol>
+            <h3>Permissions (scopes)</h3>
+            <table>
+              <thead><tr><th>Scope</th><th>Allows</th></tr></thead>
+              <tbody>
+                <tr><td><code>artifact.read</code></td><td>Search and open artifacts</td></tr>
+                <tr><td><code>artifact.write</code></td><td>Save, add versions, upload in parts, change tags</td></tr>
+                <tr><td><code>artifact.share</code></td><td>Create and revoke shares</td></tr>
+                <tr><td><code>workspace.read</code></td><td>List your workspaces</td></tr>
+                <tr><td><code>team.read</code></td><td>List teams you can share with</td></tr>
+                <tr><td><code>tags.read</code></td><td>List available tags</td></tr>
+                <tr><td><code>analytics.read</code></td><td>Read usage analytics</td></tr>
+              </tbody>
+            </table>
+            <div class="callout warn"><span class="callout-icon" aria-hidden="true">⚠️</span><div><p>Treat a token like a password. Don't paste it into chats, commit it to Git or share it. Pasted tokens don't expire, so if one leaks, open <strong>Profile → Connected AI apps</strong> and <strong>Disconnect</strong> it; it stops working at once.</p></div></div>
+          </section>
+
+          <section id="http">
+            <h2>8. Using Artifactry from the command line</h2>
+            <p>There's no separate CLI to install. The MCP endpoint is ordinary JSON over HTTPS, so any HTTP tool can call it with a personal token. These examples use <code>curl</code>, which comes with macOS, Linux and Windows 10+.</p>
+            <h3>Step 1: store your token</h3>
+            <div class="code"><div class="code-head"><span>Terminal (macOS / Linux)</span><button class="copy-btn" type="button">Copy</button></div><pre><code>export ARTIFACTRY_TOKEN="paste-your-token-here"</code></pre></div>
+            <div class="code"><div class="code-head"><span>PowerShell (Windows)</span><button class="copy-btn" type="button">Copy</button></div><pre><code>$env:ARTIFACTRY_TOKEN = "paste-your-token-here"</code></pre></div>
+            <h3>Step 2: list the tools (no token needed)</h3>
+            <div class="code"><div class="code-head"><span>Terminal</span><button class="copy-btn" type="button">Copy</button></div><pre><code>curl -s {{MCP_URL}}</code></pre></div>
+            <p>This returns the tool list and the permission each one needs. It's a quick way to check Artifactry is reachable.</p>
+            <h3>Step 3: search your library</h3>
+            <div class="code"><div class="code-head"><span>Terminal</span><button class="copy-btn" type="button">Copy</button></div><pre><code>curl -s {{MCP_URL}} \
+  -H "Authorization: Bearer $ARTIFACTRY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
+       "params":{"name":"search","arguments":{"query":"launch plan","limit":5}}}'</code></pre></div>
+            <h3>List workspaces</h3>
+            <div class="code"><div class="code-head"><span>Terminal</span><button class="copy-btn" type="button">Copy</button></div><pre><code>curl -s {{MCP_URL}} \
+  -H "Authorization: Bearer $ARTIFACTRY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call",
+       "params":{"name":"list_workspaces","arguments":{}}}'</code></pre></div>
+            <h3>Save a page</h3>
+            <div class="code"><div class="code-head"><span>Terminal</span><button class="copy-btn" type="button">Copy</button></div><pre><code>curl -s {{MCP_URL}} \
+  -H "Authorization: Bearer $ARTIFACTRY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call",
+       "params":{"name":"save","arguments":{
+         "file":"hello.html",
+         "title":"Hello from curl",
+         "content":"&lt;!DOCTYPE html&gt;&lt;html&gt;&lt;body&gt;&lt;h1&gt;Hello&lt;/h1&gt;&lt;/body&gt;&lt;/html&gt;"}}}'</code></pre></div>
+            <h3>Read one artifact</h3>
+            <div class="code"><div class="code-head"><span>Terminal</span><button class="copy-btn" type="button">Copy</button></div><pre><code>curl -s {{MCP_URL}} \
+  -H "Authorization: Bearer $ARTIFACTRY_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":4,"method":"tools/call",
+       "params":{"name":"get","arguments":{"artifact":"https://artifactry.app/a/YOUR_ARTIFACT_ID"}}}'</code></pre></div>
+            <div class="callout tip"><span class="callout-icon" aria-hidden="true">💡</span><div><p>Pipe the output through <code>jq</code> to make it readable: add <code>| jq</code> to the end of any command. On Windows PowerShell, <code>Invoke-RestMethod</code> works too.</p></div></div>
+          </section>
+
+          <section id="sessions">
+            <h2>9. How agents use artifacts across sessions</h2>
+            <p>AI chats forget. Each new conversation starts blank. Artifactry is the long-term memory they can share: one session saves, a later session (even in a different AI app) finds and builds on it.</p>
+            <h3>A typical week</h3>
+            <ol class="steps-list">
+              <li><strong>Monday, in Claude:</strong> "Draft a launch plan and save it to Artifactry." Claude calls <code>save</code> and gets back a permanent link.</li>
+              <li><strong>Wednesday, in ChatGPT:</strong> "Find the launch plan in Artifactry and add a pricing section." ChatGPT calls <code>search</code>, reads it with <code>get</code>, then saves the update with <code>create_version</code>. Same link, now version 2.</li>
+              <li><strong>Friday, in Cursor:</strong> "Pull the launch plan from Artifactry and turn the checklist into tickets." The coding agent reads the latest version.</li>
+              <li><strong>Any time:</strong> "Share the launch plan with Board prep for a week." One <code>share</code> call, inside your organization, no prompt needed.</li>
+            </ol>
+            <p>Every artifact records which AI created or changed it, so "which AI did what, on whose behalf" always has an answer.</p>
+            <div class="callout tip"><span class="callout-icon" aria-hidden="true">💡</span><div><p><strong>Tell the AI to reuse.</strong> Phrases like "update the existing one" or "save as a new version" steer it to <code>create_version</code> instead of making duplicates.</p></div></div>
+          </section>
+
+          <section id="troubleshooting">
+            <h2>10. Troubleshooting</h2>
+            <details class="faq"><summary>My sign-in code never arrived.</summary><div><p>Check the address for typos and look in spam or promotions. Wait for the cooldown and request a new code. Codes expire after 10 minutes.</p></div></details>
+            <details class="faq"><summary>My upload failed.</summary><div><p>The usual causes are a file over 25 MB, an unsupported type, or a file whose contents don't match its extension (for example a video renamed to <code>.pdf</code>). All three are refused on purpose.</p></div></details>
+            <details class="faq"><summary>My AI app says it isn't authorised, or returns a 401.</summary><div><p>The connection may have been disconnected, replaced by a newer one, or it lacks the permission that action needs (for example <code>artifact.share</code> for sharing). Remove and re-add the connector in your AI app, or create a new token with the right scopes.</p></div></details>
+            <details class="faq"><summary>My AI doesn't see a tool, or uses an old version of it.</summary><div><p>AI apps cache the tool list. Refresh or reconnect the Artifactry connector in the app's settings and start a new chat.</p></div></details>
+            <details class="faq"><summary>The AI says it shared something, but nobody can open it.</summary><div><p>For public links and outside emails, the first call only returns a confirmation request. Approve it in the chat so the AI can finish the share. Also check the share hasn't expired or been revoked.</p></div></details>
+            <details class="faq"><summary>I can't find a file I uploaded.</summary><div><p>Make sure you're in the right workspace, then search a word you know is inside it. Scanned PDFs are pictures of text, so search those by title or tags instead.</p></div></details>
+            <details class="faq"><summary>The AI couldn't save a very long page or a large file.</summary><div><p>Ask it to "send it in parts". It will use <code>upload_part</code> to send the file in pieces and then save it. In ChatGPT, attaching the file to the chat lets it hand the file over directly.</p></div></details>
+          </section>
+
+          <section id="best-practices">
+            <h2>11. Best practices</h2>
+            <ul>
+              <li><strong>Grant the least access that works.</strong> A research assistant may only need <code>artifact.read</code>. Add <code>artifact.share</code> only for apps you trust to share.</li>
+              <li><strong>One workspace per project or client.</strong> It keeps search results focused and makes access easy to reason about.</li>
+              <li><strong>Use teams, not email lists.</strong> Sharing with "Board prep" stays correct as people join and leave.</li>
+              <li><strong>Set expiries on outside shares.</strong> A link that ends on its own can't be forgotten.</li>
+              <li><strong>Version, don't duplicate.</strong> Updating an artifact keeps its history and its link.</li>
+              <li><strong>Curate tags.</strong> Accept good suggestions and reject the noise; confirmed tags make search sharper for everyone.</li>
+              <li><strong>Review connected apps now and then.</strong> Disconnect anything you no longer use from Profile.</li>
+              <li><strong>Give titles a human could search.</strong> "Q3 board deck v2 (final)" beats "deck-final-final.pptx".</li>
+            </ul>
+          </section>
+
+          <section id="limits">
+            <h2>12. Limits and file types</h2>
+            <ul>
+              <li><strong>Types:</strong> PDF, DOCX, PPTX, HTML, PNG, JPG, JPEG, BMP and GIF.</li>
+              <li><strong>Size:</strong> up to 25 MB per file.</li>
+              <li><strong>HTML preview:</strong> Safe Preview (the default) renders HTML and CSS but runs no JavaScript. Owners can switch on Interactive Preview per artifact, which runs scripts in an isolated sandbox with network access blocked.</li>
+              <li><strong>Scanned PDFs</strong> have no text layer, so they're findable by title, tags and dates rather than their words.</li>
+              <li><strong>Thumbnails</strong> aren't generated yet; files show a type badge.</li>
+              <li><strong>Beta:</strong> features may change while Artifactry is in beta. Have an idea? <a href="/request-feature">Request a feature</a>.</li>
+            </ul>
+          </section>
+        </article>
+      </div>
+    </div>
+
+    <!-- ============================== MCP ============================== -->
+    <div role="tabpanel" id="panel-mcp" aria-labelledby="tab-mcp" tabindex="0" hidden>
+      <div class="docs">
+        <nav class="toc" aria-label="MCP guide contents">
+          <h2>MCP Integration</h2>
+          <ol>
+            <li><a href="#mcp-basics">Before you start</a></li>
+            <li><a href="#mcp-chatgpt">ChatGPT</a></li>
+            <li><a href="#mcp-claude">Claude (Desktop and web)</a></li>
+            <li><a href="#mcp-claude-code">Claude Code</a></li>
+            <li><a href="#mcp-gemini">Gemini</a></li>
+            <li><a href="#mcp-others">Cursor, Codex and others</a></li>
+            <li><a href="#mcp-verify">Check it works</a></li>
+          </ol>
+        </nav>
+
+        <article class="prose">
+          <section id="mcp-basics">
+            <h2>Before you start</h2>
+            <p><strong>MCP</strong> (Model Context Protocol) is a common language that lets AI apps use outside tools. Connecting Artifactry over MCP gives your AI the Find, Save and Share tools from the <a href="#connect-ai">User Guide</a>.</p>
+            <div class="mcp-pick">
+              <a href="#mcp-chatgpt"><strong>ChatGPT</strong><span>Web and desktop apps</span></a>
+              <a href="#mcp-claude"><strong>Claude</strong><span>Desktop, web and Claude Code</span></a>
+              <a href="#mcp-gemini"><strong>Gemini</strong><span>Gemini CLI and Enterprise</span></a>
+            </div>
+            <p>Every app uses the same address:</p>
+            <div class="endpoint-box"><code>{{MCP_URL}}</code></div>
+            <h3>You'll need</h3>
+            <ul>
+              <li>An Artifactry account. <a href="{{APP_URL}}">Create one free</a> if you haven't.</li>
+              <li>The AI app you want to connect, signed in.</li>
+              <li>About two minutes.</li>
+            </ul>
+            <div class="callout"><span class="callout-icon" aria-hidden="true">🔑</span><div><p><strong>How sign-in works.</strong> When you add the address, the AI app opens an Artifactry page. Sign in with your email code, review what the app is asking for, and choose <strong>Allow</strong>. The app gets a key that refreshes itself, and you can revoke it any time in <strong>Profile → Connected AI apps</strong>.</p></div></div>
+          </section>
+
+          <!-- ChatGPT -->
+          <section id="mcp-chatgpt">
+            <h2>ChatGPT</h2>
+            <h3>Prerequisites</h3>
+            <ul>
+              <li>ChatGPT on the web (chatgpt.com) or the desktop app.</li>
+              <li>A Plus, Pro, Business, Enterprise or Edu plan. Custom connectors need <strong>Developer mode</strong>, which isn't available on the free plan. On Business and Enterprise, a workspace admin may need to allow it.</li>
+            </ul>
+            <h3>Setup</h3>
+            <ol class="steps-list">
+              <li>Open <strong>Settings → Security and login</strong> (on some plans <strong>Settings → Apps &amp; Connectors → Advanced</strong>) and turn on <strong>Developer mode</strong>.</li>
+              <li>Go to <strong>Settings → Apps &amp; Connectors</strong> and choose <strong>Create</strong>.</li>
+              <li>Fill in the form:
+                <div class="code"><div class="code-head"><span>Connector details</span><button class="copy-btn" type="button">Copy</button></div><pre><code>Name:            Artifactry
+Description:     My Artifactry library: search, save and share artifacts
+MCP Server URL:  {{MCP_URL}}
+Authentication:  OAuth</code></pre></div>
+              </li>
+              <li>Tick that you trust the app and choose <strong>Create</strong>.</li>
+              <li>A window opens on artifactry.app. Sign in with your email code and choose <strong>Allow</strong>.</li>
+              <li>Start a new chat. Open the <strong>+</strong> menu, choose <strong>Developer mode</strong> and switch on <strong>Artifactry</strong>.</li>
+            </ol>
+            <h3>Authentication</h3>
+            <p>OAuth handles everything; you never copy a token. If your company blocks OAuth connectors, ask your ChatGPT admin to approve Artifactry.</p>
+            <h3>Try it</h3>
+            <div class="code"><div class="code-head"><span>Say this in ChatGPT</span><button class="copy-btn" type="button">Copy</button></div><pre><code>List my Artifactry workspaces.
+
+Write a one-page summary of this chat as HTML and save it to Artifactry.
+
+Find my launch plan in Artifactry and add a risks section as a new version.</code></pre></div>
+            <p>Behind the scenes, ChatGPT calls a tool like this:</p>
+            <div class="code"><div class="code-head"><span>Tool call</span><button class="copy-btn" type="button">Copy</button></div><pre><code>save({
+  "file": "chat-summary.html",
+  "title": "Chat summary",
+  "content": "&lt;!DOCTYPE html&gt;&lt;html&gt;…&lt;/html&gt;"
+})</code></pre></div>
+            <h3>Common pitfalls</h3>
+            <ul>
+              <li><strong>No "Create" button:</strong> Developer mode is off, or your plan or admin doesn't allow custom connectors.</li>
+              <li><strong>Artifactry isn't used in chat:</strong> switch it on for that chat from the <strong>+ → Developer mode</strong> menu, or name it: "use Artifactry to…".</li>
+              <li><strong>Custom GPTs:</strong> GPT "Actions" are a different system and can't use MCP connectors. Use a normal chat with Developer mode.</li>
+              <li><strong>Files you attach:</strong> ChatGPT can hand attached files straight to Artifactry. Say "save the file I attached to Artifactry".</li>
+            </ul>
+          </section>
+
+          <!-- Claude -->
+          <section id="mcp-claude">
+            <h2>Claude (Desktop, web and mobile)</h2>
+            <h3>Prerequisites</h3>
+            <ul>
+              <li>A Claude account at claude.ai. Custom connectors work on every plan; the Free plan allows a limited number.</li>
+              <li>On Team and Enterprise plans, an owner adds the connector once for the organization, then each person connects their own account.</li>
+            </ul>
+            <h3>Setup</h3>
+            <ol class="steps-list">
+              <li>In Claude Desktop or at claude.ai, open <strong>Settings → Connectors</strong>.</li>
+              <li>Choose <strong>Add custom connector</strong>.</li>
+              <li>Enter the details:
+                <div class="code"><div class="code-head"><span>Connector details</span><button class="copy-btn" type="button">Copy</button></div><pre><code>Name:               Artifactry
+Remote MCP server URL:  {{MCP_URL}}</code></pre></div>
+                Leave the advanced OAuth Client ID and Secret fields empty. Artifactry registers Claude automatically.</li>
+              <li>Choose <strong>Add</strong>, then <strong>Connect</strong>. Sign in to Artifactry in the window that opens and choose <strong>Allow</strong>.</li>
+              <li>In a chat, open the <strong>tools</strong> menu (the sliders icon) and make sure <strong>Artifactry</strong> is switched on.</li>
+            </ol>
+            <p>Connectors added at claude.ai also appear in Claude Desktop and the mobile apps.</p>
+            <h3>Prefer a config file? (Claude Desktop)</h3>
+            <p>If you can't use custom connectors, Claude Desktop can reach Artifactry through the small open-source <code>mcp-remote</code> bridge. You need <a href="https://nodejs.org" target="_blank" rel="noopener">Node.js</a> 18 or newer installed.</p>
+            <ol class="steps-list">
+              <li>In Claude Desktop, open <strong>Settings → Developer → Edit Config</strong>. This opens <code>claude_desktop_config.json</code>.</li>
+              <li>Paste this in (merge with anything already there) and save:
+                <div class="code"><div class="code-head"><span>claude_desktop_config.json</span><button class="copy-btn" type="button">Copy</button></div><pre><code>{
+  "mcpServers": {
+    "artifactry": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "{{MCP_URL}}"]
+    }
+  }
+}</code></pre></div></li>
+              <li>Quit Claude Desktop completely and reopen it. A browser window asks you to sign in to Artifactry and <strong>Allow</strong>.</li>
+            </ol>
+            <h3>Try it</h3>
+            <div class="code"><div class="code-head"><span>Say this in Claude</span><button class="copy-btn" type="button">Copy</button></div><pre><code>Which Artifactry workspaces do I have?
+
+Turn this conversation into a polished HTML brief and save it to Artifactry.
+
+Search Artifactry for the Q3 finance deck and share it with the Board prep team for 7 days.</code></pre></div>
+            <div class="code"><div class="code-head"><span>Tool call</span><button class="copy-btn" type="button">Copy</button></div><pre><code>share({
+  "artifact": "https://artifactry.app/a/01J9Y…",
+  "team": "Board prep",
+  "permission": "view",
+  "expires_in_days": 7
+})</code></pre></div>
+            <h3>Common pitfalls</h3>
+            <ul>
+              <li><strong>"Couldn't connect":</strong> check the URL ends in <code>/api/v1/mcp</code> with no trailing spaces.</li>
+              <li><strong>Claude asks before every call:</strong> that's Claude's per-tool approval. Lookups are marked read-only; you can choose "Always allow" for tools you trust.</li>
+              <li><strong>New tools don't show up:</strong> open Settings → Connectors, disconnect and reconnect Artifactry, then start a new chat.</li>
+              <li><strong>Config file ignored:</strong> the JSON must be valid (watch for missing commas) and Claude Desktop must be fully quit, not just closed.</li>
+            </ul>
+          </section>
+
+          <!-- Claude Code -->
+          <section id="mcp-claude-code">
+            <h2>Claude Code</h2>
+            <h3>Prerequisites</h3>
+            <ul>
+              <li>Claude Code installed and signed in (run <code>claude</code> in a terminal to check).</li>
+            </ul>
+            <h3>Setup with OAuth (recommended)</h3>
+            <ol class="steps-list">
+              <li>Add the server. <code>--scope user</code> makes it available in every project:
+                <div class="code"><div class="code-head"><span>Terminal</span><button class="copy-btn" type="button">Copy</button></div><pre><code>claude mcp add --transport http --scope user artifactry {{MCP_URL}}</code></pre></div></li>
+              <li>Start Claude Code and type <code>/mcp</code>. Choose <strong>artifactry → Authenticate</strong>, sign in in the browser and choose <strong>Allow</strong>.</li>
+            </ol>
+            <h3>Setup with a personal token</h3>
+            <p>For CI or machines without a browser, <a href="#tokens">create a token</a> and pass it as a header:</p>
+            <div class="code"><div class="code-head"><span>Terminal</span><button class="copy-btn" type="button">Copy</button></div><pre><code>claude mcp add --transport http artifactry {{MCP_URL}} \
+  --header "Authorization: Bearer $ARTIFACTRY_TOKEN"</code></pre></div>
+            <p>Or share it with your team in a project <code>.mcp.json</code> (the token stays in each person's environment, not the file):</p>
+            <div class="code"><div class="code-head"><span>.mcp.json</span><button class="copy-btn" type="button">Copy</button></div><pre><code>{
+  "mcpServers": {
+    "artifactry": {
+      "type": "http",
+      "url": "{{MCP_URL}}",
+      "headers": { "Authorization": "Bearer ${ARTIFACTRY_TOKEN}" }
+    }
+  }
+}</code></pre></div>
+            <h3>Try it</h3>
+            <div class="code"><div class="code-head"><span>Say this in Claude Code</span><button class="copy-btn" type="button">Copy</button></div><pre><code>Save docs/architecture.html to Artifactry in the Engineering workspace.
+
+Find the latest API design doc in Artifactry and check this branch against it.</code></pre></div>
+            <h3>Common pitfalls</h3>
+            <ul>
+              <li><strong>Shows "needs authentication" in <code>/mcp</code>:</strong> choose Authenticate and finish the browser sign-in.</li>
+              <li><strong>Token header not working:</strong> make sure <code>ARTIFACTRY_TOKEN</code> is exported in the shell that starts <code>claude</code>.</li>
+              <li><strong>Check status any time:</strong> <code>claude mcp list</code>.</li>
+            </ul>
+          </section>
+
+          <!-- Gemini -->
+          <section id="mcp-gemini">
+            <h2>Gemini</h2>
+            <div class="callout warn"><span class="callout-icon" aria-hidden="true">⚠️</span><div><p><strong>Which Gemini?</strong> The consumer Gemini app (gemini.google.com) and Google AI Studio don't support custom MCP connectors yet. Use the <strong>Gemini CLI</strong> (free, works today) or <strong>Gemini Enterprise</strong>.</p></div></div>
+            <h3>Gemini CLI: prerequisites</h3>
+            <ul>
+              <li><a href="https://nodejs.org" target="_blank" rel="noopener">Node.js</a> 20 or newer.</li>
+              <li>The Gemini CLI: <code>npm install -g @google/gemini-cli</code>, then run <code>gemini</code> once to sign in with Google.</li>
+            </ul>
+            <h3>Gemini CLI: setup</h3>
+            <ol class="steps-list">
+              <li>Add Artifactry with one command:
+                <div class="code"><div class="code-head"><span>Terminal</span><button class="copy-btn" type="button">Copy</button></div><pre><code>gemini mcp add --transport http --scope user artifactry {{MCP_URL}}</code></pre></div>
+                Or edit <code>~/.gemini/settings.json</code> yourself:
+                <div class="code"><div class="code-head"><span>~/.gemini/settings.json</span><button class="copy-btn" type="button">Copy</button></div><pre><code>{
+  "mcpServers": {
+    "artifactry": {
+      "httpUrl": "{{MCP_URL}}"
+    }
+  }
+}</code></pre></div></li>
+              <li>Start <code>gemini</code> and run:
+                <div class="code"><div class="code-head"><span>Inside Gemini CLI</span><button class="copy-btn" type="button">Copy</button></div><pre><code>/mcp auth artifactry</code></pre></div>
+                Sign in to Artifactry in the browser and choose <strong>Allow</strong>.</li>
+              <li>Run <code>/mcp</code> to see Artifactry listed with its tools.</li>
+            </ol>
+            <h3>Gemini CLI with a personal token</h3>
+            <div class="code"><div class="code-head"><span>~/.gemini/settings.json</span><button class="copy-btn" type="button">Copy</button></div><pre><code>{
+  "mcpServers": {
+    "artifactry": {
+      "httpUrl": "{{MCP_URL}}",
+      "headers": { "Authorization": "Bearer $ARTIFACTRY_TOKEN" }
+    }
+  }
+}</code></pre></div>
+            <h3>Gemini Enterprise</h3>
+            <p>Gemini Enterprise asks for an OAuth client ID and secret rather than registering itself. Artifactry can issue one for your organization; during beta, <a href="/request-feature">send a request</a> and we'll set it up. Then add an MCP server in Gemini Enterprise with:</p>
+            <div class="code"><div class="code-head"><span>Gemini Enterprise settings</span><button class="copy-btn" type="button">Copy</button></div><pre><code>Server URL:         {{MCP_URL}}
+Authentication:     OAuth 2.0
+Authorization URL:  https://artifactry.app/oauth/authorize
+Token URL:          https://artifactry.app/oauth/token
+Client ID / Secret: (the values we send you)</code></pre></div>
+            <h3>Try it</h3>
+            <div class="code"><div class="code-head"><span>Say this in Gemini CLI</span><button class="copy-btn" type="button">Copy</button></div><pre><code>Use Artifactry to list my workspaces.
+
+Save README.md to Artifactry as an HTML page called "Project overview".</code></pre></div>
+            <div class="code"><div class="code-head"><span>Tool call</span><button class="copy-btn" type="button">Copy</button></div><pre><code>search({ "query": "project overview", "type": "html", "limit": 5 })</code></pre></div>
+            <h3>Common pitfalls</h3>
+            <ul>
+              <li><strong>Server shows as disconnected:</strong> run <code>/mcp auth artifactry</code> again.</li>
+              <li><strong>Used <code>url</code> instead of <code>httpUrl</code>:</strong> in <code>settings.json</code>, <code>url</code> means the older SSE transport. Artifactry needs <code>httpUrl</code>.</li>
+              <li><strong>Tools are asked about every time:</strong> approve with "always allow" in the prompt, or add <code>"trust": true</code> to the server entry once you're comfortable.</li>
+            </ul>
+          </section>
+
+          <section id="mcp-others">
+            <h2>Cursor, Codex and other MCP clients</h2>
+            <p>Any client that supports remote MCP servers over HTTP works. If it supports OAuth, just give it the URL. If not, use a <a href="#tokens">personal token</a> in an <code>Authorization: Bearer</code> header.</p>
+            <h3>Cursor</h3>
+            <div class="code"><div class="code-head"><span>~/.cursor/mcp.json</span><button class="copy-btn" type="button">Copy</button></div><pre><code>{
+  "mcpServers": {
+    "artifactry": {
+      "url": "{{MCP_URL}}"
+    }
+  }
+}</code></pre></div>
+            <p>Open <strong>Cursor Settings → MCP</strong> and choose <strong>Login</strong> next to Artifactry.</p>
+            <h3>OpenAI Codex CLI</h3>
+            <div class="code"><div class="code-head"><span>Terminal</span><button class="copy-btn" type="button">Copy</button></div><pre><code>codex mcp add artifactry --url {{MCP_URL}}
+codex mcp login artifactry</code></pre></div>
+            <div class="callout"><span class="callout-icon" aria-hidden="true">ℹ️</span><div><p>Client settings change often. If a menu has moved, look for "MCP", "Connectors" or "Tools" in the app's settings and use the same URL.</p></div></div>
+          </section>
+
+          <section id="mcp-verify">
+            <h2>Check it works</h2>
+            <ol class="steps-list">
+              <li><strong>Is Artifactry reachable?</strong> Open <a href="{{MCP_URL}}" target="_blank" rel="noopener">{{MCP_URL}}</a> in a browser. You should see a JSON list of tools.</li>
+              <li><strong>Is your AI connected?</strong> Ask it: <em>"List my Artifactry workspaces."</em> You should get your workspace names back.</li>
+              <li><strong>Can it save?</strong> Ask: <em>"Save a short test note to Artifactry called Connection test."</em> It should reply with a link starting <code>https://artifactry.app/a/</code>.</li>
+              <li><strong>Does it show up?</strong> Open <a href="{{APP_URL}}">artifactry.app</a>. The note is at the top of your Library, and <strong>Profile → Connected AI apps</strong> shows the app as connected.</li>
+            </ol>
+            <div class="callout tip"><span class="callout-icon" aria-hidden="true">💡</span><div><p>Stuck? See <a href="#troubleshooting">Troubleshooting</a>, or tell us what happened through <a href="/request-feature">Request a Feature</a>.</p></div></div>
+          </section>
+        </article>
+      </div>
+    </div>
+  </div>
+</section>

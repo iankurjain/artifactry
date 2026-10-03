@@ -1,0 +1,77 @@
+<!--{"title": "Request a Feature", "description": "Tell the Artifactry team what to build next. Feature requests go straight to the people building the product.", "path": "/request-feature", "nav": "request", "splitforms": true}-->
+<section class="page-hero">
+  <div class="container">
+    <span class="eyebrow fade-in">Request a Feature</span>
+    <h1 class="fade-in d1">Help shape <span class="grad-text">what we build next.</span></h1>
+    <p class="fade-in d2">Artifactry is in beta, and the roadmap is driven by the people using it. Tell us what would make your library more useful and we'll read every word.</p>
+  </div>
+</section>
+
+<section class="section" style="padding-top:24px">
+  <div class="container form-wrap">
+    <div class="reveal">
+      <h2 style="font-size:1.6rem">What makes a great request</h2>
+      <ul class="checks">
+        <li><span><strong>Start with the problem.</strong> "I lose track of which AI made which draft" tells us more than "add a filter".</span></li>
+        <li><span><strong>Describe today's workaround.</strong> It shows us how much the problem hurts.</span></li>
+        <li><span><strong>Mention your AI app.</strong> Claude, ChatGPT, Gemini, Cursor or something else.</span></li>
+        <li><span><strong>One idea per request.</strong> It's easier to track and to tell you when it ships.</span></li>
+      </ul>
+      <div class="callout" style="margin-top:28px"><span class="callout-icon" aria-hidden="true">✉️</span><div><p>We'll reply to the email you give us if we need more detail. We use it only to respond to this request; see our <a href="/privacy">Privacy Policy</a>.</p></div></div>
+    </div>
+
+    <div class="form-card reveal reveal-d1">
+      <div class="form-success" id="form-success" role="status" tabindex="-1" hidden>
+        <span class="callout-icon" aria-hidden="true">🎉</span>
+        <div>
+          <h3>Thank you, request received.</h3>
+          <p>It's on its way to the Artifactry team. If we need more detail, we'll reply by email.</p>
+        </div>
+      </div>
+
+      <form id="feature-form" action="https://splitforms.com/api/submit" method="POST">
+        <input type="hidden" name="access_key" value="ef0c988b772543149748a02836c57fb3">
+        <input type="checkbox" name="botcheck" tabindex="-1" autocomplete="off" style="display:none">
+
+        <div class="field-row">
+          <div class="field">
+            <label for="f-name">Name<span class="req" aria-hidden="true">*</span></label>
+            <input class="input" id="f-name" name="name" type="text" autocomplete="name" required>
+          </div>
+          <div class="field">
+            <label for="f-email">Email<span class="req" aria-hidden="true">*</span></label>
+            <input class="input" id="f-email" name="email" type="email" autocomplete="email" required aria-describedby="f-email-hint">
+            <span class="hint" id="f-email-hint">We'll reply here.</span>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="f-title">Feature title<span class="req" aria-hidden="true">*</span></label>
+          <input class="input" id="f-title" name="feature_title" type="text" maxlength="140" required placeholder="e.g. Save chat attachments to a collection">
+        </div>
+
+        <div class="field">
+          <label for="f-message">Description<span class="req" aria-hidden="true">*</span></label>
+          <textarea class="input" id="f-message" name="message" required placeholder="What problem would this solve? How do you handle it today?"></textarea>
+        </div>
+
+        <div class="field">
+          <label for="f-priority">Priority</label>
+          <select class="input" id="f-priority" name="priority">
+            <option value="Low">Low</option>
+            <option value="Medium" selected>Medium</option>
+            <option value="High">High</option>
+            <option value="Critical">Critical</option>
+          </select>
+        </div>
+
+        <div class="form-actions">
+          <button class="btn btn-primary" type="submit"><span class="spinner" aria-hidden="true"></span>Send request <span class="arrow" aria-hidden="true">→</span></button>
+          <p class="form-status" id="form-status" role="alert" aria-live="assertive"></p>
+        </div>
+      </form>
+
+      <p class="powered">Powered by <a href="https://splitforms.com/?ref=ai-prompt" target="_blank" rel="sponsored noopener">splitforms</a></p>
+    </div>
+  </div>
+</section>
