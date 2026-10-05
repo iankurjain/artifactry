@@ -23,6 +23,7 @@ import {
   safeUrl,
   brandUrl
 } from './ui.js'
+import { lineageCard, wireLineage } from './handoffs.js'
 
 // ---------------------------------------------------------------
 // Artifact detail (§82)
@@ -81,6 +82,8 @@ export function renderArtifactDetail(ctx) {
   const versions = detail.versions || []
   const isHtml = a.mimeType === 'text/html'
   const isImage = ['image/png', 'image/jpeg', 'image/bmp', 'image/gif', 'image/webp'].includes(a.mimeType)
+  // Notes, data and code are served as text/plain and shown as text.
+  const isText = (a.mimeType || '').startsWith('text/plain')
   const processing = ['UPLOADING', 'PROCESSING'].includes(a.status)
   const failed = ['PROCESSING_FAILED', 'QUARANTINED'].includes(a.status)
 
@@ -117,6 +120,10 @@ export function renderArtifactDetail(ctx) {
                    src="${safeUrl(previewSource(a))}"></iframe>
                </div>
                ${previewModeNote(a)}`
+            : isText
+              ? `<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px">
+                   <pre id="detail-text" class="text-preview" aria-label="Contents of ${esc(a.title)}">Loading…</pre>
+                 </div>`
             : isImage
               ? `<div class="card" style="padding:10px;margin-bottom:14px;text-align:center">
                    <img alt="Preview of ${esc(a.title)}" loading="lazy"
@@ -251,7 +258,7 @@ export function renderArtifactDetail(ctx) {
           <h2 style="font-size:13px;font-weight:640;margin:0 0 12px;color:var(--text-2);text-transform:uppercase;letter-spacing:.05em">
             Details
           </h2>
-          ${detailRow('Created through', a.sourceProvider && a.sourceProvider !== 'WEB' ? a.sourceProvider : 'Web upload')}
+          ${detailRow('Made by', a.madeBy || 'Uploaded by a person')}
           ${detailRow('Created', formatDate(a.createdAt))}
           ${detailRow('Owner', a.isOwner ? 'You' : 'Someone else')}
           ${detailRow('Status', a.status)}
@@ -268,6 +275,12 @@ export function renderArtifactDetail(ctx) {
           ${a.checksum ? detailRow('Checksum', `${a.checksum.slice(0, 16)}…`) : ''}
           ${detailRow('Artifact ID', a.id)}
         </div>
+
+        ${lineageCard(a)}
+
+        <button class="btn btn-secondary btn-block" id="detail-handoff" style="margin-top:12px">
+          ${icon('share', 17)} Hand off to another AI tool
+        </button>
 
         ${htmlPreviewCard(a)}
 
@@ -306,6 +319,20 @@ export function renderArtifactDetail(ctx) {
       root.querySelector('#detail-share')?.addEventListener('click', () => ctx.openShareCreateSheet(a))
       root.querySelector('#detail-analytics')?.addEventListener('click', () => ctx.openAnalyticsScreen(a.id))
       root.querySelector('#detail-versions')?.addEventListener('click', () => ctx.openVersionsSheet(a))
+      root.querySelector('#detail-handoff')?.addEventListener('click', () => ctx.openHandoffSheet(a))
+      wireLineage(root, ctx)
+      // A text file is fetched as text and set with textContent, never as HTML.
+      const textHost = root.querySelector('#detail-text')
+      if (textHost) {
+        fetch(`/api/v1/artifacts/${encodeURIComponent(a.id)}/content`, { credentials: 'same-origin' })
+          .then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status)))))
+          .then((text) => {
+            textHost.textContent = text.length > 200000 ? `${text.slice(0, 200000)}\n…` : text
+          })
+          .catch(() => {
+            textHost.textContent = 'Could not load the contents.'
+          })
+      }
       // Tag decisions are applied one at a time and the detail screen is
       // re-fetched after each, so the chips always show server state rather
       // than an optimistic guess that a refusal would silently contradict.
@@ -806,7 +833,7 @@ export function versionsSheet(ctx, artifact, versions) {
         </div>
         <div style="font-size:11.5px;color:var(--text-2);margin-top:2px">
           ${esc(formatBytes(v.sizeBytes))} · ${esc(formatDate(v.createdAt))}${
-            v.sourceProvider ? ` · ${esc(v.sourceProvider)}` : ''
+            v.madeBy ? ` · ${esc(v.madeBy)}` : ''
           }
         </div>
         ${v.changeSummary ? `<div style="font-size:11.5px;color:var(--text-3);margin-top:2px">${esc(v.changeSummary)}</div>` : ''}

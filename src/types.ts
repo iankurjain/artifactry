@@ -313,6 +313,8 @@ export interface ArtifactRow {
    * audited owner action sets it to 1.
    */
   interactive_html?: number
+  /** Migration 0010: the client name the saving AI tool reported, e.g. "Cursor". */
+  source_client?: string | null
   created_at: string
   updated_at: string
   deleted_at: string | null
@@ -330,6 +332,8 @@ export interface VersionRow {
   checksum: string | null
   source_type: SourceType
   source_provider: SourceProvider | null
+  /** Migration 0010: the client name the saving AI tool reported. */
+  source_client?: string | null
   change_summary: string | null
   extracted_text: string | null
   created_by_user_id: string | null

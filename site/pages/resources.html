@@ -29,9 +29,10 @@
             <li><a href="#tokens">7. Personal access tokens</a></li>
             <li><a href="#http">8. Using Artifactry from the command line</a></li>
             <li><a href="#sessions">9. How agents use artifacts across sessions</a></li>
-            <li><a href="#troubleshooting">10. Troubleshooting</a></li>
-            <li><a href="#best-practices">11. Best practices</a></li>
-            <li><a href="#limits">12. Limits and file types</a></li>
+            <li><a href="#handoffs">10. Handing work between AI tools</a></li>
+            <li><a href="#troubleshooting">11. Troubleshooting</a></li>
+            <li><a href="#best-practices">12. Best practices</a></li>
+            <li><a href="#limits">13. Limits and file types</a></li>
           </ol>
         </nav>
 
@@ -129,7 +130,8 @@
                 <tr><td><strong>Find</strong></td><td><code>search</code>, <code>get</code></td><td>"Find the Q3 finance deck."</td></tr>
                 <tr><td><strong>Save</strong></td><td><code>save</code>, <code>create_version</code>, <code>upload_part</code></td><td>"Save this page to my Marketing workspace."</td></tr>
                 <tr><td><strong>Share</strong></td><td><code>share</code>, <code>revoke_share</code></td><td>"Share it with Board prep for 7 days."</td></tr>
-                <tr><td><strong>Look up</strong></td><td><code>list_workspaces</code>, <code>list_teams</code>, <code>list_tags</code>, <code>update_tags</code></td><td>"Which workspaces do I have?"</td></tr>
+                <tr><td><strong>Hand off</strong></td><td><code>handoff</code>, <code>get_handoff</code>, <code>list_handoffs</code></td><td>"Hand the research and the spec to Cursor."</td></tr>
+                <tr><td><strong>Look up</strong></td><td><code>list_workspaces</code>, <code>list_projects</code>, <code>list_teams</code>, <code>list_tags</code>, <code>update_tags</code></td><td>"Which workspaces do I have?"</td></tr>
               </tbody>
             </table>
             <div class="callout"><span class="callout-icon" aria-hidden="true">🔒</span><div><p><strong>Sharing outside your organization always asks you first.</strong> If an AI tries to make a public link or share with outside emails or a domain, Artifactry returns a confirmation request. Nothing is shared until you agree, and the approval only works for that exact request.</p></div></div>
@@ -209,12 +211,34 @@
               <li><strong>Friday, in Cursor:</strong> "Pull the launch plan from Artifactry and turn the checklist into tickets." The coding agent reads the latest version.</li>
               <li><strong>Any time:</strong> "Share the launch plan with Board prep for a week." One <code>share</code> call, inside your organization, no prompt needed.</li>
             </ol>
-            <p>Every artifact records which AI created or changed it, so "which AI did what, on whose behalf" always has an answer.</p>
+            <p>Every artifact records which AI created or changed it, so "which AI did what, on whose behalf" always has an answer. You see it as <strong>Made by Claude</strong>, <strong>Made by Cursor</strong> and so on, and you can filter search by it.</p>
             <div class="callout tip"><span class="callout-icon" aria-hidden="true">💡</span><div><p><strong>Tell the AI to reuse.</strong> Phrases like "update the existing one" or "save as a new version" steer it to <code>create_version</code> instead of making duplicates.</p></div></div>
           </section>
 
+          <section id="handoffs">
+            <h2>10. Handing work between AI tools</h2>
+            <p>A <strong>handoff</strong> is a short note plus a few artifacts that one AI tool leaves for the next one. Claude finishes the research, hands it to Cursor to build, and Cursor hands the code and spec on to Gemini for the deck. Nothing is copied and pasted, and every step stays in your library.</p>
+            <h3>Leave a handoff</h3>
+            <ol class="steps-list">
+              <li>In the tool that did the work, say: <em>"Save this to Artifactry and hand it off to Cursor with a brief: build the API from this spec."</em> The AI calls <code>save</code>, then <code>handoff</code>.</li>
+              <li>It replies with a link (<code>…/h/hof_…</code>) and a <strong>pickup line</strong>, a sentence you paste into the next tool.</li>
+              <li>You can also start one in the app: open an artifact and choose <strong>Hand off to another AI tool</strong>.</li>
+            </ol>
+            <h3>Pick it up</h3>
+            <ol class="steps-list">
+              <li>Open the next tool (it must be connected to Artifactry too).</li>
+              <li>Paste the pickup line, for example <em>"Open my Artifactry handoff hof_… and do what its brief asks."</em> If you don't have it, say <em>"Pick up my latest Artifactry handoff."</em></li>
+              <li>The tool calls <code>get_handoff</code>, reads the brief and every file in full (code and Markdown come back exactly as written), and gets to work. The handoff shows <strong>Picked up by Cursor</strong> in the app.</li>
+            </ol>
+            <h3>Built from: lineage</h3>
+            <p>When an AI saves something it made from other artifacts, Artifactry records <strong>Built from</strong> links. The AI can name its sources (<code>derived_from</code>); if it doesn't, Artifactry links what that same connection read in the last two hours. Open any artifact to see what it was built from and what it was used in, and remove a link that's wrong.</p>
+            <h3>Projects</h3>
+            <p>Mark a collection as a <strong>project</strong> (in Collections, choose <strong>Use as a project</strong>) and your AI tools can list it and save straight into it: <em>"Save this to the Q4 launch project."</em></p>
+            <div class="callout tip"><span class="callout-icon" aria-hidden="true">💡</span><div><p><strong>Handoffs follow your access.</strong> The next tool only sees the artifacts you can read. Anything you can't read is left out, never revealed.</p></div></div>
+          </section>
+
           <section id="troubleshooting">
-            <h2>10. Troubleshooting</h2>
+            <h2>11. Troubleshooting</h2>
             <details class="faq"><summary>My sign-in code never arrived.</summary><div><p>Check the address for typos and look in spam or promotions. Wait for the cooldown and request a new code. Codes expire after 10 minutes.</p></div></details>
             <details class="faq"><summary>My upload failed.</summary><div><p>The usual causes are a file over 25 MB, an unsupported type, or a file whose contents don't match its extension (for example a video renamed to <code>.pdf</code>). All three are refused on purpose.</p></div></details>
             <details class="faq"><summary>My AI app says it isn't authorised, or returns a 401.</summary><div><p>The connection may have been disconnected, replaced by a newer one, or it lacks the permission that action needs (for example <code>artifact.share</code> for sharing). Remove and re-add the connector in your AI app, or create a new token with the right scopes.</p></div></details>
@@ -225,7 +249,7 @@
           </section>
 
           <section id="best-practices">
-            <h2>11. Best practices</h2>
+            <h2>12. Best practices</h2>
             <ul>
               <li><strong>Grant the least access that works.</strong> A research assistant may only need <code>artifact.read</code>. Add <code>artifact.share</code> only for apps you trust to share.</li>
               <li><strong>One workspace per project or client.</strong> It keeps search results focused and makes access easy to reason about.</li>
@@ -239,9 +263,10 @@
           </section>
 
           <section id="limits">
-            <h2>12. Limits and file types</h2>
+            <h2>13. Limits and file types</h2>
             <ul>
-              <li><strong>Types:</strong> PDF, DOCX, PPTX, HTML, PNG, JPG, JPEG, BMP and GIF.</li>
+              <li><strong>Types:</strong> PDF, DOCX, PPTX, HTML, PNG, JPG, JPEG, BMP, GIF and WEBP, plus notes, data and code as plain text: Markdown, TXT, CSV, JSON, YAML and common source files (JS, TS, Python, Go, Rust, Java, SQL and more).</li>
+              <li><strong>Text and code files:</strong> up to 10 MB, shown as plain text and returned to AI tools exactly as written.</li>
               <li><strong>Size:</strong> up to 25 MB per file.</li>
               <li><strong>HTML preview:</strong> Safe Preview (the default) renders HTML and CSS but runs no JavaScript. Owners can switch on Interactive Preview per artifact, which runs scripts in an isolated sandbox with network access blocked.</li>
               <li><strong>Scanned PDFs</strong> have no text layer, so they're findable by title, tags and dates rather than their words.</li>
@@ -496,6 +521,7 @@ Save README.md to Artifactry as an HTML page called "Project overview".</code></
   }
 }</code></pre></div>
             <p>Open <strong>Cursor Settings → MCP</strong> and choose <strong>Login</strong> next to Artifactry.</p>
+            <p>Then in Cursor's agent chat try <em>"Pick up my latest Artifactry handoff"</em> or <em>"Save this file to Artifactry as a new version of the API spec"</em>. Code and Markdown files come back exactly as written, so Cursor can work on them directly.</p>
             <h3>OpenAI Codex CLI</h3>
             <div class="code"><div class="code-head"><span>Terminal</span><button class="copy-btn" type="button">Copy</button></div><pre><code>codex mcp add artifactry --url {{MCP_URL}}
 codex mcp login artifactry</code></pre></div>

@@ -57,6 +57,12 @@ export type AuditAction =
   | 'INVITATION_REVOKE'
   | 'INVITATION_ACCEPT'
   | 'PROFILE_UPDATE'
+  | 'HANDOFF_CREATE'
+  | 'HANDOFF_PICKUP'
+  | 'HANDOFF_STATUS'
+  | 'LINEAGE_ADD'
+  | 'LINEAGE_REMOVE'
+  | 'COLLECTION_PROJECT'
 
 export interface AuditInput {
   organizationId?: string | null

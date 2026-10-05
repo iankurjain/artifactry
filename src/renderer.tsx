@@ -162,6 +162,52 @@ const DESIGN_TOKENS = `
     width: 100%;
   }
 
+  /* Copyable snippets on the Connect page and handoff screens */
+  .code-snippet {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+  }
+  .code-snippet pre {
+    margin: 0;
+    width: 100%;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .connect-steps { margin: 6px 0 10px; padding-left: 20px; font-size: 13px; line-height: 1.55; color: var(--text); }
+  .connect-steps li + li { margin-top: 4px; }
+
+  /* First-run checklist */
+  .first-run-dot {
+    width: 18px; height: 18px; flex: none; border-radius: 50%;
+    border: 2px solid var(--border); box-sizing: border-box;
+  }
+  .first-run-dot.is-done { background: var(--accent); border-color: var(--accent); }
+
+  /* Plain-text and code files on the detail screen */
+  .text-preview {
+    margin: 0;
+    max-height: 70vh;
+    overflow: auto;
+    padding: 14px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
   .chip {
     display: inline-flex;
     align-items: center;

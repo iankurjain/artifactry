@@ -53,6 +53,7 @@ import {
   shareResultSheet
 } from './detail.js'
 import { renderGuide } from './guide.js'
+import { renderConnect, renderHandoffs, renderHandoff, openHandoffSheet } from './handoffs.js'
 
 // ---------------------------------------------------------------
 // Boot payload
@@ -114,7 +115,9 @@ const SIMPLE_ROUTES = {
   profile: 'profile',
   admin: 'admin',
   settings: 'profile',
-  guide: 'guide'
+  guide: 'guide',
+  connect: 'connect',
+  handoffs: 'handoffs'
 }
 
 function parseRoute(pathname = window.location.pathname) {
@@ -137,6 +140,10 @@ function parseRoute(pathname = window.location.pathname) {
 
   if (segments[0] === 'join' && segments[1]) {
     return { name: 'join', token: decodeURIComponent(segments[1]) }
+  }
+
+  if (segments[0] === 'h' && segments[1]) {
+    return { name: 'handoff', handoffId: decodeURIComponent(segments[1]) }
   }
 
   if (!segments.length) return { name: 'home' }
@@ -238,6 +245,12 @@ function screenFor(route) {
       return renderShareRecipient(ctx)
     case 'guide':
       return renderGuide(ctx)
+    case 'connect':
+      return renderConnect(ctx)
+    case 'handoffs':
+      return renderHandoffs(ctx)
+    case 'handoff':
+      return renderHandoff(ctx)
     default:
       return renderHome(ctx)
   }
@@ -387,9 +400,30 @@ async function loadRouteData(route) {
   }
 
   switch (route.name) {
-    case 'home':
+    case 'home': {
+      await Promise.all([loadArtifacts(), loadIntegrations(), loadHandoffs()])
+      break
+    }
     case 'library': {
       await Promise.all([loadArtifacts(), loadIntegrations()])
+      break
+    }
+    case 'connect': {
+      await loadIntegrations()
+      break
+    }
+    case 'handoffs': {
+      await loadHandoffs(ctx.handoffsShowClosed ? 'all' : undefined)
+      break
+    }
+    case 'handoff': {
+      if (ctx.handoffView?.id !== route.handoffId) ctx.handoffView = { id: route.handoffId, loading: true }
+      try {
+        const result = await api.handoff(route.handoffId)
+        ctx.handoffView = { id: route.handoffId, loading: false, ...result }
+      } catch (error) {
+        ctx.handoffView = { id: route.handoffId, loading: false, error: error.message || 'Handoff not found' }
+      }
       break
     }
     case 'search': {
@@ -476,9 +510,22 @@ async function loadRouteData(route) {
 async function loadIntegrations() {
   try {
     const result = await api.integrations()
-    setState({ integrations: result?.integrations || [] })
+    setState({
+      integrations: result?.integrations || [],
+      mcpEndpoint: result?.mcpEndpoint || null,
+      connectedTools: result?.connectedTools || []
+    })
   } catch {
     /* connector list is supplementary */
+  }
+}
+
+async function loadHandoffs(status) {
+  try {
+    const result = await api.handoffs({ status })
+    setState({ handoffs: result?.handoffs || [] })
+  } catch {
+    /* handoffs are supplementary on Home */
   }
 }
 
@@ -566,6 +613,12 @@ async function loadWorkspaceManage(requestedId) {
 ctx.navigate = navigate
 
 ctx.goBack = goBack
+
+ctx.copyText = (value) => copyText(value)
+
+ctx.closeSheet = closeSheet
+
+ctx.openHandoffSheet = (artifact) => openHandoffSheet(ctx, artifact)
 
 /**
  * Re-render the current route from data already in memory.
@@ -764,7 +817,24 @@ async function runSearch({ save = true } = {}) {
   }
 
   try {
-    const result = await api.search({ query, filters, limit: 40 })
+    const types =
+      filters.type === 'image'
+        ? ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp']
+        : filters.type === 'html'
+          ? ['html', 'htm']
+          : filters.type === 'text'
+            ? ['md', 'markdown', 'txt']
+            : filters.type
+              ? [filters.type]
+              : undefined
+    const result = await api.search({
+      query,
+      filters,
+      types,
+      sort: filters.sort,
+      madeBy: filters.madeBy,
+      limit: 40
+    })
     ctx.search.results = result?.results || []
     ctx.search.total = result?.total ?? ctx.search.results.length
     ctx.search.engine = result?.engine || null
@@ -812,8 +882,18 @@ ctx.openFilterSheet = () => {
     ['pdf', 'PDF'],
     ['docx', 'Document (DOCX)'],
     ['html', 'Web page (HTML)'],
-    ['image', 'Image']
+    ['image', 'Image'],
+    ['text', 'Notes (Markdown, text)']
   ]
+  const makers = [
+    ['', 'Anyone'],
+    ['claude', 'Claude'],
+    ['chatgpt', 'ChatGPT'],
+    ['cursor', 'Cursor'],
+    ['gemini', 'Gemini'],
+    ['web', 'Uploaded by a person']
+  ]
+  const currentMaker = ctx.search.activeFilters.find((f) => f.key === 'madeBy')?.value || ''
 
   const currentType = ctx.search.activeFilters.find((f) => f.key === 'type')?.value || 'all'
   const currentSort = ctx.search.activeFilters.find((f) => f.key === 'sort')?.value || 'updated'
@@ -828,6 +908,18 @@ ctx.openFilterSheet = () => {
             ([value, label]) => `
           <label class="row" style="gap:11px;padding:11px 0">
             <input type="radio" name="filter-type" value="${esc(value)}" ${currentType === value ? 'checked' : ''}
+              style="accent-color:var(--accent);width:18px;height:18px;flex:none">
+            <span style="flex:1;font-size:14px">${esc(label)}</span>
+          </label>`
+          )
+          .join('')}
+
+        <div style="font-size:12.5px;font-weight:640;color:var(--text-2);text-transform:uppercase;letter-spacing:.05em;margin:18px 0 8px">Made by</div>
+        ${makers
+          .map(
+            ([value, label]) => `
+          <label class="row" style="gap:11px;padding:11px 0">
+            <input type="radio" name="filter-maker" value="${esc(value)}" ${currentMaker === value ? 'checked' : ''}
               style="accent-color:var(--accent);width:18px;height:18px;flex:none">
             <span style="flex:1;font-size:14px">${esc(label)}</span>
           </label>`
@@ -863,9 +955,15 @@ ctx.openFilterSheet = () => {
           const type = panel?.querySelector('input[name="filter-type"]:checked')?.value || 'all'
           const sort = panel?.querySelector('input[name="filter-sort"]:checked')?.value || 'updated'
 
+          const maker = panel?.querySelector('input[name="filter-maker"]:checked')?.value || ''
+
           ctx.search.activeFilters = ctx.search.activeFilters.filter(
-            (f) => f.key !== 'type' && f.key !== 'sort'
+            (f) => f.key !== 'type' && f.key !== 'sort' && f.key !== 'madeBy'
           )
+          if (maker) {
+            const label = makers.find(([value]) => value === maker)?.[1] || maker
+            ctx.search.activeFilters.push({ key: 'madeBy', value: maker, label: `Made by: ${label}` })
+          }
           if (type !== 'all') {
             ctx.search.activeFilters.push({ key: 'type', value: type, label: `Type: ${type.toUpperCase()}` })
           }
@@ -1041,7 +1139,11 @@ ctx.openAnalyticsScreen = (artifactId) => navigate(`/a/${encodeURIComponent(arti
 // Small shared builders
 // ---------------------------------------------------------------
 
-const ACCEPTED = '.pptx,.pdf,.docx,.html,.htm,.png,.jpg,.jpeg,.bmp,.gif,.webp'
+const ACCEPTED =
+  '.pptx,.pdf,.docx,.html,.htm,.png,.jpg,.jpeg,.bmp,.gif,.webp,' +
+  // Notes, data and code (stored and shown as plain text)
+  '.txt,.md,.markdown,.csv,.tsv,.json,.yaml,.yml,.toml,.ini,.log,.js,.mjs,.cjs,.jsx,.ts,.tsx,.py,.rb,.go,.rs,' +
+  '.java,.kt,.swift,.c,.h,.cpp,.hpp,.cs,.php,.sql,.sh,.css,.scss,.graphql,.proto'
 
 function workspaceOptions(selectedId) {
   const current = selectedId ?? state.currentWorkspaceId
@@ -1274,6 +1376,11 @@ ctx.openCollectionCreateSheet = () => {
           'Workspace',
           `<select id="collection-workspace" class="input">${workspaceOptions()}</select>`
         )}
+        <label style="display:flex;gap:9px;align-items:flex-start;font-size:13px;line-height:1.45;margin-top:4px">
+          <input type="checkbox" id="collection-project" style="margin-top:3px">
+          <span><strong>This is a project.</strong> Your AI tools can list it and save straight into it,
+          e.g. "save this to the Q4 launch project".</span>
+        </label>
       </div>`,
     actions: [
       {
@@ -1289,9 +1396,10 @@ ctx.openCollectionCreateSheet = () => {
           }
           const description = panel?.querySelector('#collection-desc')?.value?.trim() || null
           const workspaceId = panel?.querySelector('#collection-workspace')?.value
+          const isProject = Boolean(panel?.querySelector('#collection-project')?.checked)
 
           const result = await attempt(() =>
-            api.createCollection({ name, description, workspaceId })
+            api.createCollection({ name, description, workspaceId, isProject })
           )
           if (!result) return
 
@@ -1773,7 +1881,7 @@ ctx.openCollectionsSheet = async () => {
                     <span style="flex:1;min-width:0">
                       <span style="display:block;font-size:14px;font-weight:600">${esc(c.name)}</span>
                       <span style="display:block;font-size:11.5px;color:var(--text-2)">
-                        ${c.artifactCount} item(s)${c.workspaceName ? ` · ${esc(c.workspaceName)}` : ''}
+                        ${c.isProject ? 'Project · ' : ''}${c.artifactCount} item(s)${c.workspaceName ? ` · ${esc(c.workspaceName)}` : ''}
                       </span>
                     </span>
                     ${icon('chevron', 16)}
@@ -1847,6 +1955,18 @@ ctx.openCollectionDetailSheet = async (collectionId) => {
         onClick: () => {
           const collection = { id: collectionId, name: detail?.collection?.name || 'Collection' }
           shareCreateSheet(ctx, collection, () => {})
+        }
+      },
+      {
+        // A project is a collection AI tools can list and save into by name.
+        label: detail?.collection?.isProject ? 'Stop using as a project' : 'Use as a project',
+        variant: 'secondary',
+        onClick: async () => {
+          const isProject = !detail?.collection?.isProject
+          const ok = await attempt(() => api.setCollectionProject(collectionId, isProject))
+          if (!ok) return
+          toast(isProject ? 'Now a project your AI tools can save into' : 'Back to a plain collection', 'success')
+          await loadCollections()
         }
       }
     ],

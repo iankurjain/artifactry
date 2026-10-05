@@ -51,6 +51,7 @@ import {
   recordEvent
 } from '../lib/analytics'
 import { recordAudit } from '../lib/audit'
+import { lineageFor, madeByLabel, removeLineage } from '../lib/handoffs'
 import { all, first, nowIso, run } from '../lib/db'
 import {
   badRequest,
@@ -111,6 +112,8 @@ function presentArtifact(
     statusDetail: row.status_detail,
     sourceType: row.source_type,
     sourceProvider: row.source_provider,
+    sourceClient: row.source_client ?? null,
+    madeBy: madeByLabel(row.source_provider as string | null, row.source_client as string | null),
     workspaceId: row.workspace_id,
     organizationId: row.organization_id,
     ownerUserId: row.owner_user_id,
@@ -507,7 +510,8 @@ artifacts.get(
         canUpdate:
           access.isOwner || can(principal, 'artifact.update', workspaceRefOf(access.artifact)),
         preview,
-        workspace: workspace ? { name: workspace.name, type: workspace.workspace_type } : null
+        workspace: workspace ? { name: workspace.name, type: workspace.workspace_type } : null,
+        lineage: await lineageFor(c.env.DB, principal, artifactId, origin)
       }),
       versions: versions.map((v) => ({
         id: v.id,
@@ -518,12 +522,27 @@ artifacts.get(
         sizeBytes: v.size_bytes,
         checksum: v.checksum,
         sourceProvider: v.source_provider,
+        madeBy: madeByLabel(v.source_provider, v.source_client),
         changeSummary: v.change_summary,
         hasExtractedText: !!v.extracted_text,
         createdAt: v.created_at,
         isCurrent: v.id === access.artifact.current_version_id
       }))
     })
+  })
+)
+
+/**
+ * Remove a "built from" link that is wrong. Either side's editor may do it;
+ * the link is identified from this artifact's side so ids cannot be probed.
+ */
+artifacts.delete(
+  '/:artifactId/links/:linkId',
+  guarded(async (c) => {
+    const principal = requirePrincipal(c)
+    const access = await artifactAccess(c.env.DB, principal, c.req.param('artifactId'))
+    await removeLineage(c.env.DB, principal, access.artifact, c.req.param('linkId'))
+    return ok(c, { removed: true })
   })
 )
 

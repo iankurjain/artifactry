@@ -156,6 +156,11 @@ export function avatar({ url, name, size = 38, square = false }) {
 }
 
 /** Human label for an artifact kind, used on cards and detail headers. */
+const CODE_EXTENSIONS = [
+  'js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx', 'py', 'rb', 'go', 'rs', 'java', 'kt', 'swift', 'c', 'h',
+  'cpp', 'hpp', 'cs', 'php', 'sql', 'sh', 'css', 'scss', 'graphql', 'proto', 'ini', 'log'
+]
+
 export function kindLabel(extension) {
   const ext = (extension || '').toLowerCase()
   switch (ext) {
@@ -175,8 +180,19 @@ export function kindLabel(extension) {
     case 'gif':
     case 'webp':
       return 'Image'
+    case 'md':
+    case 'markdown':
+    case 'txt':
+      return 'Notes'
+    case 'csv':
+    case 'tsv':
+    case 'json':
+    case 'yaml':
+    case 'yml':
+    case 'toml':
+      return 'Data'
     default:
-      return ext ? ext.toUpperCase() : 'File'
+      return CODE_EXTENSIONS.includes(ext) ? 'Code' : ext ? ext.toUpperCase() : 'File'
   }
 }
 
@@ -289,10 +305,15 @@ export function fileBadge(extension) {
     pptx: ['#fff1e6', '#b54708'],
     pdf: ['#fef3f2', '#b42318'],
     docx: ['#eef9dc', '#4e7a00'],
-    html: ['#f3e8ff', '#7e22ce']
+    html: ['#f3e8ff', '#7e22ce'],
+    md: ['#eef4ff', '#3538cd']
   }
   const [bg, fg] = palette[ext] ||
-    (['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'].includes(ext) ? ['#ecfdf3', '#067647'] : ['#eef0e9', '#5a6066'])
+    (['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'].includes(ext)
+      ? ['#ecfdf3', '#067647']
+      : CODE_EXTENSIONS.includes(ext)
+        ? ['#f0f9ff', '#026aa2']
+        : ['#eef0e9', '#5a6066'])
 
   return `<div style="width:46px;height:46px;flex:none;border-radius:11px;background:${bg};color:${fg};
     display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;letter-spacing:.03em">

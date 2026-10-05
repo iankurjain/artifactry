@@ -36,7 +36,27 @@ import {
 import { searchArtifacts, resolveSemanticProvider } from './search'
 import { createShare, revokeShare } from './sharing'
 import { convertContent, ConversionUnsupported } from './convert'
-import { EXTENSION_MIME } from './validate'
+import { EXTENSION_MIME, TEXT_MIME, isTextExtension } from './validate'
+import { getObject } from './storage'
+import {
+  MAX_DERIVED_FROM,
+  MAX_HANDOFF_ARTIFACTS,
+  addLineage,
+  createHandoff,
+  handoffArtifacts,
+  lineageFor,
+  listHandoffs,
+  listProjects,
+  loadHandoffFor,
+  madeByLabel,
+  markPickedUp,
+  presentHandoff,
+  recentReads,
+  recordAiRead,
+  resolveReadableRefs,
+  stampClient
+} from './handoffs'
+import type { LineageEntry } from './handoffs'
 import { UploadError, appendPart, assembleUpload, discardUpload, startUpload } from './uploads'
 import { all, first, nowIso, run } from './db'
 import { badRequest, forbidden, notFound } from './http'
@@ -142,7 +162,8 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     description:
       'Find source material in the library. Natural-language query with optional filters for ' +
       'workspace, artifact type, tags, collection/team, owner and date range. Uses the same hybrid ' +
-      'lexical + semantic engine as the app. Only artifacts the signed-in user may access are ever returned.',
+      'lexical + semantic engine as the app. Only artifacts the signed-in user may access are ever returned. ' +
+      'Results say which tool made each artifact (made_by).',
     requiredScope: 'artifact.read',
     inputSchema: {
       type: 'object',
@@ -154,6 +175,11 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         collection: { type: 'string', description: 'Collection name or id' },
         team: { type: 'string', description: "Named audience whose shared artifacts to include" },
         owner: { type: 'string', description: 'Owner email, for artifacts owned by someone else' },
+        made_by: {
+          type: 'string',
+          description: 'Which tool made it, e.g. "Claude", "ChatGPT", "Cursor", "Gemini", or "web" for files a person uploaded'
+        },
+        project: { type: 'string', description: 'Project name or id (see list_projects)' },
         created_after: { type: 'string', description: 'ISO date; artifacts created on/after' },
         created_before: { type: 'string', description: 'ISO date; artifacts created on/before' },
         updated_after: { type: 'string', description: 'ISO date; artifacts updated on/after' },
@@ -173,9 +199,10 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     title: 'Get an artifact',
     annotations: READ_ONLY,
     description:
-      'Retrieve one artifact by id or canonical URL, including its tags, workspace and current version. ' +
-      'Returns the extracted text when the artifact has a text layer; binary formats return metadata and ' +
-      'the canonical URL instead of inlining bytes.',
+      'Retrieve one artifact by id or canonical URL, including its tags, workspace, current version, which tool ' +
+      'made it, and what it was built from and used in. Text and code files (md, txt, json, csv, py, ts, …) come ' +
+      'back whole as file.name + file.content, ready to write to disk. Other formats return their extracted text; ' +
+      'binary formats without a text layer return metadata and the canonical URL instead of inlining bytes.',
     requiredScope: 'artifact.read',
     inputSchema: {
       type: 'object',
@@ -192,9 +219,10 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     annotations: WRITES,
     _meta: { 'openai/fileParams': ['file_ref'] },
     description:
-      'Persist what the AI has just produced: HTML pages, slide decks (pptx), documents (docx, pdf) and ' +
-      'images (png, jpg, webp, gif). Pick ONE source: ' +
-      '(1) an HTML page — pass the full document as content with file "name.html"; it is stored exactly as given. ' +
+      'Persist what the AI has just produced: HTML pages, slide decks (pptx), documents (docx, pdf), ' +
+      'images (png, jpg, webp, gif), and text or code files (md, txt, json, csv, yaml, py, ts, js, sql, …). Pick ONE source: ' +
+      '(1) an HTML page or a text/code file — pass the full text as content with file "name.html" / "spec.md" / ' +
+      '"main.py"; it is stored exactly as given. ' +
       'If the file is too big to write into one call: when it already exists as a file where you can run code ' +
       '(a sandbox, the desktop app), call upload_part with no arguments and upload it with curl -T to the put_url it ' +
       'returns (never through a third-party file host); otherwise send it in pieces with upload_part. Then pass upload_id here. ' +
@@ -203,7 +231,8 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       '(4) small binaries — content_base64 with file. ' +
       '(5) plain text to turn into a document — content with format "pdf" or "html". ' +
       'Saves into a workspace, optionally a collection, applies any tags given and proposes more from the ' +
-      "artifact's actual content. Use create_version to revise an artifact that already exists.",
+      "artifact's actual content. Use create_version to revise an artifact that already exists. " +
+      'Pass derived_from with the artifacts this was built from, so the next person or tool can trace it.',
     requiredScope: 'artifact.write',
     inputSchema: {
       type: 'object',
@@ -217,12 +246,23 @@ export const MCP_TOOLS: McpToolDefinition[] = [
           type: 'string',
           description: 'A complete HTML document (stored verbatim), or plain text to convert when format is given'
         },
-        format: { type: 'string', description: 'Convert plain-text content into this format: pdf or html' },
+        format: {
+          type: 'string',
+          description: 'Convert plain-text content into this format: pdf or html. Or md / txt to store it as a text file'
+        },
         title: { type: 'string' },
         description: { type: 'string' },
         workspace: { type: 'string', description: 'Target workspace name or id' },
         collection: { type: 'string', description: 'Optional collection name or id' },
+        project: { type: 'string', description: 'Optional project name or id (a collection marked as a project)' },
         tags: { type: 'array', items: { type: 'string' }, description: 'Optional tags to apply and confirm' },
+        derived_from: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Artifacts (ids or URLs) this was built from, e.g. the research note a spec came from. ' +
+            'If omitted, artifacts you read with get or get_handoff shortly before are linked automatically; pass [] to link none'
+        },
         source_conversation_reference: { type: 'string' }
       }
     }
@@ -245,8 +285,15 @@ export const MCP_TOOLS: McpToolDefinition[] = [
         file_ref: FILE_REF_SCHEMA,
         source_url: SOURCE_URL_SCHEMA,
         content_base64: { type: 'string' },
-        content: { type: 'string', description: 'New HTML document, for HTML artifacts' },
-        change_summary: { type: 'string' }
+        content: { type: 'string', description: 'New full text, for HTML, text and code artifacts' },
+        change_summary: { type: 'string' },
+        derived_from: {
+          type: 'array',
+          items: { type: 'string' },
+          description:
+            'Artifacts (ids or URLs) this was built from, e.g. the research note a spec came from. ' +
+            'If omitted, artifacts you read with get or get_handoff shortly before are linked automatically; pass [] to link none'
+        },
       },
       required: ['artifact']
     }
@@ -370,6 +417,80 @@ export const MCP_TOOLS: McpToolDefinition[] = [
       },
       required: ['artifact']
     }
+  },
+  {
+    name: 'handoff',
+    title: 'Hand work to another tool',
+    annotations: WRITES,
+    description:
+      'Leave a handoff for the next AI tool: a brief plus the artifacts it needs, e.g. hand a research report ' +
+      'and a spec from Claude to Cursor to build, or code and notes from Cursor to Gemini to turn into a deck. ' +
+      'Save the artifacts first. Returns a handoff id and a one-line prompt the user pastes into the next tool, ' +
+      'which opens it with get_handoff. Handoffs stay in the workspace, so everyone there can see them.',
+    requiredScope: 'artifact.write',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        artifacts: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Artifact ids or URLs to hand over, in the order the next tool should read them (max 20)'
+        },
+        brief: {
+          type: 'string',
+          description: 'What the next tool should do, with any context it needs. Written to that tool, not the user'
+        },
+        title: { type: 'string', description: 'Short name, e.g. "Build the pricing page"' },
+        to: { type: 'string', description: 'Which tool it is for, if known, e.g. "Cursor"' },
+        workspace: { type: 'string', description: "Workspace name or id (default: the first artifact's workspace)" }
+      },
+      required: ['artifacts', 'brief']
+    }
+  },
+  {
+    name: 'get_handoff',
+    title: 'Open a handoff',
+    annotations: READ_ONLY,
+    description:
+      'Open a handoff another tool or person left: its brief and every artifact in it, with text and code ' +
+      'files inlined so you can work on them directly. Use when the user says "open my Artifactry handoff" or ' +
+      'pastes a handoff id (hof_…) or link. With no handoff given, opens the newest open one. When you save ' +
+      'what you make from it, those artifacts are linked as its sources automatically.',
+    requiredScope: 'artifact.read',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        handoff: { type: 'string', description: 'Handoff id (hof_…) or link; omit for the newest open handoff' },
+        include_text: { type: 'boolean', description: 'Inline text and code (default true)' }
+      }
+    }
+  },
+  {
+    name: 'list_handoffs',
+    title: 'List handoffs',
+    annotations: READ_ONLY,
+    description: 'List handoffs waiting in the workspaces the user can read, newest first.',
+    requiredScope: 'artifact.read',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        workspace: { type: 'string', description: 'Workspace name or id' },
+        include_closed: { type: 'boolean', description: 'Include closed handoffs (default false)' }
+      }
+    }
+  },
+  {
+    name: 'list_projects',
+    title: 'List projects',
+    annotations: READ_ONLY,
+    description:
+      'List projects: collections marked as the home of one piece of work (e.g. "Q4 launch"). Pass a project ' +
+      'name to save to file the artifact there, and to search to look only inside it.',
+    requiredScope: 'artifact.read',
+    inputSchema: {
+      type: 'object',
+      properties: { workspace: { type: 'string', description: 'Workspace name or id' } }
+    }
   }
 ]
 
@@ -419,6 +540,10 @@ const SERVER_INSTRUCTIONS =
   'suggested tags derived from its own content; use update_tags to accept, reject or add. ' +
   'Sharing beyond the organization needs the user to agree first: the share call returns a ' +
   'confirmation request and NOTHING is shared until you pass that confirmation_id back. ' +
+  'Artifactry is also how the user moves work between AI tools. When you build on artifacts, pass ' +
+  'derived_from when you save. When the user wants another tool to continue, save the work and call ' +
+  'handoff with a brief written to that tool; when the user asks you to open a handoff (hof_…), call ' +
+  'get_handoff. Text and code files are saved and returned whole. ' +
   'Only artifacts the user may access are ever returned.'
 
 /** Guard: a grant may only call tools its scopes cover (§58, §59). */
@@ -604,6 +729,14 @@ export async function callJobTool(
         return await toolListTags(env, principal)
       case 'update_tags':
         return await toolUpdateTags(env, principal, args)
+      case 'handoff':
+        return await toolHandoff(env, principal, args, origin)
+      case 'get_handoff':
+        return await toolGetHandoff(env, principal, args, origin)
+      case 'list_handoffs':
+        return await toolListHandoffs(env, principal, args, origin)
+      case 'list_projects':
+        return await toolListProjects(env, principal, args)
       default:
         return { text: `Tool not implemented: ${name}`, isError: true }
     }
@@ -636,7 +769,13 @@ async function toolSearch(
   }
 
   const tagSlugs = await resolveTagFilters(db, args.tags)
-  const collectionIds = await resolveCollectionFilters(db, principal, args.collection, workspaceIds)
+  // A project is a collection, so either name narrows the same way.
+  const collectionIds = await resolveCollectionFilters(
+    db,
+    principal,
+    typeof args.collection === 'string' && args.collection.trim() ? args.collection : args.project,
+    workspaceIds
+  )
   const ownerIds = await resolveOwnerFilter(db, args.owner)
   const types = Array.isArray(args.type)
     ? (args.type as unknown[]).map((t) => String(t).replace(/^\./, ''))
@@ -663,7 +802,8 @@ async function toolSearch(
       createdFrom: isoOrUndefined(args.created_after),
       createdTo: isoOrUndefined(args.created_before),
       updatedFrom: isoOrUndefined(args.updated_after),
-      updatedTo: isoOrUndefined(args.updated_before)
+      updatedTo: isoOrUndefined(args.updated_before),
+      madeBy: typeof args.made_by === 'string' ? args.made_by.slice(0, 60) : undefined
     },
     resolveSemanticProvider(env)
   )
@@ -702,6 +842,7 @@ async function toolSearch(
     canonical_url: `${origin}/a/${hit.artifact.id}`,
     workspace: hit.workspaceName,
     tags: hit.tags,
+    made_by: madeByLabel(hit.artifact.source_provider, hit.artifact.source_client),
     updated_at: hit.artifact.updated_at,
     match: hit.matchSource,
     score: Number(hit.score.toFixed(4)),
@@ -709,7 +850,11 @@ async function toolSearch(
   }))
 
   const summary = results
-    .map((r) => `- ${r.title} (${r.type ?? 'file'}, ${r.workspace ?? 'workspace'}) — ${r.canonical_url}`)
+    .map(
+      (r) =>
+        `- ${r.title} (${r.type ?? 'file'}, ${r.workspace ?? 'workspace'}` +
+        `${r.made_by ? `, made by ${r.made_by}` : ''}) — ${r.canonical_url}`
+    )
     .join('\n')
 
   return {
@@ -734,53 +879,17 @@ async function toolGet(
   await assertCan(principal, artifact, 'artifact.read')
 
   const tags = await artifactTagViews(db, artifact.id)
-  const versions = await all<{ id: string; version_number: number; created_at: string }>(
+  const versions = await all<{ id: string; version_number: number; created_at: string; source_provider: string | null; source_client: string | null }>(
     db,
-    `SELECT id, version_number, created_at FROM artifact_versions
+    `SELECT id, version_number, created_at, source_provider, source_client FROM artifact_versions
       WHERE artifact_id = ? AND deleted_at IS NULL ORDER BY version_number DESC`,
     [artifact.id]
   )
-
-  const includeText = args.include_text !== false
-  let text: string | null = null
-  let truncated = false
-
-  if (includeText && artifact.current_version_id) {
-    const version = await first<{ extracted_text: string | null }>(
-      db,
-      `SELECT extracted_text FROM artifact_versions WHERE id = ?`,
-      [artifact.current_version_id]
-    )
-    if (version?.extracted_text) {
-      truncated = version.extracted_text.length > 100_000
-      text = version.extracted_text.slice(0, 100_000)
-    }
-
-    await recordEvent(db, {
-      artifactId: artifact.id,
-      workspaceId: artifact.workspace_id,
-      organizationId: artifact.organization_id,
-      eventType: 'artifact_ai_referenced',
-      actorType: 'AI',
-      actorUserId: principal.userId,
-      aiProvider: principal.provider ?? 'API',
-      accessChannel: 'AI'
-    }).catch(() => {})
-
-    await recordAudit(db, {
-      organizationId: artifact.organization_id,
-      workspaceId: artifact.workspace_id,
-      actorUserId: principal.userId,
-      actorType: 'AI',
-      action: 'AI_FETCH',
-      targetType: 'artifact',
-      targetId: artifact.id,
-      metadata: { provider: principal.provider ?? 'API', operation: 'get' }
-    })
-  }
+  const lineage = await lineageFor(db, principal, artifact.id, origin)
+  const body = args.include_text !== false ? await artifactBody(env, principal, artifact) : null
 
   return {
-    text: `${artifact.title} — ${origin}/a/${artifact.id}`,
+    text: `${artifact.title} — ${origin}/a/${artifact.id}` + (body?.file ? `\n\n${body.file.content}` : ''),
     structured: {
       artifact_id: artifact.id,
       title: artifact.title,
@@ -792,6 +901,7 @@ async function toolGet(
       status: artifact.status,
       workspace_id: artifact.workspace_id,
       canonical_url: `${origin}/a/${artifact.id}`,
+      made_by: madeByLabel(artifact.source_provider, artifact.source_client),
       version_count: artifact.version_count,
       current_version_id: artifact.current_version_id,
       updated_at: artifact.updated_at,
@@ -805,17 +915,93 @@ async function toolGet(
       versions: versions.map((v) => ({
         version_id: v.id,
         version_number: v.version_number,
+        made_by: madeByLabel(v.source_provider, v.source_client),
         created_at: v.created_at
       })),
-      ...(text ? { text, truncated } : {}),
-      ...(!text && includeText
-        ? {
-            note: 'No text layer is stored for this artifact, so its content cannot be inlined. ' +
-              'Binary formats are not inlined; open the canonical URL instead.'
-          }
-        : {})
+      built_from: lineage.builtFrom.map(lineageOut),
+      used_in: lineage.usedIn.map(lineageOut),
+      ...(body ?? {})
     }
   }
+}
+
+function lineageOut(entry: LineageEntry) {
+  return {
+    artifact_id: entry.artifactId,
+    title: entry.title,
+    made_by: entry.madeBy,
+    canonical_url: entry.canonicalUrl,
+    how: entry.origin === 'INFERRED' ? 'inferred' : entry.origin === 'USER' ? 'added by a person' : 'declared'
+  }
+}
+
+/** Largest text or code file returned whole; larger ones come back as extracted text. */
+const MAX_INLINE_FILE_BYTES = 1_000_000
+
+/**
+ * The content an AI reads: a text or code file whole (exact bytes, ready to
+ * write to disk), otherwise the extracted text layer. Reading it is recorded
+ * as an AI reference and remembered for lineage inference.
+ */
+async function artifactBody(
+  env: Env,
+  principal: Principal,
+  artifact: ArtifactRow,
+  maxChars = 100_000
+): Promise<{ file?: { name: string; content: string; truncated: boolean }; text?: string; truncated?: boolean; note?: string } | null> {
+  const db = env.DB
+  if (!artifact.current_version_id) return null
+
+  let out: { file?: { name: string; content: string; truncated: boolean }; text?: string; truncated?: boolean; note?: string }
+  const version = await first<{ extracted_text: string | null; r2_object_key: string; size_bytes: number; filename: string }>(
+    db,
+    `SELECT extracted_text, r2_object_key, size_bytes, filename FROM artifact_versions WHERE id = ?`,
+    [artifact.current_version_id]
+  )
+  if (!version) return null
+
+  const ext = (artifact.extension ?? '').toLowerCase()
+  const object = isTextExtension(ext) && version.size_bytes <= MAX_INLINE_FILE_BYTES
+    ? await getObject(env, version.r2_object_key)
+    : null
+
+  if (object) {
+    const content = new TextDecoder().decode(await object.arrayBuffer())
+    const truncated = content.length > maxChars
+    out = { file: { name: version.filename, content: content.slice(0, maxChars), truncated } }
+  } else if (version.extracted_text) {
+    out = { text: version.extracted_text.slice(0, maxChars), truncated: version.extracted_text.length > maxChars }
+  } else {
+    out = {
+      note: 'No text layer is stored for this artifact, so its content cannot be inlined. ' +
+        'Binary formats are not inlined; open the canonical URL instead.'
+    }
+  }
+
+  await recordEvent(db, {
+    artifactId: artifact.id,
+    workspaceId: artifact.workspace_id,
+    organizationId: artifact.organization_id,
+    eventType: 'artifact_ai_referenced',
+    actorType: 'AI',
+    actorUserId: principal.userId,
+    aiProvider: principal.provider ?? 'API',
+    accessChannel: 'AI'
+  }).catch(() => {})
+
+  await recordAudit(db, {
+    organizationId: artifact.organization_id,
+    workspaceId: artifact.workspace_id,
+    actorUserId: principal.userId,
+    actorType: 'AI',
+    action: 'AI_FETCH',
+    targetType: 'artifact',
+    targetId: artifact.id,
+    metadata: { provider: principal.provider ?? 'API', client: principal.clientName ?? null, operation: 'get' }
+  })
+
+  await recordAiRead(db, principal, artifact.id).catch(() => {})
+  return out
 }
 
 // ---------------------------------------------------------------
@@ -989,6 +1175,8 @@ async function toolSave(
 
   const fileExt = extensionOf(fileArg)
   const htmlTarget = fileExt === 'html' || fileExt === 'htm' || format === 'html' || format === 'htm'
+  // A text or code file named by `file`, or plain text asked to be stored as one.
+  const textTarget = isTextExtension(fileExt) ? fileExt : isTextExtension(format) ? format : null
 
   // Sources, most specific first. Each one yields the artifact's real bytes;
   // only the last (format conversion) produces something Artifactry authored.
@@ -1024,6 +1212,11 @@ async function toolSave(
     bytes = new TextEncoder().encode(rawContent)
     filename = fileExt === 'html' || fileExt === 'htm' ? fileArg : `${fileBase(title ?? 'Untitled')}.html`
     mimeType = 'text/html'
+  } else if (rawContent !== null && textTarget) {
+    // Notes, specs, data and code are stored exactly as written.
+    bytes = new TextEncoder().encode(rawContent)
+    filename = fileExt === textTarget ? fileArg : `${fileBase(title ?? 'Untitled')}.${textTarget}`
+    mimeType = TEXT_MIME
   } else if (format) {
     if (rawContent === null) {
       return { text: 'Provide content to convert.', isError: true }
@@ -1040,7 +1233,7 @@ async function toolSave(
   } else {
     return {
       text:
-        'Nothing to save. Pass an HTML page as content with file "name.html", a conversation file as ' +
+        'Nothing to save. Pass an HTML page or a text/code file as content with file "name.html" / "notes.md", a conversation file as ' +
         'file_ref, a public URL as source_url, bytes as content_base64 with file, plain text as ' +
         'content with format "pdf", or an upload_id from upload_part for a file too large for one call.',
       isError: true
@@ -1077,11 +1270,14 @@ async function toolSave(
   )
 
   if (uploadId) await discardUpload(env, uploadId).catch(() => {})
+  await stampClient(db, principal, { artifactId: result.artifactId, versionId: result.versionId })
 
   const artifact = await loadArtifact(db, result.artifactId)
   if (!artifact) {
     return { text: 'Artifact was created but could not be read back.', structured: { artifact_id: result.artifactId } }
   }
+
+  const lineage = await recordSources(db, principal, artifact, result.versionId, args.derived_from)
 
   // Explicitly supplied tags are a user-facing decision, so they are confirmed.
   const appliedTags: string[] = []
@@ -1101,7 +1297,13 @@ async function toolSave(
   // Auto-tagging runs as part of the save pipeline, producing SUGGESTED only.
   const suggestions = await generateSuggestionsFor(env, artifact.id)
 
-  const collectionNote = await attachToCollection(db, principal, artifact, args.collection, workspace.id)
+  const collectionNote = await attachToCollection(
+    db,
+    principal,
+    artifact,
+    typeof args.collection === 'string' && args.collection.trim() ? args.collection : args.project,
+    workspace.id
+  )
 
   const tagViews = await artifactTagViews(db, artifact.id)
   const indexing = await indexingStateFor(db, artifact.id)
@@ -1113,11 +1315,15 @@ async function toolSave(
         ? `\nProposed tags (not yet applied): ${suggestions.proposed.join(', ')}. ` +
           `Ask the user which to keep, then call update_tags.`
         : '') +
-      (collectionNote ? `\n${collectionNote}` : ''),
+      (collectionNote ? `\n${collectionNote}` : '') +
+      lineage.note,
     structured: {
       artifact_id: artifact.id,
       title: artifact.title,
       canonical_url: result.canonicalUrl,
+      made_by: madeByLabel(artifact.source_provider, artifact.source_client),
+      built_from: lineage.linked,
+      ...(lineage.skipped.length ? { derived_from_skipped: lineage.skipped } : {}),
       workspace: { id: workspace.id, name: workspace.name },
       status: result.status,
       detail: result.detail,
@@ -1125,8 +1331,55 @@ async function toolSave(
       applied_tags: tagViews.filter((t) => t.state === 'CONFIRMED').map((t) => t.name),
       proposed_tags: suggestions.proposed,
       tag_note: suggestions.note,
-      collection: collectionNote ? args.collection : null
+      collection: collectionNote
+        ? (typeof args.collection === 'string' && args.collection.trim() ? args.collection : args.project)
+        : null
     }
+  }
+}
+
+/**
+ * Record what a new artifact or version was built from.
+ *
+ * `derived_from` given (even empty): exactly those, as DECLARED.
+ * Omitted: whatever this connection read in the last couple of hours, as
+ * INFERRED, so lineage exists even when the model forgets to declare it.
+ */
+async function recordSources(
+  db: D1Database,
+  principal: Principal,
+  artifact: ArtifactRow,
+  versionId: string | null,
+  derivedFrom: unknown
+): Promise<{
+  linked: Array<{ artifact_id: string; title: string; how: 'declared' | 'inferred' }>
+  skipped: string[]
+  note: string
+}> {
+  const declared = Array.isArray(derivedFrom)
+  const resolved = declared
+    ? await resolveReadableRefs(db, principal, derivedFrom as unknown[], MAX_DERIVED_FROM)
+    : { artifacts: await recentReads(db, principal, artifact.id), skipped: [] as string[] }
+
+  const linked = await addLineage(db, principal, {
+    fromArtifact: artifact,
+    fromVersionId: versionId,
+    sources: resolved.artifacts,
+    origin: declared ? 'DECLARED' : 'INFERRED'
+  })
+  const how = declared ? ('declared' as const) : ('inferred' as const)
+
+  const note =
+    (linked.length
+      ? `\nBuilt from: ${linked.map((a) => `"${a.title}"`).join(', ')}` +
+        (declared ? '.' : ' (you read these just before saving; pass derived_from to set this yourself).')
+      : '') +
+    (resolved.skipped.length ? `\nNot linked (not found or not accessible): ${resolved.skipped.join(', ')}.` : '')
+
+  return {
+    linked: linked.map((a) => ({ artifact_id: a.id, title: a.title, how })),
+    skipped: resolved.skipped,
+    note
   }
 }
 
@@ -1328,13 +1581,13 @@ async function toolCreateVersion(
   // that format is text-based; otherwise the caller must send real bytes, since
   // silently re-encoding would misrepresent what was stored.
   if (!payload && rawContent !== null) {
-    if (ext === 'html' || ext === 'htm') {
+    if (ext === 'html' || ext === 'htm' || isTextExtension(ext)) {
       payload = new TextEncoder().encode(rawContent)
     } else {
       return {
         text:
           `This artifact is a .${ext} file, so new content must be sent as bytes with content_base64. ` +
-          `Raw text can only be versioned into an HTML artifact.`,
+          `Raw text can only be versioned into an HTML, text or code artifact.`,
         isError: true
       }
     }
@@ -1350,20 +1603,25 @@ async function toolCreateVersion(
     createdBy: principal.userId!
   })
   if (uploadId) await discardUpload(env, uploadId).catch(() => {})
+  await stampClient(db, principal, { versionId: result.versionId })
 
   const suggestions = await generateSuggestionsFor(env, artifact.id)
+  const lineage = await recordSources(db, principal, artifact, result.versionId, args.derived_from)
 
   return {
     text:
       `Added version ${result.versionNumber} to "${artifact.title}" (${result.status}).` +
       (suggestions.proposed.length
         ? `\nNew content produced new tag suggestions: ${suggestions.proposed.join(', ')}.`
-        : ''),
+        : '') +
+      lineage.note,
     structured: {
       artifact_id: artifact.id,
       version_id: result.versionId,
       version_number: result.versionNumber,
       status: result.status,
+      built_from: lineage.linked,
+      ...(lineage.skipped.length ? { derived_from_skipped: lineage.skipped } : {}),
       canonical_url: `${origin}/a/${artifact.id}`,
       proposed_tags: suggestions.proposed,
       indexing: await indexingStateFor(db, artifact.id)
@@ -1863,6 +2121,205 @@ async function toolUpdateTags(
       suggested_tags: decision.suggested,
       rejected_tags: decision.rejectedTags,
       note: 'A rejected tag will not be suggested again for this content.'
+    }
+  }
+}
+
+// ---------------------------------------------------------------
+// handoffs and projects
+// ---------------------------------------------------------------
+
+async function toolHandoff(
+  env: Env,
+  principal: Principal,
+  args: Record<string, unknown>,
+  origin: string
+): Promise<ToolOutcome> {
+  const db = env.DB
+  const refs = Array.isArray(args.artifacts)
+    ? (args.artifacts as unknown[])
+    : typeof args.artifacts === 'string'
+      ? [args.artifacts]
+      : []
+  if (!refs.length) return { text: 'Pass artifacts: the ids or links of what the next tool needs. Save them first.', isError: true }
+
+  const { artifacts, skipped } = await resolveReadableRefs(db, principal, refs, MAX_HANDOFF_ARTIFACTS)
+  if (!artifacts.length) {
+    return { text: `None of those artifacts could be found or opened: ${skipped.join(', ')}.`, isError: true }
+  }
+
+  const readable = await readableWorkspaces(db, principal)
+  const workspace =
+    typeof args.workspace === 'string' && args.workspace.trim()
+      ? readable.find((w) => w.id === args.workspace || w.name.toLowerCase() === String(args.workspace).trim().toLowerCase())
+      : readable.find((w) => w.id === artifacts[0].workspace_id)
+  if (!workspace) return { text: 'No workspace you can use matches that.', isError: true }
+
+  const handoff = await createHandoff(db, principal, {
+    workspace,
+    artifacts,
+    brief: typeof args.brief === 'string' ? args.brief : '',
+    title: typeof args.title === 'string' ? args.title : null,
+    toTool: typeof args.to === 'string' ? args.to : null
+  })
+  const view = presentHandoff(handoff, origin)
+
+  return {
+    text:
+      `Handoff ready in ${workspace.name}: "${view.title}" with ${artifacts.length} artifact(s). ${view.url}\n` +
+      `Tell the user to paste this into ${view.toTool ?? 'the next tool'}:\n${view.pickupPrompt}` +
+      (skipped.length ? `\nLeft out (not found or not accessible): ${skipped.join(', ')}.` : ''),
+    structured: {
+      handoff_id: view.id,
+      title: view.title,
+      url: view.url,
+      workspace: { id: workspace.id, name: workspace.name },
+      to: view.toTool,
+      artifacts: artifacts.map((a) => ({ artifact_id: a.id, title: a.title, canonical_url: `${origin}/a/${a.id}` })),
+      pickup_prompt: view.pickupPrompt,
+      ...(skipped.length ? { skipped } : {})
+    }
+  }
+}
+
+/** Total characters of artifact content one get_handoff returns inline. */
+const HANDOFF_TEXT_BUDGET = 200_000
+
+async function toolGetHandoff(
+  env: Env,
+  principal: Principal,
+  args: Record<string, unknown>,
+  origin: string
+): Promise<ToolOutcome> {
+  const db = env.DB
+  let ref: unknown = args.handoff
+  if (typeof ref !== 'string' || !ref.trim()) {
+    const [latest] = await listHandoffs(db, principal, { limit: 1 })
+    if (!latest) return { text: 'There are no open handoffs. Ask the user for the handoff id (hof_…).', isError: true }
+    ref = latest.id
+  }
+
+  const { handoff, workspace } = await loadHandoffFor(db, principal, ref)
+  const { artifacts, hidden } = await handoffArtifacts(db, principal, handoff.id)
+  const includeText = args.include_text !== false
+
+  const items: Record<string, unknown>[] = []
+  let budget = HANDOFF_TEXT_BUDGET
+  for (const artifact of artifacts) {
+    const body = includeText && budget > 0 ? await artifactBody(env, principal, artifact, budget) : null
+    // Every artifact in an opened handoff counts as read, inlined or not, so
+    // what the tool saves next is linked to all of them.
+    if (!body) await recordAiRead(db, principal, artifact.id).catch(() => {})
+    const used = body?.file?.content.length ?? body?.text?.length ?? 0
+    budget -= used
+    items.push({
+      artifact_id: artifact.id,
+      title: artifact.title,
+      type: artifact.extension,
+      made_by: madeByLabel(artifact.source_provider, artifact.source_client),
+      canonical_url: `${origin}/a/${artifact.id}`,
+      ...(body ?? {}),
+      ...(includeText && !body && budget <= 0 ? { note: 'Not inlined: this handoff is too large to return at once. Call get with this artifact.' } : {})
+    })
+  }
+
+  await markPickedUp(db, principal, handoff)
+  const view = presentHandoff(handoff, origin)
+
+  const listing = items
+    .map((i, n) => `${n + 1}. ${i.title} (${i.type ?? 'file'}${i.made_by ? `, made by ${i.made_by}` : ''}) — ${i.canonical_url}`)
+    .join('\n')
+
+  return {
+    text:
+      `Handoff "${view.title}" from ${view.from}, in ${workspace.name}.\n\nBrief:\n${view.brief}\n\n` +
+      `Artifacts:\n${listing}` +
+      (hidden ? `\n(${hidden} more you do not have access to.)` : '') +
+      `\n\nWhen you save what you make from this, it is linked to these artifacts automatically.`,
+    structured: {
+      handoff_id: view.id,
+      title: view.title,
+      brief: view.brief,
+      from: view.from,
+      to: view.toTool,
+      status: view.status,
+      workspace: { id: workspace.id, name: workspace.name },
+      url: view.url,
+      artifacts: items,
+      ...(hidden ? { hidden_artifacts: hidden } : {})
+    }
+  }
+}
+
+async function toolListHandoffs(
+  env: Env,
+  principal: Principal,
+  args: Record<string, unknown>,
+  origin: string
+): Promise<ToolOutcome> {
+  const workspaceIds =
+    typeof args.workspace === 'string' && args.workspace.trim()
+      ? await resolveWorkspaceScope(env.DB, principal, args.workspace)
+      : undefined
+  if (workspaceIds && !workspaceIds.length) return { text: 'No accessible workspace matches that.', structured: { handoffs: [] } }
+
+  const rows = await listHandoffs(env.DB, principal, {
+    workspaceIds,
+    status: args.include_closed === true ? 'ALL' : 'OPEN'
+  })
+  const handoffs = rows.map((r) => presentHandoff(r, origin))
+  if (!handoffs.length) return { text: 'No handoffs waiting.', structured: { handoffs: [] } }
+
+  return {
+    text:
+      `${handoffs.length} handoff(s):\n` +
+      handoffs
+        .map((h) => `- ${h.id}: "${h.title}" from ${h.from}${h.toTool ? ` for ${h.toTool}` : ''}, ${h.artifactCount} artifact(s), ${h.status.toLowerCase().replace('_', ' ')}`)
+        .join('\n'),
+    structured: {
+      handoffs: handoffs.map((h) => ({
+        handoff_id: h.id,
+        title: h.title,
+        from: h.from,
+        to: h.toTool,
+        status: h.status,
+        workspace: h.workspaceName,
+        artifact_count: h.artifactCount,
+        created_at: h.createdAt,
+        url: h.url
+      }))
+    }
+  }
+}
+
+async function toolListProjects(
+  env: Env,
+  principal: Principal,
+  args: Record<string, unknown>
+): Promise<ToolOutcome> {
+  const workspaceIds =
+    typeof args.workspace === 'string' && args.workspace.trim()
+      ? await resolveWorkspaceScope(env.DB, principal, args.workspace)
+      : undefined
+  if (workspaceIds && !workspaceIds.length) return { text: 'No accessible workspace matches that.', structured: { projects: [] } }
+
+  const projects = await listProjects(env.DB, principal, workspaceIds)
+  if (!projects.length) {
+    return {
+      text: 'No projects yet. A person can mark any collection as a project in the Artifactry app.',
+      structured: { projects: [] }
+    }
+  }
+  return {
+    text: projects.map((p) => `- ${p.name} (${p.workspace_name}, ${p.artifact_count} artifact(s))`).join('\n'),
+    structured: {
+      projects: projects.map((p) => ({
+        project_id: p.id,
+        name: p.name,
+        description: p.description,
+        workspace: p.workspace_name,
+        artifact_count: p.artifact_count
+      }))
     }
   }
 }

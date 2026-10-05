@@ -38,11 +38,11 @@ export const GUIDE_SECTIONS = [
   S(
     'uploading',
     'Uploading artifacts',
-    'upload add file formats pdf docx pptx html png jpg size limit 25mb checksum scan',
+    'upload add file formats pdf docx pptx html png jpg markdown md txt csv json code size limit 25mb checksum scan',
     `
     <p>An artifact is a single file plus everything the library knows about it: who owns it, its tags, its versions, and its usage history.</p>
-    <p><strong>Supported types:</strong> PDF, DOCX, PPTX, HTML, PNG, JPG, JPEG, BMP and GIF.</p>
-    <p><strong>Size limit:</strong> 25 MB per file.</p>
+    <p><strong>Supported types:</strong> PDF, DOCX, PPTX, HTML, PNG, JPG, JPEG, BMP, GIF and WEBP, plus notes, data and code as plain text: Markdown, TXT, CSV, JSON, YAML and common source files (JS, TS, Python, Go, Rust, Java, SQL and more).</p>
+    <p><strong>Size limit:</strong> 25 MB per file (10 MB for text and code files).</p>
     <div class="guide-note">
       <strong>HTML artifacts use Safe Preview by default. In Safe Preview, HTML and CSS render but JavaScript does not execute. Artifact owners may enable Interactive Preview, which runs JavaScript in an isolated, credential-free sandbox with network access blocked by default.</strong>
       Safe Preview is served from the library's own address, and the page cannot read your session or reach the library's APIs. Interactive Preview is opt-in per artifact, runs on a separate origin so it holds no cookies and cannot touch library storage, and every change to the setting is recorded in the audit trail.
@@ -226,6 +226,23 @@ export const GUIDE_SECTIONS = [
     <p><strong>Permissions are granular.</strong> Each capability is granted separately and enforced on every request, and an app can never do more than you can. Sharing outside your organization always asks you first.</p>
     <p>Long pages and big files are fine: if a file is too large for the app to send in one go, it sends it in parts and Artifactry puts them back together before saving.</p>
     <p>Disconnecting an app in Profile revokes it straight away; the app will ask you to sign in again. Apps that cannot sign in with OAuth can still use a token from <em>Profile → Connected AI apps</em>.</p>`
+  ),
+
+  S(
+    'handoffs',
+    'Handing work between AI tools',
+    'handoff hand off pick up cursor claude chatgpt gemini lineage built from derived project made by provenance brief',
+    `
+    <p>A <strong>handoff</strong> is a short brief plus a few artifacts that one AI tool leaves for the next. Claude finishes the research and hands it to Cursor; Cursor builds it and hands the code and spec to Gemini for a deck.</p>
+    <ol>
+      <li>In the first tool, say “save this to Artifactry and hand it off to Cursor: build the API from this spec”. Or open an artifact here and choose <strong>Hand off to another AI tool</strong>.</li>
+      <li>You get a link and a <strong>pickup line</strong>. Copy the line.</li>
+      <li>Paste it into the next tool (connected to Artifactry too). It reads the brief and every file in full, and the handoff shows who picked it up.</li>
+    </ol>
+    <p><strong>Made by.</strong> Every artifact and version shows which tool made it (Made by Claude, Made by Cursor). Search → Filters → Made by narrows results to one tool.</p>
+    <p><strong>Built from.</strong> When a tool saves something made from other artifacts, the library records the links, either because the tool named its sources or because it read them through the same connection in the last two hours. Open an artifact to see what it was built from and what it was used in; remove a link that is wrong.</p>
+    <p><strong>Projects.</strong> Mark a collection as a project and your AI tools can list it and save into it by name. Handoffs and links follow your access: a tool never sees an artifact you cannot read.</p>
+    <p>Set-up steps for each tool are on the <strong>Connect</strong> page (Add → Set up Claude, ChatGPT, Cursor and more).</p>`
   ),
 
   S(

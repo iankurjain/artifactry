@@ -15,6 +15,7 @@
 import type { ArtifactRow, Env, Principal } from '../types'
 import { all, first } from './db'
 import { readableWorkspaces } from './principal'
+import { madeByCondition } from './handoffs'
 import {
   isSemanticConfigured,
   publicIndexReason,
@@ -33,6 +34,8 @@ export interface SearchFilters {
   collectionIds?: string[]
   updatedFrom?: string
   updatedTo?: string
+  /** Which tool made it: "Claude", "cursor", "web" (see madeByCondition). */
+  madeBy?: string
 }
 
 export interface SearchRequest extends SearchFilters {
@@ -259,6 +262,12 @@ export async function searchArtifacts(
   if (request.updatedTo) {
     where.push('a.updated_at <= ?')
     params.push(request.updatedTo)
+  }
+
+  const madeBy = request.madeBy ? madeByCondition(request.madeBy) : null
+  if (madeBy) {
+    where.push(madeBy.sql)
+    params.push(...madeBy.params)
   }
 
   if (request.tagSlugs?.length) {
