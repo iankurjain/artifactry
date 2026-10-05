@@ -12,6 +12,7 @@
  *   5. access: another user sees neither the handoff nor the links
  *   6. projects: a collection flagged as a project is listed and saved into
  *   7. REST: handoff screens, lineage on the detail, removing a link
+ *   8. the directory-review sign-in, then the three listing test prompts
  *
  * Run: node scripts/test-handoffs.mjs
  */
@@ -440,6 +441,91 @@ section('7. The app: handoff screens, lineage and removing a link')
   res = await call('/api/v1/integrations', { user: 'usr_a' })
   const tools = ((await data(res)).connectedTools ?? []).map((t) => t.name)
   check('integrations lists the connected tools by name', tools.includes('Claude') && tools.includes('Cursor'), tools.join(','))
+}
+
+// ---------------------------------------------------------------
+section('8. Directory reviewer: fixed-code sign-in and the listing test prompts')
+// ---------------------------------------------------------------
+{
+  // A real email provider is configured, so any send that happens is caught here.
+  const sent = []
+  const realFetch = globalThis.fetch
+  globalThis.fetch = async (url, init) => {
+    sent.push(String(url))
+    return new Response(JSON.stringify({ id: 'email_1' }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }
+  env.EMAIL_API_KEY = 're_test'
+  const REVIEWER = 'reviewer@artifactry.app'
+  const CODE = '48151623'
+  const signIn = async (email, code) => {
+    const res = await call('/api/v1/auth/verify-code', { body: { email, code } })
+    return { res, cookie: (res.headers.get('set-cookie') ?? '').split(';')[0] }
+  }
+
+  try {
+    // Off unless both are set, and an unsafe code keeps it off.
+    env.REVIEWER_EMAIL = REVIEWER
+    env.REVIEWER_CODE = '1234'
+    let res = await call('/api/v1/auth/request-code', { body: { email: REVIEWER } })
+    check('a code shorter than 8 digits leaves the reviewer sign-in off (a real email goes out)',
+      res.status === 200 && (await data(res)).deliveredVia === 'EMAIL' && sent.length === 1, JSON.stringify(await json(res)))
+    sqlite.prepare('DELETE FROM auth_otp WHERE email_normalized = ?').run(REVIEWER)
+
+    env.REVIEWER_CODE = CODE
+    res = await call('/api/v1/auth/request-code', { body: { email: 'Reviewer@Artifactry.app' } })
+    let d = await data(res)
+    check('the reviewer address sends no email', res.status === 200 && d.deliveredVia === 'REVIEWER' && sent.length === 1, JSON.stringify(d))
+    check('… and never echoes the code', d.devCode === undefined)
+
+    let { res: bad } = await signIn(REVIEWER, '11111111')
+    check('a wrong code is refused', bad.status === 400)
+    const { res: good, cookie } = await signIn(REVIEWER, CODE)
+    check('the fixed code signs the reviewer in', good.status === 200 && /^al_session=/.test(cookie), String(good.status))
+
+    res = await call('/api/v1/auth/request-code', { body: { email: 'someone@acme.test' } })
+    check('everyone else still gets an emailed code', (await data(res)).deliveredVia === 'EMAIL' && sent.length === 2)
+    const other = await signIn('someone@acme.test', CODE)
+    check('the reviewer code does not work for anyone else', other.res.status === 400)
+
+    // The reviewer connects Claude the way a directory reviewer would, then runs the listing's prompts.
+    res = await app.fetch(new Request(`${APP}/api/v1/integrations/int_claude/connect`, {
+      method: 'POST',
+      headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scopes: ['artifact.read', 'artifact.write'] })
+    }), env, ctx)
+    const token = (await data(res)).token
+    await mcp(token, 'initialize', { protocolVersion: '2025-06-18', clientInfo: { name: 'claude-ai', version: '1.0.0' } })
+
+    // "Save a note called Directory test to Artifactry"
+    let r = await tool(token, 'save', { content: 'A note to check the Artifactry connector works.', title: 'Directory test', format: 'md' })
+    const noteId = sc(r).artifact_id
+    check('prompt 1: the note saves to the reviewer\'s own workspace', !r.isError && noteId && sc(r).made_by === 'Claude', JSON.stringify(r).slice(0, 300))
+
+    // "Find my Directory test note"
+    r = await tool(token, 'search', { query: 'Directory test' })
+    check('prompt 2: search finds it', (sc(r).results ?? []).some((x) => x.artifact_id === noteId), JSON.stringify(sc(r)).slice(0, 300))
+    r = await tool(token, 'get', { artifact: noteId })
+    check('… and get returns it word for word', sc(r).file?.content === 'A note to check the Artifactry connector works.')
+
+    // "Hand off the Directory test note to Cursor with the brief: turn it into a README"
+    r = await tool(token, 'handoff', { artifacts: [noteId], brief: 'Turn it into a README', to: 'Cursor' })
+    check('prompt 3: the handoff is created with a pickup line', !r.isError && /^hof_/.test(sc(r).handoff_id ?? '') && sc(r).pickup_prompt,
+      JSON.stringify(r).slice(0, 300))
+
+    r = await tool(token, 'search', { query: 'billing' })
+    check('the reviewer sees none of anyone else\'s work', (sc(r).results ?? []).length === 0)
+
+    // Removing the code switches it off again.
+    delete env.REVIEWER_CODE
+    sqlite.prepare("UPDATE auth_otp SET created_at = '2000-01-01T00:00:00.000Z' WHERE email_normalized = ?").run(REVIEWER)
+    res = await call('/api/v1/auth/request-code', { body: { email: REVIEWER } })
+    check('with REVIEWER_CODE removed, the reviewer gets a normal emailed code', (await data(res)).deliveredVia === 'EMAIL')
+  } finally {
+    globalThis.fetch = realFetch
+    delete env.EMAIL_API_KEY
+    delete env.REVIEWER_EMAIL
+    delete env.REVIEWER_CODE
+  }
 }
 
 console.log(`\n${passes} passed, ${failures} failed`)

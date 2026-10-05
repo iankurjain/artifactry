@@ -19,6 +19,9 @@ export interface Env {
   EMAIL_API_KEY?: string
   EMAIL_FROM?: string
   DEV_LOGIN_MODE?: string
+  /** Directory-review sign-in: this one address signs in with REVIEWER_CODE, no email sent. Both unset = off. */
+  REVIEWER_EMAIL?: string
+  REVIEWER_CODE?: string
 
   // Interactive HTML preview on an isolated origin.
   //
