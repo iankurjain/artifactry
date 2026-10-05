@@ -18,7 +18,7 @@ if ! flock -n 9; then
   exit 3
 fi
 
-ALL=(build check-imports check-undefined test-preview test-preview-security test-preview-ui test-authz test-index-sync test-semantic test-extract test-autotag test-mcp-jobs test-tag-decisions test-oauth test-share-domains test-workspace-manage)
+ALL=(build check-imports check-undefined test-preview test-preview-security test-preview-ui test-authz test-index-sync test-semantic test-extract test-autotag test-mcp-jobs test-tag-decisions test-oauth test-share-domains test-workspace-manage test-handoffs)
 GATES=("$@")
 [ ${#GATES[@]} -eq 0 ] && GATES=("${ALL[@]}")
 
@@ -67,6 +67,9 @@ run_gate() {
     # Headless, same harness: workspace settings, custom tiers, invitations,
     # deactivation and profile pictures.
     test-workspace-manage) node scripts/test-workspace-manage.mjs ;;
+    # Headless, same harness: text and code files, made-by provenance,
+    # lineage (declared and inferred), handoffs between tools, projects.
+    test-handoffs)         node scripts/test-handoffs.mjs ;;
     *) echo "unknown gate: $g" >&2; return 1 ;;
   esac > "$log" 2>&1
   rc=$?

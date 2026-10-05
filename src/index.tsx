@@ -28,6 +28,7 @@ import teamRoutes from './routes/teams'
 import workspaceRoutes from './routes/workspaces'
 import shareDomainRoutes from './routes/sharedomains'
 import workspaceManageRoutes from './routes/workspacemanage'
+import handoffRoutes from './routes/handoffs'
 import integrationRoutes from './routes/integrations'
 import previewRoutes from './routes/preview'
 import oauthRoutes from './routes/oauth'
@@ -125,6 +126,7 @@ app.route('/api/v1', integrationRoutes)
 app.route('/api/v1', teamRoutes)
 app.route('/api/v1', shareDomainRoutes)
 app.route('/api/v1', workspaceManageRoutes)
+app.route('/api/v1', handoffRoutes)
 
 // ---------------------------------------------------------------
 // Canonical artifact URL (§12)
@@ -407,6 +409,9 @@ const SPA_ROUTES = [
   '/settings',
   '/guide',
   '/workspace',
+  // Connect an AI tool, and the list of handoffs between tools.
+  '/connect',
+  '/handoffs',
   // Where the marketing site at artifactry.app sends people. Both show the
   // sign-in screen, which also creates new accounts.
   '/login',
@@ -417,6 +422,8 @@ const SPA_ROUTES = [
 // Both are signed-in screens; the client reads the id or token from the path.
 app.get('/workspace/:workspaceId', (c) => renderShell(c, { route: 'workspace' }))
 app.get('/join/:token', (c) => renderShell(c, { route: 'join' }))
+// One handoff: the brief and artifacts one AI tool left for the next.
+app.get('/h/:handoffId', (c) => renderShell(c, { route: 'handoff' }))
 
 for (const route of SPA_ROUTES) {
   app.get(route, (c) => {

@@ -288,6 +288,30 @@ export const api = {
   // Workspaces and organizations
   // ---------------------------------------------------------------
 
+  // Handoffs between AI tools, lineage and projects
+  handoffs: ({ status, workspaceId } = {}) => {
+    const q = new URLSearchParams()
+    if (status) q.set('status', status)
+    if (workspaceId) q.set('workspaceId', workspaceId)
+    const qs = q.toString()
+    return request(`/api/v1/handoffs${qs ? `?${qs}` : ''}`)
+  },
+
+  handoff: (id) => request(`/api/v1/handoffs/${encodeURIComponent(id)}`),
+
+  createHandoff: (payload) => request('/api/v1/handoffs', { method: 'POST', body: payload }),
+
+  setHandoffStatus: (id, status) =>
+    request(`/api/v1/handoffs/${encodeURIComponent(id)}/status`, { method: 'POST', body: { status } }),
+
+  removeLink: (artifactId, linkId) =>
+    request(`/api/v1/artifacts/${encodeURIComponent(artifactId)}/links/${encodeURIComponent(linkId)}`, {
+      method: 'DELETE'
+    }),
+
+  setCollectionProject: (id, isProject) =>
+    request(`/api/v1/collections/${encodeURIComponent(id)}`, { method: 'PATCH', body: { isProject } }),
+
   workspaces: () => request('/api/v1/workspaces'),
 
   workspace: (id) => request(`/api/v1/workspaces/${encodeURIComponent(id)}`),

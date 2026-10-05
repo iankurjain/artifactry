@@ -28,6 +28,7 @@ import {
   avatar,
   roleLabel
 } from './ui.js'
+import { firstRunCard, handoffsSection } from './handoffs.js'
 
 // ---------------------------------------------------------------
 // Shared-recipient HTML preview
@@ -239,7 +240,7 @@ export function renderHome(ctx) {
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
 
   const recent = state.artifacts.slice(0, 4)
-  const aiMade = state.artifacts.filter((a) => a.sourceProvider && a.sourceProvider !== 'WEB').slice(0, 4)
+  const aiMade = state.artifacts.filter((a) => a.madeBy).slice(0, 4)
   const sharedWithMe = state.artifacts.filter((a) => !a.isOwner).slice(0, 4)
 
   const cardRow = (items) =>
@@ -272,15 +273,13 @@ export function renderHome(ctx) {
       <main class="app-main">
         ${
           state.artifacts.length === 0
-            ? `<div class="card" style="padding:4px 0 12px">
-                ${emptyState({
-                  iconName: 'upload',
-                  title: 'Your library is empty',
-                  message: 'Upload a file, or connect an AI app so it can save its output here.',
-                  action: '<button class="btn btn-primary" id="home-upload">Add your first artifact</button>'
-                })}
-              </div>`
+            ? `${firstRunCard(ctx)}
+              <button class="btn btn-ghost btn-block" id="home-upload" style="margin-top:8px">
+                ${icon('upload', 17)} Or upload a file yourself
+              </button>`
             : `
+          ${firstRunCard(ctx)}
+          ${handoffsSection(ctx)}
           <section aria-labelledby="home-recent">
             <div style="display:flex;align-items:baseline;justify-content:space-between;margin:18px 0 10px">
               <h2 id="home-recent" style="font-size:15px;font-weight:640;margin:0">Recently viewed</h2>
@@ -293,7 +292,7 @@ export function renderHome(ctx) {
             aiMade.length
               ? `<section aria-labelledby="home-ai">
                   <h2 id="home-ai" style="font-size:15px;font-weight:640;margin:22px 0 10px">
-                    ${icon('sparkle', 15)} Created with AI
+                    ${icon('sparkle', 15)} Made by your AI tools
                   </h2>
                   ${cardRow(aiMade)}
                 </section>`
@@ -327,12 +326,11 @@ export function artifactCard(artifact) {
     .map((t) => `<span class="chip">${esc(t)}</span>`)
     .join('')
 
-  const sourceBadge =
-    artifact.sourceProvider && artifact.sourceProvider !== 'WEB'
-      ? `<span class="chip" style="background:var(--accent-weak);color:var(--accent)">${icon('sparkle', 11)} ${esc(
-          artifact.sourceProvider
-        )}</span>`
-      : ''
+  const sourceBadge = artifact.madeBy
+    ? `<span class="chip" style="background:var(--accent-weak);color:var(--accent)">${icon('sparkle', 11)} ${esc(
+        artifact.madeBy
+      )}</span>`
+    : ''
 
   const sharedBadge = artifact.isOwner === false
     ? `<span class="chip" style="background:var(--warning-weak);color:var(--warning)">Shared</span>`
@@ -692,6 +690,14 @@ export function renderAdd(ctx) {
 
         <h2 style="font-size:14px;font-weight:640;margin:22px 0 9px">Connected AI</h2>
         <div class="card" style="overflow:hidden">
+          <button class="row" data-nav="/connect" style="padding:12px 14px">
+            ${icon('ai', 20)}
+            <span style="flex:1">
+              Set up Claude, ChatGPT, Cursor and more
+              <span style="display:block;font-size:11.5px;color:var(--text-2)">Step-by-step setup for each AI tool</span>
+            </span>
+            ${icon('chevron', 16)}
+          </button>
           ${
             (ctx.state.integrations || []).length
               ? ctx.state.integrations
@@ -832,6 +838,14 @@ export function renderProfile(ctx) {
 
         <h2 style="font-size:14px;font-weight:640;margin:22px 0 9px">Connected AI apps</h2>
         <div class="card" style="overflow:hidden">
+          <button class="row" data-nav="/connect" style="padding:12px 14px">
+            ${icon('ai', 20)}
+            <span style="flex:1">
+              Set up Claude, ChatGPT, Cursor and more
+              <span style="display:block;font-size:11.5px;color:var(--text-2)">Step-by-step setup for each AI tool</span>
+            </span>
+            ${icon('chevron', 16)}
+          </button>
           ${
             (state.integrations || []).length
               ? state.integrations

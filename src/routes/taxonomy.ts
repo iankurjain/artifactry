@@ -27,6 +27,7 @@ import { recordAudit } from '../lib/audit'
 import { indexArtifact } from '../lib/search'
 import { applyTagDecisions, decideTags, mayCreateTag } from '../lib/tags'
 import { loadArtifact } from '../lib/artifacts'
+import { setCollectionProject } from '../lib/handoffs'
 
 const taxonomy = new Hono<AppEnv>()
 
@@ -482,11 +483,12 @@ taxonomy.get(
       name: string
       description: string | null
       workspace_id: string
+      is_project: number
       artifact_count: number
       updated_at: string
     }>(
       c.env.DB,
-      `SELECT c.id, c.name, c.description, c.workspace_id,
+      `SELECT c.id, c.name, c.description, c.workspace_id, c.is_project,
               (SELECT COUNT(*) FROM collection_artifacts ca
                 JOIN artifacts a ON a.id = ca.artifact_id AND a.deleted_at IS NULL
                WHERE ca.collection_id = c.id) AS artifact_count,
@@ -507,6 +509,7 @@ taxonomy.get(
         description: row.description,
         workspaceId: row.workspace_id,
         workspaceName: wsName.get(row.workspace_id) ?? null,
+        isProject: Number(row.is_project) === 1,
         artifactCount: row.artifact_count,
         updatedAt: row.updated_at
       }))
@@ -523,6 +526,7 @@ taxonomy.post(
       description?: string
       workspaceId?: string
       artifactIds?: string[]
+      isProject?: boolean
     }>(c)
 
     const name = (body.name ?? '').trim()
@@ -537,8 +541,8 @@ taxonomy.post(
     await run(
       c.env.DB,
       `INSERT INTO collections
-         (id, organization_id, workspace_id, name, description, created_by, created_at, updated_at, archived_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+         (id, organization_id, workspace_id, name, description, created_by, created_at, updated_at, archived_at, is_project)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
       [
         collectionId,
         null,
@@ -547,7 +551,8 @@ taxonomy.post(
         body.description?.slice(0, 500) ?? null,
         principal.userId,
         timestamp,
-        timestamp
+        timestamp,
+        body.isProject === true ? 1 : 0
       ]
     )
 
@@ -570,7 +575,11 @@ taxonomy.post(
       }
     }
 
-    return ok(c, { collection: { id: collectionId, name, workspaceId: body.workspaceId } }, 201)
+    return ok(
+      c,
+      { collection: { id: collectionId, name, workspaceId: body.workspaceId, isProject: body.isProject === true } },
+      201
+    )
   })
 )
 
@@ -586,6 +595,7 @@ taxonomy.get(
       description: string | null
       workspace_id: string
       organization_id: string | null
+      is_project: number
       created_by: string | null
       created_at: string
       updated_at: string
@@ -609,6 +619,7 @@ taxonomy.get(
         name: collection.name,
         description: collection.description,
         workspaceId: collection.workspace_id,
+        isProject: Number(collection.is_project) === 1,
         createdAt: collection.created_at,
         updatedAt: collection.updated_at
       },
@@ -642,9 +653,17 @@ taxonomy.patch(
 
     await assertWorkspaceAccess(c.env.DB, principal, collection.workspace_id, 'collection.manage')
 
-    const body = await readJson<{ name?: string; description?: string }>(c)
+    const body = await readJson<{ name?: string; description?: string; isProject?: boolean }>(c)
     const sets: string[] = []
     const params: unknown[] = []
+
+    // Marking a collection as a project is audited on its own.
+    if (typeof body.isProject === 'boolean') {
+      await setCollectionProject(c.env.DB, principal, collectionId, body.isProject)
+      if (typeof body.name !== 'string' && typeof body.description !== 'string') {
+        return ok(c, { updated: true, collectionId, isProject: body.isProject })
+      }
+    }
 
     if (typeof body.name === 'string' && body.name.trim()) {
       sets.push('name = ?')

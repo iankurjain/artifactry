@@ -14,6 +14,7 @@ import { guarded, rateLimit, requirePrincipal } from '../middleware'
 import { readableWorkspaces } from '../lib/principal'
 import { all, first, run } from '../lib/db'
 import { resolveSemanticProvider, searchArtifacts, accessibleWorkspaceIds } from '../lib/search'
+import { madeByLabel } from '../lib/handoffs'
 import { badRequest, ok, readJson } from '../lib/http'
 import { prefixed, ulid } from '../lib/ids'
 import { nowIso } from '../lib/db'
@@ -35,6 +36,7 @@ search.post(
       statuses?: string[]
       createdFrom?: string
       createdTo?: string
+      madeBy?: string
       limit?: number
       offset?: number
       sort?: 'relevance' | 'updated' | 'created' | 'title'
@@ -55,6 +57,7 @@ search.post(
         statuses: body.statuses,
         createdFrom: body.createdFrom,
         createdTo: body.createdTo,
+        madeBy: typeof body.madeBy === 'string' ? body.madeBy.slice(0, 60) : undefined,
         limit: body.limit,
         offset: body.offset,
         sort: body.sort
@@ -81,6 +84,8 @@ search.post(
         workspaceId: hit.artifact.workspace_id,
         workspaceName: hit.workspaceName,
         sourceProvider: hit.artifact.source_provider,
+        sourceClient: hit.artifact.source_client ?? null,
+        madeBy: madeByLabel(hit.artifact.source_provider, hit.artifact.source_client),
         updatedAt: hit.artifact.updated_at,
         createdAt: hit.artifact.created_at,
         isOwner: hit.isOwner,

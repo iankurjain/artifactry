@@ -32,6 +32,7 @@ import { AI_SCOPES } from '../types'
 import { effectiveWorkspaceRole, readableWorkspaces } from '../lib/principal'
 import { actorDisplay } from '../lib/analytics'
 import { recordAudit } from '../lib/audit'
+import { madeByLabel } from '../lib/handoffs'
 
 const integrations = new Hono<AppEnv>()
 
@@ -44,10 +45,29 @@ integrations.get(
   guarded(async (c) => {
     const principal = requirePrincipal(c)
 
-    const [available, mine] = await Promise.all([
+    const [available, mine, grants] = await Promise.all([
       listIntegrations(c.env.DB),
-      connectedIntegrations(c.env.DB, principal.userId!)
+      connectedIntegrations(c.env.DB, principal.userId!),
+      all<{ provider: string; client_name: string | null; last_used_at: string | null }>(
+        c.env.DB,
+        `SELECT i.provider, g.client_name, g.last_used_at
+           FROM integration_grants g JOIN integrations i ON i.id = g.integration_id
+          WHERE g.user_id = ? AND g.status = 'ACTIVE'`,
+        [principal.userId]
+      )
     ])
+
+    // Which tools are connected, by the name a person would use ("Cursor"),
+    // so the Connect screen can mark each tool's card.
+    const connectedTools = new Map<string, string | null>()
+    for (const g of grants) {
+      const label = madeByLabel(g.provider, g.client_name)
+      if (!label) continue
+      const seen = connectedTools.get(label)
+      if (seen === undefined || (g.last_used_at && (!seen || g.last_used_at > seen))) {
+        connectedTools.set(label, g.last_used_at)
+      }
+    }
 
     return ok(c, {
       availableScopes: AI_SCOPES,
@@ -65,7 +85,8 @@ integrations.get(
             lastUsedAt: null
           })),
       mcpEndpoint: `${new URL(c.req.url).origin}/api/v1/mcp`,
-      toolCount: MCP_TOOLS.length
+      toolCount: MCP_TOOLS.length,
+      connectedTools: [...connectedTools].map(([name, lastUsedAt]) => ({ name, lastUsedAt }))
     })
   })
 )

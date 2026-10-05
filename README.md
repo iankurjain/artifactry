@@ -492,6 +492,12 @@ create/read buckets; D1 and Pages scopes are separate and will not cover it.
 > a runtime secret, so editing it alone does nothing. Separately, note that without an email key
 > `DEV_LOGIN_MODE` is the only working sign-in path.
 
+**Directory-review sign-in.** Connector directory reviewers can't read our inbox, so one
+address can sign in with a fixed code and no email is sent: set `REVIEWER_EMAIL` (plain var) and
+`REVIEWER_CODE` (secret, exactly 8 digits) on the Pages project and redeploy. Anything else, or
+either one unset, leaves it off. The account is an ordinary user with only its own personal
+workspace. Remove `REVIEWER_CODE` after the reviews to switch it off.
+
 **Alternative path.** `gsk-hosted-deploy` provisions D1/R2 on a Genspark-managed Cloudflare
 account with no billing step. The source works unmodified on that path (see note 1 below), but
 `kv_namespaces` and `triggers` must stay absent, which they are.

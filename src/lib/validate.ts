@@ -20,9 +20,33 @@ export const EXTENSION_MIME: Record<string, string> = {
   webp: 'image/webp'
 }
 
-export type ArtifactKind = 'PRESENTATION' | 'DOCUMENT' | 'WEB' | 'IMAGE'
+/**
+ * Plain-text formats: notes, specs, data and source code. These are what one AI
+ * tool hands the next (a research note to Cursor, code and a spec to Gemini),
+ * so they are first-class artifacts with their full text searchable.
+ *
+ * Every one is stored and served as text/plain: a browser never renders or
+ * executes them, whatever the extension says. `txt` comes first so a download
+ * that only reports text/plain is named .txt.
+ */
+export const TEXT_EXTENSIONS = [
+  'txt', 'md', 'markdown', 'csv', 'tsv', 'json', 'yaml', 'yml', 'toml', 'ini', 'log',
+  'js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx', 'py', 'rb', 'go', 'rs', 'java', 'kt', 'swift',
+  'c', 'h', 'cpp', 'hpp', 'cs', 'php', 'sql', 'sh', 'css', 'scss', 'graphql', 'proto'
+] as const
+
+export const TEXT_MIME = 'text/plain; charset=utf-8'
+
+for (const ext of TEXT_EXTENSIONS) EXTENSION_MIME[ext] = TEXT_MIME
+
+export function isTextExtension(ext: string): boolean {
+  return (TEXT_EXTENSIONS as readonly string[]).includes(ext)
+}
+
+export type ArtifactKind = 'PRESENTATION' | 'DOCUMENT' | 'WEB' | 'IMAGE' | 'TEXT'
 
 export function kindForExtension(ext: string): ArtifactKind {
+  if (isTextExtension(ext)) return 'TEXT'
   switch (ext) {
     case 'pptx':
       return 'PRESENTATION'
@@ -43,6 +67,7 @@ export function kindForExtension(ext: string): ArtifactKind {
  */
 export const TYPE_LIMITS: Record<ArtifactKind, number> = {
   WEB: 25 * 1024 * 1024,
+  TEXT: 10 * 1024 * 1024,
   IMAGE: 50 * 1024 * 1024,
   DOCUMENT: 100 * 1024 * 1024,
   PRESENTATION: 250 * 1024 * 1024
@@ -174,7 +199,19 @@ export function magicBytesMatch(
         : { ok: false, reason: 'File does not look like HTML content' }
     }
     default:
+      if (isTextExtension(ext)) return looksLikeText(bytes)
       return { ok: false, reason: `Unsupported file extension: .${ext}` }
+  }
+}
+
+/** Text formats have no signature: the bytes must be UTF-8 with no NUL. */
+function looksLikeText(bytes: Uint8Array): { ok: boolean; reason?: string } {
+  if (bytes.includes(0)) return { ok: false, reason: 'File contains binary data, not text' }
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    return { ok: true }
+  } catch {
+    return { ok: false, reason: 'File is not valid UTF-8 text' }
   }
 }
 
@@ -193,7 +230,9 @@ export function looksSuspicious(ext: string, bytes: Uint8Array): string | null {
     '#!/bin/', // shell script
     '#!/usr/bin/env'
   ]
-  if (ext !== 'html' && ext !== 'htm') {
+  // A shebang is normal at the top of a script, text artifacts are only ever
+  // served as text/plain, and binary payloads already fail the UTF-8 check.
+  if (!isTextExtension(ext) && ext !== 'html' && ext !== 'htm') {
     for (const sig of executableSignatures) {
       if (head.startsWith(sig)) return `Embedded executable content detected (${sig.trim()})`
     }

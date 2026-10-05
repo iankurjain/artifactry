@@ -27,8 +27,20 @@ export function devCodeMode(env: Env): boolean {
   return true
 }
 
+/**
+ * The fixed code for the directory-review account, or null when that sign-in
+ * is off or `email` is not the reviewer's. Only an 8-digit code switches it on,
+ * so a short or mistyped secret can never become an easy-to-guess login.
+ */
+export function reviewerCode(env: Env, emailNormalized: string): string | null {
+  const reviewer = (env.REVIEWER_EMAIL ?? '').trim().toLowerCase()
+  const code = (env.REVIEWER_CODE ?? '').trim()
+  if (!reviewer || !/^\d{8}$/.test(code)) return null
+  return emailNormalized === reviewer ? code : null
+}
+
 export interface DeliverResult {
-  deliveredVia: 'EMAIL' | 'DEV_CONSOLE'
+  deliveredVia: 'EMAIL' | 'DEV_CONSOLE' | 'REVIEWER'
   devCode?: string
 }
 
@@ -100,7 +112,10 @@ export async function issueOtp(
     }
   }
 
-  const code = otpCode(6)
+  // The directory-review account signs in with its fixed code and gets no
+  // email: reviewers cannot read an inbox we control.
+  const fixed = purpose === 'LOGIN' ? reviewerCode(env, emailNormalized) : null
+  const code = fixed ?? otpCode(6)
   const codeHash = await hashOtp(emailNormalized, code, purpose)
   const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60 * 1000).toISOString()
   const mode = devCodeMode(env)
@@ -116,9 +131,11 @@ export async function issueOtp(
   // sendEmail() throws on a provider rejection, so a failed send now leaves the
   // database untouched: no false record, no cooldown consumed, and a code
   // already sitting in the recipient's inbox keeps working.
-  let deliveredVia: 'EMAIL' | 'DEV_CONSOLE'
+  let deliveredVia: 'EMAIL' | 'DEV_CONSOLE' | 'REVIEWER'
 
-  if (mode) {
+  if (fixed) {
+    deliveredVia = 'REVIEWER'
+  } else if (mode) {
     console.log(`[dev-code] ${purpose} code for ${emailNormalized}: ${code}`)
     deliveredVia = 'DEV_CONSOLE'
   } else {

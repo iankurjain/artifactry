@@ -19,6 +19,8 @@
  * and tags regardless of what its binary contains.
  */
 
+import { isTextExtension } from './validate'
+
 export interface ExtractionResult {
   /** Extracted plain text, or null when nothing usable was recovered. */
   text: string | null
@@ -1093,6 +1095,19 @@ function cap(text: string): string {
 // Format handlers
 // ---------------------------------------------------------------
 
+/**
+ * Plain-text formats (notes, data, source code) are their own text layer. The
+ * text is kept as written, indentation included, because for code the layout
+ * is part of the meaning.
+ */
+function extractPlainText(bytes: Uint8Array): ExtractionResult {
+  const text = decoder.decode(bytes).replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').trim()
+  if (!text) {
+    return { text: null, supported: true, ok: false, note: 'Text file is empty', via: 'text' }
+  }
+  return { text: cap(text), supported: true, ok: true, note: 'Text stored as written', chars: text.length, via: 'text' }
+}
+
 function extractHtml(bytes: Uint8Array): ExtractionResult {
   const raw = decoder.decode(bytes)
   const text = raw
@@ -1244,6 +1259,7 @@ export async function extractText(ext: string, bytes: Uint8Array): Promise<Extra
     case 'pptx':
       return extractPptx(bytes)
     default:
+      if (isTextExtension(ext)) return extractPlainText(bytes)
       return {
         text: null,
         supported: false,
