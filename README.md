@@ -196,7 +196,7 @@ An HTML artifact is rendered in one of two explicit modes. The mode is enforced 
 `Content-Security-Policy` that **travels with the bytes**, so the restriction holds even if a caller
 embeds the URL without a sandbox attribute of its own.
 
-| | **Safe Preview** (default) | **Interactive Preview** (owner opt-in, per artifact) |
+| | **Safe Preview** (opt-out at upload, or per artifact) | **Interactive Preview** (default for new HTML uploads) |
 |---|---|---|
 | HTML + CSS render | yes | yes |
 | JavaScript executes | **no** | yes |
@@ -204,7 +204,7 @@ embeds the URL without a sandbox attribute of its own.
 | `connect-src` | `'none'` | `'none'` |
 | Allowed framer | the app origin | the app origin |
 
-- **Default is OFF and fail-closed.** Interactive Preview requires **both** `PREVIEW_ORIGIN` and
+- **Fail-closed.** New HTML uploads ask for Interactive Preview (the uploader can untick it), but it requires **both** `PREVIEW_ORIGIN` and
   `PREVIEW_TOKEN_SECRET`. Missing either one means the mode is unavailable and every artifact falls
   back to Safe Preview. An artifact may *lower* its own mode; a token can never *raise* it.
 - **The document-level CSP carries a `sandbox` directive.** `allow-same-origin` is never emitted, by

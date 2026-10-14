@@ -371,8 +371,8 @@ export function renderArtifactDetail(ctx) {
 }
 
 /**
- * The collections this artifact is in. A chip opens the library filtered to
- * that collection; people who can manage collections also get × and "Add".
+ * The collection this artifact is in (one at most). The chip opens the library
+ * filtered to it; people who can manage collections also get × and "Change".
  */
 function collectionsBlock(a) {
   const collections = a.collections || []
@@ -380,7 +380,7 @@ function collectionsBlock(a) {
   if (!collections.length && !canManage) return ''
   return `
     <div style="margin-top:13px">
-      <div style="font-size:11.5px;color:var(--text-2);margin-bottom:7px">Collections</div>
+      <div style="font-size:11.5px;color:var(--text-2);margin-bottom:7px">Collection</div>
       <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
         ${collections
           .map(
@@ -405,7 +405,7 @@ function collectionsBlock(a) {
           canManage
             ? `<button class="btn btn-ghost" id="detail-collection-add"
                  style="min-height:30px;padding:0 9px;font-size:12.5px">
-                 ${icon('plus', 14)} ${collections.length ? 'Add to another' : 'Add to a collection'}
+                 ${icon(collections.length ? 'folder' : 'plus', 14)} ${collections.length ? 'Change' : 'Add to a collection'}
                </button>`
             : ''
         }
@@ -556,8 +556,8 @@ async function mountHtmlPreviewCard(root, a, ctx) {
         : ''
     }
     <p style="font-size:11px;color:var(--text-3);margin:10px 0 0;line-height:1.55">
-      Safe Preview is the default. Interactive Preview must be enabled per artifact
-      and is recorded in the audit trail.
+      New HTML uploads start with Interactive Preview on. Switching either way is
+      per artifact and is recorded in the audit trail.
     </p>`
 
   host.querySelector('#html-preview-toggle')?.addEventListener('click', () => {

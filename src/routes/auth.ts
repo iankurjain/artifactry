@@ -191,6 +191,9 @@ auth.get(
         role: principal.workspaceRoles[w.id] ?? (w.owner_user_id === principal.userId ? 'WORKSPACE_ADMIN' : null),
         logoUrl: logoUrl(w),
         canManage: can(principal, 'workspace.manage', w) || can(principal, 'member.manage', w),
+        // Library bulk actions: deleting is for Owners and Admins only.
+        canDelete: can(principal, 'artifact.delete', w),
+        canManageCollections: can(principal, 'collection.manage', w),
         regional: parseWorkspaceSettings(w.settings_json).regional
       })),
       organizations: organizations.map((o) => ({

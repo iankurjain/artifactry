@@ -333,8 +333,12 @@ export function renderHome(ctx) {
   }
 }
 
-/** Compact artifact card (§81) — thumbnail, title, type/updated, tag chips. */
-export function artifactCard(artifact, { dateField = 'updated' } = {}) {
+/**
+ * Compact artifact card (§81) — thumbnail, title, type/updated, tag chips.
+ * In the library's selection mode the card carries a check instead of
+ * opening the artifact.
+ */
+export function artifactCard(artifact, { dateField = 'updated', selectable = false, selected = false } = {}) {
   const tagChips = (artifact.tags || [])
     .slice(0, 2)
     .map((t) => `<span class="chip">${esc(t)}</span>`)
@@ -346,19 +350,24 @@ export function artifactCard(artifact, { dateField = 'updated' } = {}) {
       )}</span>`
     : ''
 
-  const collections = artifact.collections || []
-  const collectionChip = collections.length
-    ? `<span class="chip chip-collection" title="${esc(collections.map((c) => c.name).join(', '))}">${icon('folder', 11)} ${esc(
-        collections[0].name
-      )}${collections.length > 1 ? ` +${collections.length - 1}` : ''}</span>`
+  // An artifact is in one collection at most.
+  const collection = (artifact.collections || [])[0]
+  const collectionChip = collection
+    ? `<span class="chip chip-collection">${icon('folder', 11)} ${esc(collection.name)}</span>`
     : ''
 
   const sharedBadge = artifact.isOwner === false
     ? `<span class="chip" style="background:var(--warning-weak);color:var(--warning)">Shared</span>`
     : ''
 
+  const selectAttrs = selectable
+    ? `data-select="${esc(artifact.id)}" aria-pressed="${selected}" aria-label="Select ${esc(artifact.title)}"`
+    : `data-artifact="${esc(artifact.id)}"`
+
   return `
-    <button class="card" data-artifact="${esc(artifact.id)}" style="padding:12px;display:block;text-align:left;cursor:pointer;border-width:1px">
+    <button class="card${selectable ? ' is-selectable' : ''}${selected ? ' is-selected' : ''}" ${selectAttrs}
+      style="padding:12px;display:block;text-align:left;cursor:pointer;border-width:1px;width:100%">
+      ${selectable ? `<span class="select-check" aria-hidden="true">${selected ? icon('check', 15) : ''}</span>` : ''}
       <div style="display:flex;gap:11px;align-items:flex-start">
         ${fileBadge(artifact.extension)}
         <div style="flex:1;min-width:0">
@@ -384,6 +393,10 @@ export function artifactCard(artifact, { dateField = 'updated' } = {}) {
 // ---------------------------------------------------------------
 // Library (§80)
 // ---------------------------------------------------------------
+
+function selectionLabel(n) {
+  return n ? `${n} selected` : 'Tap artifacts to select'
+}
 
 export function renderLibrary(ctx) {
   const state = ctx.state
@@ -420,6 +433,18 @@ export function renderLibrary(ctx) {
     </button>`
 
   const filtered = Boolean(ctx.filters.q || activeCollection || activeType !== 'all')
+
+  // What this person may do to many artifacts at once in this workspace. The
+  // server checks every artifact again; this only decides what to offer.
+  const workspace = (state.workspaces || []).find((w) => w.id === state.currentWorkspaceId) || {}
+  const canDelete = Boolean(workspace.canDelete)
+  const canManage = Boolean(workspace.canManageCollections)
+  const selection = ctx.selection
+  const selecting = selection.active && (canDelete || canManage)
+  // Only what is on screen can be selected, so a filter change drops the rest.
+  for (const id of [...selection.ids]) if (!visible.some((a) => a.id === id)) selection.ids.delete(id)
+  const allSelected = visible.length > 0 && visible.every((a) => selection.ids.has(a.id))
+  const canUploadHere = Boolean(activeCollection) && canManage && !selecting
 
   return {
     html: `
@@ -460,29 +485,67 @@ export function renderLibrary(ctx) {
         </div>
 
         <div class="library-toolbar">
-          <span style="font-size:12.5px;color:var(--text-2)">
+          <span style="font-size:12.5px;color:var(--text-2);white-space:nowrap">
             ${visible.length} artifact${visible.length === 1 ? '' : 's'}${
               activeCollection ? ` in ${esc(activeCollection.name)}` : ''
             }
           </span>
-          <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-2)">
-            ${icon('clock', 15)}
-            <span class="sr-only">Sort</span>
-            <select id="library-sort" class="sort-select" aria-label="Sort artifacts">
-              ${sorts
-                .map(([value, label]) => `<option value="${value}" ${sort === value ? 'selected' : ''}>${esc(label)}</option>`)
-                .join('')}
-            </select>
-          </label>
+          <div class="library-actions">
+            ${
+              canUploadHere
+                ? `<button class="toolbar-btn" id="library-bulk-upload">${icon('upload', 15)} Upload files</button>`
+                : ''
+            }
+            ${
+              selecting
+                ? `<button class="toolbar-btn" id="library-select-all">${allSelected ? 'Clear all' : 'Select all'}</button>
+                   <button class="toolbar-btn" id="library-select-done">Done</button>`
+                : (canDelete || canManage) && visible.length
+                  ? `<button class="toolbar-btn" id="library-select">${icon('check', 15)} Select</button>`
+                  : ''
+            }
+            <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-2)">
+              <span class="sr-only">Sort</span>
+              <select id="library-sort" class="sort-select" aria-label="Sort artifacts">
+                ${sorts
+                  .map(([value, label]) => `<option value="${value}" ${sort === value ? 'selected' : ''}>${esc(label)}</option>`)
+                  .join('')}
+              </select>
+            </label>
+          </div>
         </div>
 
         ${
           visible.length
             ? `<div style="display:flex;flex-direction:column;gap:10px">
                 ${visible
-                  .map((a) => artifactCard(a, { dateField: sort === 'created' || sort === 'oldest' ? 'created' : 'updated' }))
+                  .map((a) =>
+                    artifactCard(a, {
+                      dateField: sort === 'created' || sort === 'oldest' ? 'created' : 'updated',
+                      selectable: selecting,
+                      selected: selecting && selection.ids.has(a.id)
+                    })
+                  )
                   .join('')}
-               </div>`
+               </div>
+               ${
+                 selecting
+                   ? `<div class="bulk-bar-spacer"></div>
+                      <div class="bulk-bar" role="toolbar" aria-label="Selected artifacts">
+                        <span class="bulk-bar-count" id="bulk-count">${selectionLabel(selection.ids.size)}</span>
+                        ${
+                          canManage
+                            ? `<button class="btn btn-bar" id="bulk-move" ${selection.ids.size ? '' : 'disabled'}>${icon('folder', 16)} Set collection</button>`
+                            : ''
+                        }
+                        ${
+                          canDelete
+                            ? `<button class="btn btn-bar-danger" id="bulk-delete" ${selection.ids.size ? '' : 'disabled'}>${icon('trash', 16)} Delete</button>`
+                            : ''
+                        }
+                      </div>`
+                   : ''
+               }`
             : `<div class="card" style="padding:4px 0 12px">
                 ${emptyState({
                   iconName: activeCollection ? 'folder' : 'library',
@@ -494,11 +557,13 @@ export function renderLibrary(ctx) {
                   message: ctx.filters.q
                     ? 'Try a different search term or clear the filter.'
                     : activeCollection
-                      ? 'Add files to it from an artifact page, or choose it when you upload.'
+                      ? 'Upload files straight into it, or move artifacts here from the library.'
                       : 'Add a file, or save AI output straight into this workspace.',
-                  action: filtered && !ctx.filters.q
-                    ? '<button class="btn btn-secondary" id="library-clear">Show everything</button>'
-                    : '<button class="btn btn-primary" id="library-add">Add an artifact</button>'
+                  action: canUploadHere && !ctx.filters.q && activeType === 'all'
+                    ? `<button class="btn btn-primary" id="library-bulk-upload-empty">${icon('upload', 18)} Upload files</button>`
+                    : filtered && !ctx.filters.q
+                      ? '<button class="btn btn-secondary" id="library-clear">Show everything</button>'
+                      : '<button class="btn btn-primary" id="library-add">Add an artifact</button>'
                 })}
                </div>`
         }
@@ -518,6 +583,45 @@ export function renderLibrary(ctx) {
           ctx.refresh()
         })
       })
+
+      // Selection. A tap toggles the card in place, so the list keeps its
+      // scroll position; entering or leaving selection re-renders.
+      root.querySelector('#library-select')?.addEventListener('click', () => {
+        selection.active = true
+        selection.ids.clear()
+        ctx.refresh()
+      })
+      root.querySelector('#library-select-done')?.addEventListener('click', () => ctx.clearSelection())
+      root.querySelector('#library-select-all')?.addEventListener('click', () => {
+        if (allSelected) selection.ids.clear()
+        else visible.forEach((a) => selection.ids.add(a.id))
+        ctx.refresh()
+      })
+      root.querySelectorAll('[data-select]').forEach((card) => {
+        card.addEventListener('click', () => {
+          const id = card.dataset.select
+          const on = !selection.ids.has(id)
+          if (on) selection.ids.add(id)
+          else selection.ids.delete(id)
+          card.classList.toggle('is-selected', on)
+          card.setAttribute('aria-pressed', String(on))
+          card.querySelector('.select-check').innerHTML = on ? icon('check', 15) : ''
+          const count = root.querySelector('#bulk-count')
+          if (count) count.textContent = selectionLabel(selection.ids.size)
+          root.querySelectorAll('#bulk-move, #bulk-delete').forEach((b) => (b.disabled = !selection.ids.size))
+          const toggleAll = root.querySelector('#library-select-all')
+          if (toggleAll) {
+            toggleAll.textContent = visible.every((a) => selection.ids.has(a.id)) ? 'Clear all' : 'Select all'
+          }
+        })
+      })
+      const chosen = () => visible.filter((a) => selection.ids.has(a.id))
+      root.querySelector('#bulk-move')?.addEventListener('click', () => ctx.openBulkCollectionSheet(chosen()))
+      root.querySelector('#bulk-delete')?.addEventListener('click', () => ctx.confirmDeleteArtifacts(chosen()))
+
+      root
+        .querySelectorAll('#library-bulk-upload, #library-bulk-upload-empty')
+        .forEach((button) => button.addEventListener('click', () => ctx.openBulkUploadSheet(activeCollection)))
 
       // Collection and sort change what the server returns, so both reload.
       root.querySelectorAll('[data-collection-filter]').forEach((button) => {

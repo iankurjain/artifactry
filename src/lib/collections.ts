@@ -2,9 +2,10 @@
  * Collections an artifact belongs to, filing an artifact into collections at
  * save time, and the per-person "recently viewed" list.
  *
- * A collection lives in one workspace and an artifact can sit in any number of
- * that workspace's collections. Anyone with collection.manage in the workspace
- * (Members and Admins, plus custom tiers that include it) can file artifacts.
+ * A collection lives in one workspace and an artifact sits in at most one of
+ * them (migration 0012 enforces it). Filing an artifact into a collection moves
+ * it out of any other. Anyone with collection.manage in the workspace (Members
+ * and Admins, plus custom tiers that include it) can file artifacts.
  */
 
 import type { Principal } from '../types'
@@ -17,7 +18,41 @@ export interface CollectionRef {
   name: string
 }
 
-/** artifact id → the live collections it belongs to, by name. */
+/**
+ * Puts the artifact in `collectionId`, or in no collection when it is null,
+ * leaving any other membership behind. One batch, so the artifact is never
+ * briefly in two collections or in none. Callers check workspace and
+ * permission; this only writes.
+ */
+export async function placeInCollection(
+  db: D1Database,
+  artifactId: string,
+  collectionId: string | null,
+  userId: string | null | undefined
+): Promise<void> {
+  const timestamp = nowIso()
+  const statements = [
+    collectionId
+      ? db
+          .prepare(`DELETE FROM collection_artifacts WHERE artifact_id = ? AND collection_id != ?`)
+          .bind(artifactId, collectionId)
+      : db.prepare(`DELETE FROM collection_artifacts WHERE artifact_id = ?`).bind(artifactId)
+  ]
+  if (collectionId) {
+    statements.push(
+      db
+        .prepare(
+          `INSERT OR IGNORE INTO collection_artifacts (id, collection_id, artifact_id, added_by, added_at)
+           VALUES (?, ?, ?, ?, ?)`
+        )
+        .bind(prefixed('ca', ulid()), collectionId, artifactId, userId ?? null, timestamp),
+      db.prepare(`UPDATE collections SET updated_at = ? WHERE id = ?`).bind(timestamp, collectionId)
+    )
+  }
+  await db.batch(statements)
+}
+
+/** artifact id → the live collection it belongs to (a list of at most one). */
 export async function collectionsOf(
   db: D1Database,
   artifactIds: string[]
@@ -41,9 +76,10 @@ export async function collectionsOf(
 }
 
 /**
- * Files a just-saved artifact into the given collections. Ids that are not a
- * live collection of the artifact's workspace are skipped, and nothing is
- * filed without collection.manage there. Returns the collections it joined.
+ * Files a just-saved artifact into the first of `collectionIds` that is a live
+ * collection of the artifact's workspace; an artifact is in one collection
+ * only. Nothing is filed without collection.manage there. Returns the
+ * collection it joined, as a list of at most one.
  */
 export async function fileIntoCollections(
   db: D1Database,
@@ -66,17 +102,10 @@ export async function fileIntoCollections(
       WHERE workspace_id = ? AND archived_at IS NULL AND id IN (${ids.map(() => '?').join(',')})`,
     [artifact.workspace_id, ...ids]
   )
-  const timestamp = nowIso()
-  for (const collection of valid) {
-    await run(
-      db,
-      `INSERT OR IGNORE INTO collection_artifacts (id, collection_id, artifact_id, added_by, added_at)
-       VALUES (?, ?, ?, ?, ?)`,
-      [prefixed('ca', ulid()), collection.id, artifact.id, principal.userId, timestamp]
-    )
-    await run(db, `UPDATE collections SET updated_at = ? WHERE id = ?`, [timestamp, collection.id])
-  }
-  return valid
+  const chosen = ids.map((id) => valid.find((c) => c.id === id)).find(Boolean)
+  if (!chosen) return []
+  await placeInCollection(db, artifact.id, chosen.id, principal.userId)
+  return [chosen]
 }
 
 /**

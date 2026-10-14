@@ -509,6 +509,51 @@ const DESIGN_TOKENS = `
   .chip-toggle.chip-new { border-style: dashed; color: var(--accent); }
   .chip-new-form { display: inline-flex; gap: 6px; align-items: center; }
 
+  /* Library selection: a check on each card and a bar of bulk actions that
+     stays above the bottom navigation while the list scrolls. */
+  .library-toolbar { flex-wrap: wrap; }
+  .library-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+  .toolbar-btn {
+    white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 5px; min-height: 34px; padding: 0 12px;
+    border-radius: 999px; font: inherit; font-size: 13px; font-weight: 560; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  }
+  .card.is-selectable { position: relative; padding-right: 44px !important; }
+  .card.is-selected { border-color: var(--accent); background: var(--accent-weak); }
+  .select-check {
+    position: absolute; top: 12px; right: 12px; width: 22px; height: 22px; border-radius: 7px;
+    border: 1.5px solid var(--text-3); background: var(--surface); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .card.is-selected .select-check { background: var(--accent); border-color: var(--accent); }
+  .bulk-bar {
+    position: fixed; z-index: 45; bottom: calc(var(--nav-h) + var(--safe-bottom) + 12px);
+    left: calc(var(--nav-w) + (100vw - var(--nav-w)) / 2); transform: translateX(-50%);
+    width: calc(100vw - var(--nav-w) - 2 * var(--content-pad)); max-width: 640px; box-sizing: border-box;
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 8px 8px 14px; border-radius: var(--radius);
+    background: var(--text); color: #fff; box-shadow: 0 8px 24px rgba(18, 21, 28, 0.22);
+  }
+  .bulk-bar-spacer { height: 76px; }
+  .bulk-bar-count { font-size: 13.5px; font-weight: 620; margin-right: auto; }
+  .bulk-bar .btn { min-height: 38px; padding: 0 12px; font-size: 13.5px; border-radius: 10px; white-space: nowrap; }
+  .bulk-bar .btn-bar { background: rgba(255,255,255,0.12); color: #fff; }
+  .bulk-bar .btn-bar-danger { background: var(--danger); color: #fff; }
+  .bulk-bar .btn:disabled { opacity: .45; }
+
+  /* Bulk upload progress, one row per file. */
+  .upload-queue { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; max-height: 280px; overflow-y: auto; }
+  .upload-queue-row { display: flex; align-items: center; gap: 10px; font-size: 13px; padding: 7px 10px;
+    border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
+  .upload-queue-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .upload-queue-state { font-size: 12px; color: var(--text-2); flex: none; }
+  .upload-queue-state.is-done { color: var(--success); }
+  .upload-queue-state.is-error { color: var(--danger); }
+  .drop-zone { border: 1.5px dashed var(--border); border-radius: var(--radius); padding: 18px; text-align: center;
+    color: var(--text-2); font-size: 13px; }
+  .drop-zone.is-over { border-color: var(--accent); background: var(--accent-weak); color: var(--accent); }
+
   .sr-only {
     position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
     overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;

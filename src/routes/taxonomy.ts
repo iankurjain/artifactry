@@ -28,6 +28,7 @@ import { indexArtifact } from '../lib/search'
 import { applyTagDecisions, decideTags, mayCreateTag } from '../lib/tags'
 import { loadArtifact } from '../lib/artifacts'
 import { setCollectionProject } from '../lib/handoffs'
+import { placeInCollection } from '../lib/collections'
 
 const taxonomy = new Hono<AppEnv>()
 
@@ -564,14 +565,16 @@ taxonomy.post(
       [body.workspaceId, collectionId]
     )
 
+    // An artifact is in one collection only, so these move into the new one.
+    // Only artifacts of the same workspace can join it.
     if (Array.isArray(body.artifactIds) && body.artifactIds.length) {
-      for (const artifactId of body.artifactIds.slice(0, 200)) {
-        await run(
+      for (const artifactId of body.artifactIds.map(String).slice(0, 200)) {
+        const artifact = await first<{ id: string }>(
           c.env.DB,
-          `INSERT OR IGNORE INTO collection_artifacts (id, collection_id, artifact_id, added_by, added_at)
-           VALUES (?, ?, ?, ?, ?)`,
-          [prefixed('ca', ulid()), collectionId, artifactId, principal.userId, timestamp]
+          `SELECT id FROM artifacts WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL`,
+          [artifactId, body.workspaceId]
         )
+        if (artifact) await placeInCollection(c.env.DB, artifact.id, collectionId, principal.userId)
       }
     }
 
@@ -716,19 +719,10 @@ taxonomy.post(
       )
       if (!artifact) continue
 
-      const result = await run(
-        c.env.DB,
-        `INSERT OR IGNORE INTO collection_artifacts (id, collection_id, artifact_id, added_by, added_at)
-         VALUES (?, ?, ?, ?, ?)`,
-        [prefixed('ca', ulid()), collectionId, artifactId, principal.userId, nowIso()]
-      )
-      if ((result.meta?.changes ?? 0) > 0) added++
+      // Moves the artifact here from whichever collection it was in.
+      await placeInCollection(c.env.DB, artifact.id, collection.id, principal.userId)
+      added++
     }
-
-    await run(c.env.DB, `UPDATE collections SET updated_at = ? WHERE id = ?`, [
-      nowIso(),
-      collectionId
-    ])
 
     return ok(c, { added, collectionId })
   })
