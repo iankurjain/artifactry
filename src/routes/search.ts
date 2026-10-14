@@ -37,6 +37,7 @@ search.post(
       createdFrom?: string
       createdTo?: string
       madeBy?: string
+      collectionIds?: string[]
       limit?: number
       offset?: number
       sort?: 'relevance' | 'updated' | 'created' | 'title'
@@ -58,6 +59,7 @@ search.post(
         createdFrom: body.createdFrom,
         createdTo: body.createdTo,
         madeBy: typeof body.madeBy === 'string' ? body.madeBy.slice(0, 60) : undefined,
+        collectionIds: Array.isArray(body.collectionIds) ? body.collectionIds.map(String).slice(0, 20) : undefined,
         limit: body.limit,
         offset: body.offset,
         sort: body.sort

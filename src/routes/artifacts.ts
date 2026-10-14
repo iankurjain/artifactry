@@ -64,6 +64,7 @@ import {
 import { extensionOf, isSupportedExtension, sanitizeFilename } from '../lib/validate'
 import { ulid } from '../lib/ids'
 import { autoTagArtifact, decideTags, tagsByState } from '../lib/tags'
+import { collectionsOf, fileIntoCollections, noteRecentView, recentlyViewed } from '../lib/collections'
 
 const artifacts = new Hono<AppEnv>()
 
@@ -167,6 +168,7 @@ artifacts.post(
     let title: string | undefined
     let description: string | undefined
     let tagSlugs: string[] = []
+    let collectionIds: string[] = []
 
     if (contentType.includes('multipart/form-data')) {
       const form = await c.req.formData()
@@ -190,6 +192,11 @@ artifacts.post(
       title = (form.get('title') as string | null) ?? undefined
       description = (form.get('description') as string | null) ?? undefined
 
+      const rawCollections = form.get('collectionIds')
+      if (typeof rawCollections === 'string' && rawCollections.trim()) {
+        collectionIds = rawCollections.split(',').map((id) => id.trim()).filter(Boolean)
+      }
+
       const rawTags = form.get('tags')
       if (typeof rawTags === 'string' && rawTags.trim()) {
         tagSlugs = rawTags
@@ -207,6 +214,7 @@ artifacts.post(
         title?: string
         description?: string
         tags?: string[]
+        collectionIds?: string[]
       }>(c)
 
       if (!body.filename) throw badRequest('filename is required')
@@ -216,6 +224,7 @@ artifacts.post(
       title = body.title
       description = body.description
       tagSlugs = Array.isArray(body.tags) ? body.tags.map(String) : []
+      collectionIds = Array.isArray(body.collectionIds) ? body.collectionIds.map(String) : []
 
       if (typeof body.contentBase64 === 'string' && body.contentBase64.trim()) {
         try {
@@ -314,6 +323,15 @@ artifacts.post(
       }
     }
 
+    // Collections chosen at save time. Ids outside the workspace, or without
+    // collection.manage there, are skipped rather than failing the upload.
+    const filedInto = await fileIntoCollections(
+      c.env.DB,
+      principal,
+      { id: result.artifactId, workspace_id: workspace.id },
+      collectionIds
+    )
+
     // Automatic tagging: generate a small set of suggestions from the artifact's
     // own extracted content and metadata and attach them as SUGGESTED. Bounded
     // and non-throwing, so an AI outage never fails an upload that succeeded.
@@ -329,7 +347,8 @@ artifacts.post(
       {
         artifact: artifact
           ? presentArtifact(artifact as unknown as Record<string, unknown>, {
-              tags: tagState.confirmed
+              tags: tagState.confirmed,
+              collections: filedInto
             })
           : { id: result.artifactId, status: result.status },
         canonicalUrl: result.canonicalUrl,
@@ -356,6 +375,7 @@ artifacts.get(
     const workspaceId = c.req.query('workspaceId')
     const type = c.req.query('type')
     const status = c.req.query('status')
+    const collectionId = c.req.query('collectionId')
     const sort = c.req.query('sort') ?? 'updated'
     const limit = Math.min(Number(c.req.query('limit') ?? 25) || 25, 100)
     const offset = Math.max(Number(c.req.query('offset') ?? 0) || 0, 0)
@@ -393,22 +413,36 @@ artifacts.get(
       where.push('a.status = ?')
       params.push(status)
     }
+    // Membership is checked through collection_artifacts; the workspace bound
+    // above still holds, so a collection id cannot reach another workspace.
+    if (collectionId) {
+      where.push(
+        'EXISTS (SELECT 1 FROM collection_artifacts ca WHERE ca.artifact_id = a.id AND ca.collection_id = ?)'
+      )
+      params.push(collectionId)
+    }
 
     const order =
       sort === 'created'
         ? 'a.created_at DESC'
-        : sort === 'title'
-          ? 'a.title COLLATE NOCASE ASC'
-          : 'a.updated_at DESC'
+        : sort === 'oldest'
+          ? 'a.created_at ASC'
+          : sort === 'title'
+            ? 'a.title COLLATE NOCASE ASC'
+            : 'a.updated_at DESC'
 
-    const rows = await all<Record<string, unknown>>(
-      c.env.DB,
-      `SELECT a.* FROM artifacts a
-        WHERE ${where.join(' AND ')}
-        ORDER BY ${order}
-        LIMIT ? OFFSET ?`,
-      [...params, limit + 1, offset]
-    )
+    // "viewed" lists only what this person has opened, most recent first.
+    const rows =
+      sort === 'viewed'
+        ? await recentlyViewed(c.env.DB, principal.userId!, where, params, limit + 1, offset)
+        : await all<Record<string, unknown>>(
+            c.env.DB,
+            `SELECT a.* FROM artifacts a
+              WHERE ${where.join(' AND ')}
+              ORDER BY ${order}
+              LIMIT ? OFFSET ?`,
+            [...params, limit + 1, offset]
+          )
 
     const totalRow = await first<{ n: number }>(
       c.env.DB,
@@ -434,12 +468,15 @@ artifacts.get(
       tagMap.set(row.artifact_id, list)
     }
 
+    const collectionMap = await collectionsOf(c.env.DB, page.map((r) => r.id as string))
+
     const wsName = new Map(readable.map((w) => [w.id, w.name]))
 
     return ok(c, {
       artifacts: page.map((row) =>
         presentArtifact(row, {
           tags: tagMap.get(row.id as string) ?? [],
+          collections: collectionMap.get(row.id as string) ?? [],
           workspaceName: wsName.get(row.workspace_id as string) ?? null,
           isOwner: row.owner_user_id === principal.userId
         })
@@ -472,12 +509,22 @@ artifacts.get(
      * rows, so the flat list and the split can never disagree.
      */
     const tagState = await tagsByState(c.env.DB, artifactId)
-    const workspace = await first<{ name: string; workspace_type: string }>(
+    const workspace = await first<{
+      id: string
+      name: string
+      workspace_type: string
+      organization_id: string | null
+      owner_user_id: string
+    }>(
       c.env.DB,
-      `SELECT name, workspace_type FROM workspaces WHERE id = ?`,
+      `SELECT id, name, workspace_type, organization_id, owner_user_id FROM workspaces WHERE id = ?`,
       [access.artifact.workspace_id]
     )
     const versions = await listVersions(c.env.DB, artifactId)
+    const collections = (await collectionsOf(c.env.DB, [artifactId])).get(artifactId) ?? []
+    if (principal.kind !== 'AI_GRANT' && principal.userId) {
+      await noteRecentView(c.env.DB, principal.userId, artifactId)
+    }
 
     const origin = new URL(c.req.url).origin
 
@@ -510,6 +557,9 @@ artifacts.get(
         canUpdate:
           access.isOwner || can(principal, 'artifact.update', workspaceRefOf(access.artifact)),
         preview,
+        collections,
+        // Matches the check the collection endpoints make against the workspace.
+        canManageCollections: workspace ? can(principal, 'collection.manage', workspace) : false,
         workspace: workspace ? { name: workspace.name, type: workspace.workspace_type } : null,
         lineage: await lineageFor(c.env.DB, principal, artifactId, origin)
       }),

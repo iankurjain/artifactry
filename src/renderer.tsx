@@ -477,6 +477,38 @@ const DESIGN_TOKENS = `
   .stat-value { font-size: 24px; font-weight: 640; letter-spacing: -0.02em; line-height: 1.1; }
   .stat-label { font-size: 12px; color: var(--text-2); margin-top: 3px; }
 
+  /* Library filters: one scrolling row per facet (file type, collection). */
+  .filter-label { font-size: 11.5px; font-weight: 600; color: var(--text-3); text-transform: uppercase;
+    letter-spacing: .05em; margin: 0 0 6px; }
+  .filter-row { display: flex; gap: 7px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 12px; }
+  .filter-pill {
+    display: inline-flex; align-items: center; gap: 5px; flex: none;
+    min-height: 36px; padding: 0 14px; border-radius: 999px; font-size: 13px; font-weight: 560;
+    cursor: pointer; white-space: nowrap; font-family: inherit;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text-2);
+  }
+  .filter-pill.is-active { border-color: transparent; background: var(--text); color: #fff; }
+  .filter-pill-new { border-style: dashed; color: var(--accent); }
+  .library-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    margin: 2px 0 12px; }
+  .sort-select {
+    font: inherit; font-size: 13px; font-weight: 560; color: var(--text);
+    background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+    min-height: 34px; padding: 0 10px; cursor: pointer;
+  }
+  .chip-collection { background: var(--accent-weak); color: var(--accent); }
+
+  /* Collection picker in the save sheets: toggle chips plus "New collection". */
+  .collection-picker { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
+  .chip-toggle {
+    display: inline-flex; align-items: center; gap: 5px; min-height: 34px; padding: 0 12px;
+    border-radius: 999px; font: inherit; font-size: 13px; font-weight: 560; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text-2);
+  }
+  .chip-toggle[aria-pressed="true"] { background: var(--accent-weak); border-color: var(--accent); color: var(--accent); }
+  .chip-toggle.chip-new { border-style: dashed; color: var(--accent); }
+  .chip-new-form { display: inline-flex; gap: 6px; align-items: center; }
+
   .sr-only {
     position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
     overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
