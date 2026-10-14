@@ -239,14 +239,15 @@ export function renderHome(ctx) {
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
 
-  const recent = state.artifacts.slice(0, 4)
+  const viewed = ctx.home?.viewed || []
+  const added = ctx.home?.added || []
   const aiMade = state.artifacts.filter((a) => a.madeBy).slice(0, 4)
   const sharedWithMe = state.artifacts.filter((a) => !a.isOwner).slice(0, 4)
 
-  const cardRow = (items) =>
+  const cardRow = (items, emptyText = 'Nothing here yet', dateField = 'updated') =>
     items.length
-      ? `<div class="thumbs">${items.map(artifactCard).join('')}</div>`
-      : `<p style="font-size:13px;color:var(--text-3);margin:2px 0 0">Nothing here yet</p>`
+      ? `<div class="thumbs">${items.map((a) => artifactCard(a, { dateField })).join('')}</div>`
+      : `<p style="font-size:13px;color:var(--text-3);margin:2px 0 0">${esc(emptyText)}</p>`
 
   return {
     html: `
@@ -285,7 +286,15 @@ export function renderHome(ctx) {
               <h2 id="home-recent" style="font-size:15px;font-weight:640;margin:0">Recently viewed</h2>
               <button class="btn btn-ghost" id="home-all" style="min-height:32px;padding:0 6px;font-size:13px">See all</button>
             </div>
-            ${cardRow(recent)}
+            ${cardRow(viewed, 'Artifacts you open will show up here.')}
+          </section>
+
+          <section aria-labelledby="home-added">
+            <div style="display:flex;align-items:baseline;justify-content:space-between;margin:22px 0 10px">
+              <h2 id="home-added" style="font-size:15px;font-weight:640;margin:0">Recently added</h2>
+              <button class="btn btn-ghost" id="home-added-all" style="min-height:32px;padding:0 6px;font-size:13px">See all</button>
+            </div>
+            ${cardRow(added, 'Nothing here yet', 'created')}
           </section>
 
           ${
@@ -314,13 +323,18 @@ export function renderHome(ctx) {
     mount(root) {
       root.querySelector('#home-search')?.addEventListener('click', () => ctx.navigate('/search'))
       root.querySelector('#home-all')?.addEventListener('click', () => ctx.navigate('/library'))
+      root.querySelector('#home-added-all')?.addEventListener('click', () => {
+        ctx.filters.sort = 'created'
+        ctx.filters.collectionId = null
+        ctx.navigate('/library')
+      })
       root.querySelector('#home-upload')?.addEventListener('click', () => ctx.openAddSheet())
     }
   }
 }
 
 /** Compact artifact card (§81) — thumbnail, title, type/updated, tag chips. */
-export function artifactCard(artifact) {
+export function artifactCard(artifact, { dateField = 'updated' } = {}) {
   const tagChips = (artifact.tags || [])
     .slice(0, 2)
     .map((t) => `<span class="chip">${esc(t)}</span>`)
@@ -330,6 +344,13 @@ export function artifactCard(artifact) {
     ? `<span class="chip" style="background:var(--accent-weak);color:var(--accent)">${icon('sparkle', 11)} ${esc(
         artifact.madeBy
       )}</span>`
+    : ''
+
+  const collections = artifact.collections || []
+  const collectionChip = collections.length
+    ? `<span class="chip chip-collection" title="${esc(collections.map((c) => c.name).join(', '))}">${icon('folder', 11)} ${esc(
+        collections[0].name
+      )}${collections.length > 1 ? ` +${collections.length - 1}` : ''}</span>`
     : ''
 
   const sharedBadge = artifact.isOwner === false
@@ -346,13 +367,15 @@ export function artifactCard(artifact) {
             ${esc(artifact.title)}
           </div>
           <div style="font-size:11.5px;color:var(--text-2);margin-top:4px">
-            ${esc(extLabel(artifact.extension))} · ${esc(timeAgo(artifact.updatedAt))}
+            ${esc(extLabel(artifact.extension))} · ${esc(
+              dateField === 'created' ? `Added ${timeAgo(artifact.createdAt)}` : timeAgo(artifact.updatedAt)
+            )}
           </div>
         </div>
       </div>
       ${
-        tagChips || sourceBadge || sharedBadge
-          ? `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:10px">${tagChips}${sourceBadge}${sharedBadge}</div>`
+        collectionChip || tagChips || sourceBadge || sharedBadge
+          ? `<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:10px">${collectionChip}${tagChips}${sourceBadge}${sharedBadge}</div>`
           : ''
       }
     </button>`
@@ -365,6 +388,9 @@ export function artifactCard(artifact) {
 export function renderLibrary(ctx) {
   const state = ctx.state
   const activeType = ctx.filters.type || 'all'
+  const collections = state.collections || []
+  const activeCollection = collections.find((c) => c.id === ctx.filters.collectionId) || null
+  const sort = ctx.filters.sort || 'created'
 
   const types = [
     ['all', 'All'],
@@ -375,11 +401,25 @@ export function renderLibrary(ctx) {
     ['image', 'Images']
   ]
 
+  const sorts = [
+    ['created', 'Newest first'],
+    ['oldest', 'Oldest first'],
+    ['updated', 'Recently updated'],
+    ['title', 'Title A–Z']
+  ]
+
   const visible = state.artifacts.filter((a) => {
     if (activeType === 'all') return true
     if (activeType === 'image') return ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'].includes(a.extension)
     return a.extension === activeType
   })
+
+  const pill = (attr, value, label, active, extra = '') => `
+    <button role="tab" aria-selected="${active}" ${attr}="${esc(value)}" class="filter-pill${active ? ' is-active' : ''}">
+      ${extra}${esc(label)}
+    </button>`
+
+  const filtered = Boolean(ctx.filters.q || activeCollection || activeType !== 'all')
 
   return {
     html: `
@@ -397,37 +437,68 @@ export function renderLibrary(ctx) {
             style="border:0;outline:0;background:transparent;font-size:15px;width:100%;font-family:inherit;color:var(--text)">
         </label>
 
-        <div role="tablist" aria-label="Filter by type" style="display:flex;gap:7px;overflow-x:auto;padding-bottom:4px;margin-bottom:14px">
-          ${types
-            .map(
-              ([value, label]) => `
-            <button role="tab" aria-selected="${activeType === value}" data-type="${value}"
-              style="min-height:36px;padding:0 14px;border-radius:999px;font-size:13px;font-weight:560;cursor:pointer;
-                white-space:nowrap;font-family:inherit;border:1px solid ${activeType === value ? 'transparent' : 'var(--border)'};
-                background:${activeType === value ? 'var(--text)' : 'var(--surface)'};
-                color:${activeType === value ? '#fff' : 'var(--text-2)'}">
-              ${esc(label)}
-            </button>`
+        <div class="filter-label" id="library-type-label">File type</div>
+        <div role="tablist" aria-labelledby="library-type-label" class="filter-row">
+          ${types.map(([value, label]) => pill('data-type', value, label, activeType === value)).join('')}
+        </div>
+
+        <div class="filter-label" id="library-collection-label">Collection</div>
+        <div role="tablist" aria-labelledby="library-collection-label" class="filter-row">
+          ${pill('data-collection-filter', '', 'All', !activeCollection)}
+          ${collections
+            .map((c) =>
+              pill(
+                'data-collection-filter',
+                c.id,
+                `${c.name} · ${c.artifactCount}`,
+                activeCollection?.id === c.id,
+                icon('folder', 13)
+              )
             )
             .join('')}
+          <button class="filter-pill filter-pill-new" id="library-new-collection">${icon('plus', 13)} New</button>
+        </div>
+
+        <div class="library-toolbar">
+          <span style="font-size:12.5px;color:var(--text-2)">
+            ${visible.length} artifact${visible.length === 1 ? '' : 's'}${
+              activeCollection ? ` in ${esc(activeCollection.name)}` : ''
+            }
+          </span>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-2)">
+            ${icon('clock', 15)}
+            <span class="sr-only">Sort</span>
+            <select id="library-sort" class="sort-select" aria-label="Sort artifacts">
+              ${sorts
+                .map(([value, label]) => `<option value="${value}" ${sort === value ? 'selected' : ''}>${esc(label)}</option>`)
+                .join('')}
+            </select>
+          </label>
         </div>
 
         ${
           visible.length
             ? `<div style="display:flex;flex-direction:column;gap:10px">
-                ${visible.map(artifactCard).join('')}
-               </div>
-               <p style="font-size:12px;color:var(--text-3);text-align:center;margin-top:16px">
-                 ${visible.length} artifact${visible.length === 1 ? '' : 's'}${state.artifacts.length > visible.length ? ` shown of ${state.artifacts.length}` : ''}
-               </p>`
+                ${visible
+                  .map((a) => artifactCard(a, { dateField: sort === 'created' || sort === 'oldest' ? 'created' : 'updated' }))
+                  .join('')}
+               </div>`
             : `<div class="card" style="padding:4px 0 12px">
                 ${emptyState({
-                  iconName: 'library',
-                  title: ctx.filters.q ? 'No matches' : 'No artifacts here yet',
+                  iconName: activeCollection ? 'folder' : 'library',
+                  title: ctx.filters.q
+                    ? 'No matches'
+                    : activeCollection
+                      ? 'Nothing in this collection yet'
+                      : 'No artifacts here yet',
                   message: ctx.filters.q
                     ? 'Try a different search term or clear the filter.'
-                    : 'Add a file, or save AI output straight into this workspace.',
-                  action: '<button class="btn btn-primary" id="library-add">Add an artifact</button>'
+                    : activeCollection
+                      ? 'Add files to it from an artifact page, or choose it when you upload.'
+                      : 'Add a file, or save AI output straight into this workspace.',
+                  action: filtered && !ctx.filters.q
+                    ? '<button class="btn btn-secondary" id="library-clear">Show everything</button>'
+                    : '<button class="btn btn-primary" id="library-add">Add an artifact</button>'
                 })}
                </div>`
         }
@@ -448,26 +519,37 @@ export function renderLibrary(ctx) {
         })
       })
 
+      // Collection and sort change what the server returns, so both reload.
+      root.querySelectorAll('[data-collection-filter]').forEach((button) => {
+        button.addEventListener('click', () => {
+          ctx.filters.collectionId = button.dataset.collectionFilter || null
+          ctx.reload()
+        })
+      })
+
+      root.querySelector('#library-sort')?.addEventListener('change', (e) => {
+        ctx.filters.sort = e.target.value
+        ctx.reload()
+      })
+
+      root.querySelector('#library-new-collection')?.addEventListener('click', () => ctx.openCollectionCreateSheet())
+
+      root.querySelector('#library-clear')?.addEventListener('click', () => {
+        ctx.filters.type = 'all'
+        ctx.filters.collectionId = null
+        ctx.reload()
+      })
+
       root.querySelector('#library-add')?.addEventListener('click', () => ctx.openAddSheet())
 
       root.querySelector('#library-menu')?.addEventListener('click', () => {
         sheet({
           title: 'Library options',
           content: `
-            <button class="row" id="opt-sort-updated">${icon('clock', 19)} Sort by last updated</button>
-            <button class="row" id="opt-sort-title">${icon('file', 19)} Sort by title</button>
             <button class="row" id="opt-collections">${icon('folder', 19)} Browse collections</button>
             <button class="row" id="opt-tags">${icon('tag', 19)} Browse tags</button>
           `,
           onMount(handle) {
-            handle.body.querySelector('#opt-sort-updated')?.addEventListener('click', () => {
-              ctx.filters.sort = 'updated'
-              ctx.refresh()
-            })
-            handle.body.querySelector('#opt-sort-title')?.addEventListener('click', () => {
-              ctx.filters.sort = 'title'
-              ctx.refresh()
-            })
             handle.body.querySelector('#opt-collections')?.addEventListener('click', () => {
               ctx.openCollectionsSheet()
             })

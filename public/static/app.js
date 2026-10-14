@@ -172,7 +172,11 @@ const ctx = {
   api,
   boot,
   devCode: null,
-  filters: { type: 'all', q: '', sort: 'updated' },
+  // sort: created (newest first) | oldest | updated | title.
+  // collectionId narrows the library to one collection of the current workspace.
+  filters: { type: 'all', q: '', sort: 'created', collectionId: null },
+  // Home's two rows, each its own listing so filters elsewhere never change them.
+  home: { viewed: [], added: [] },
   search: { query: '', results: [], total: 0, performed: false, loading: false, engine: null, activeFilters: [] },
   detail: { loading: false, artifact: null, versions: [], analytics: null, indexState: null },
   analyticsView: { loading: false, data: null, artifactId: null, title: null },
@@ -323,17 +327,28 @@ function goBack() {
 // Data loading per route
 // ---------------------------------------------------------------
 
-async function loadArtifacts({ workspaceId } = {}) {
+async function loadArtifacts({ workspaceId, collectionId = ctx.filters.collectionId, sort = ctx.filters.sort } = {}) {
   const result = await api.listArtifacts({
     workspaceId: workspaceId ?? state.currentWorkspaceId ?? undefined,
     type: ctx.filters.type && ctx.filters.type !== 'all' && ctx.filters.type !== 'image'
       ? ctx.filters.type
       : undefined,
-    sort: ctx.filters.sort,
+    collectionId: collectionId || undefined,
+    sort,
     limit: 60
   })
   setState({ artifacts: result?.artifacts || [] })
   return result
+}
+
+/** Home: what this person opened last, and what was saved last, in this workspace. */
+async function loadHomeLists() {
+  const workspaceId = state.currentWorkspaceId || undefined
+  const [viewed, added] = await Promise.all([
+    api.listArtifacts({ workspaceId, sort: 'viewed', limit: 4 }).catch(() => null),
+    api.listArtifacts({ workspaceId, sort: 'created', limit: 4 }).catch(() => null)
+  ])
+  ctx.home = { viewed: viewed?.artifacts || [], added: added?.artifacts || [] }
 }
 
 /** Library search: a query goes to the search index, otherwise a plain listing. */
@@ -342,19 +357,26 @@ async function runLibraryQuery() {
   if (query.length >= 2) {
     const result = await api.search({
       query,
+      workspaceIds: state.currentWorkspaceId ? [state.currentWorkspaceId] : undefined,
+      collectionIds: ctx.filters.collectionId ? [ctx.filters.collectionId] : undefined,
       limit: 60
     })
-    setState({
-      artifacts: (result?.results || []).map((hit) => ({
-        ...hit,
-        isOwner: true,
-        tags: hit.tags || []
-      }))
-    })
+    const hits = (result?.results || []).map((hit) => ({
+      ...hit,
+      isOwner: true,
+      tags: hit.tags || []
+    }))
+    // Matches keep relevance order unless the person chose a date order.
+    const byCreated = (a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || ''))
+    if (ctx.filters.sort === 'created') hits.sort((a, b) => byCreated(b, a))
+    if (ctx.filters.sort === 'oldest') hits.sort(byCreated)
+    setState({ artifacts: hits })
     return
   }
   await loadArtifacts()
 }
+
+ctx.runLibraryQuery = runLibraryQuery
 
 async function loadShellData() {
   const me = await api.me()
@@ -401,11 +423,21 @@ async function loadRouteData(route) {
 
   switch (route.name) {
     case 'home': {
-      await Promise.all([loadArtifacts(), loadIntegrations(), loadHandoffs()])
+      await Promise.all([
+        loadArtifacts({ collectionId: null, sort: 'updated' }),
+        loadHomeLists(),
+        loadIntegrations(),
+        loadHandoffs()
+      ])
       break
     }
     case 'library': {
-      await Promise.all([loadArtifacts(), loadIntegrations()])
+      // A collection filter from another workspace means nothing here.
+      const collections = await loadCollections()
+      if (ctx.filters.collectionId && !collections.some((col) => col.id === ctx.filters.collectionId)) {
+        ctx.filters.collectionId = null
+      }
+      await Promise.all([runLibraryQuery(), loadIntegrations()])
       break
     }
     case 'connect': {
@@ -1234,6 +1266,7 @@ ctx.openUploadSheet = () => {
           'Title',
           '<input id="upload-title" class="input" type="text" placeholder="Optional — defaults to the filename">'
         )}
+        ${collectionPickerField('upload')}
         ${field(
           'Tags',
           '<input id="upload-tags" class="input" type="text" placeholder="comma, separated, slugs">',
@@ -1263,6 +1296,8 @@ ctx.openUploadSheet = () => {
           if (title) form.append('title', title)
           const tags = panel?.querySelector('#upload-tags')?.value?.trim()
           if (tags) form.append('tags', tags)
+          const collectionIds = pickedCollections(panel, 'upload')
+          if (collectionIds.length) form.append('collectionIds', collectionIds.join(','))
 
           if (button) {
             button.disabled = true
@@ -1286,6 +1321,7 @@ ctx.openUploadSheet = () => {
       }
     ],
     onMount(handle) {
+      mountCollectionPicker(handle.body, 'upload', '#upload-workspace')
       const input = handle.body.querySelector('#upload-file')
       const label = handle.body.querySelector('#upload-filename')
 
@@ -1323,6 +1359,7 @@ ctx.openContentSheet = () => {
           'Workspace',
           `<select id="content-workspace" class="input">${workspaceOptions()}</select>`
         )}
+        ${collectionPickerField('content')}
       </div>`,
     actions: [
       {
@@ -1347,7 +1384,8 @@ ctx.openContentSheet = () => {
               mimeType: filename.toLowerCase().endsWith('.html') ? 'text/html' : 'text/plain',
               contentText: content,
               title: title || undefined,
-              workspaceId
+              workspaceId,
+              collectionIds: pickedCollections(panel, 'content')
             })
           )
           if (!result) return
@@ -1358,8 +1396,220 @@ ctx.openContentSheet = () => {
           navigate(`/a/${encodeURIComponent(result.artifact.id)}`)
         }
       }
-    ]
+    ],
+    onMount(handle) {
+      mountCollectionPicker(handle.body, 'content', '#content-workspace')
+    }
   })
+}
+
+// ---------------------------------------------------------------
+// Choosing collections while saving
+//
+// The picker lists the collections of whichever workspace is selected in the
+// same sheet, and can create one on the spot. Selection lives on the chips
+// (aria-pressed) so the sheet's submit handler reads it straight from the DOM.
+// ---------------------------------------------------------------
+
+function collectionPickerField(prefix) {
+  return field(
+    'Collections',
+    `<div id="${prefix}-collections" class="collection-picker" role="group" aria-label="Collections">
+       <span style="font-size:12.5px;color:var(--text-3)">Loading collections…</span>
+     </div>`,
+    'Optional. A file can be in more than one collection.'
+  )
+}
+
+function pickedCollections(root, prefix) {
+  return [...(root?.querySelectorAll(`#${prefix}-collections [data-pick][aria-pressed="true"]`) || [])].map(
+    (chip) => chip.dataset.pick
+  )
+}
+
+function collectionChip(collection, pressed) {
+  return `<button type="button" class="chip-toggle" data-pick="${esc(collection.id)}" aria-pressed="${pressed}">
+      ${icon(pressed ? 'check' : 'folder', 13)} ${esc(collection.name)}
+    </button>`
+}
+
+function mountCollectionPicker(root, prefix, workspaceSelector) {
+  const host = root.querySelector(`#${prefix}-collections`)
+  const select = root.querySelector(workspaceSelector)
+  if (!host) return
+  const selected = new Set()
+
+  const paint = (collections) => {
+    host.innerHTML = `
+      ${collections.map((col) => collectionChip(col, selected.has(col.id))).join('')}
+      <button type="button" class="chip-toggle chip-new" data-new-collection>${icon('plus', 13)} New collection</button>`
+    host.querySelectorAll('[data-pick]').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        const id = chip.dataset.pick
+        if (selected.has(id)) selected.delete(id)
+        else selected.add(id)
+        paint(collections)
+      })
+    })
+    host.querySelector('[data-new-collection]')?.addEventListener('click', (event) => {
+      const button = event.currentTarget
+      button.outerHTML = `
+        <span class="chip-new-form">
+          <input class="input" type="text" data-new-name placeholder="Collection name" aria-label="New collection name"
+            style="min-height:34px;padding:0 10px;font-size:13px;width:170px">
+          <button type="button" class="btn btn-secondary" data-new-save style="min-height:34px;padding:0 12px;font-size:13px">Add</button>
+        </span>`
+      const input = host.querySelector('[data-new-name]')
+      const save = async () => {
+        const name = input?.value?.trim()
+        if (!name) return
+        const created = await attempt(() => api.createCollection({ name, workspaceId: select?.value }))
+        if (!created?.collection) return
+        selected.add(created.collection.id)
+        collections.push({ id: created.collection.id, name })
+        paint(collections)
+        if (select?.value === state.currentWorkspaceId) void loadCollections()
+      }
+      host.querySelector('[data-new-save]')?.addEventListener('click', save)
+      input?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          void save()
+        }
+      })
+      input?.focus()
+    })
+  }
+
+  const load = async () => {
+    selected.clear()
+    // Saving from a filtered library files into that collection by default.
+    if (select?.value === state.currentWorkspaceId && ctx.filters.collectionId) selected.add(ctx.filters.collectionId)
+    try {
+      const result = await api.collections(select?.value || undefined)
+      paint(result?.collections || [])
+    } catch {
+      paint([])
+    }
+  }
+
+  select?.addEventListener('change', load)
+  void load()
+}
+
+/**
+ * Which collections one artifact is in. Each tap adds or removes it right
+ * away; the artifact screen re-reads server state when the sheet closes.
+ */
+ctx.openArtifactCollectionsSheet = async (artifact) => {
+  let collections = []
+  try {
+    const result = await api.collections(artifact.workspaceId)
+    collections = result?.collections || []
+  } catch (error) {
+    toast(error.message, 'error')
+    return
+  }
+  const member = new Set((artifact.collections || []).map((col) => col.id))
+  let changed = false
+
+  const rows = () =>
+    collections.length
+      ? collections
+          .map(
+            (col) => `
+        <label class="row" style="padding:11px 0;cursor:pointer">
+          <input type="checkbox" data-member="${esc(col.id)}" ${member.has(col.id) ? 'checked' : ''}
+            style="width:18px;height:18px;margin:0;accent-color:var(--accent)">
+          <span style="flex:1;min-width:0">
+            <span style="display:block;font-size:14px;font-weight:560">${esc(col.name)}</span>
+            <span style="display:block;font-size:11.5px;color:var(--text-2)">
+              ${col.artifactCount} artifact${col.artifactCount === 1 ? '' : 's'}
+            </span>
+          </span>
+        </label>`
+          )
+          .join('')
+      : '<p style="font-size:13px;color:var(--text-2);margin:0 0 6px">No collections in this workspace yet. Create the first one below.</p>'
+
+  sheet({
+    title: 'Collections',
+    content: `
+      <p style="font-size:13px;color:var(--text-2);margin:0 0 6px;line-height:1.5">
+        Choose the collections “${esc(artifact.title)}” belongs to.
+      </p>
+      <div id="artifact-collections">${rows()}</div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <input id="artifact-collection-new" class="input" type="text" placeholder="New collection name" style="flex:1">
+        <button class="btn btn-secondary" id="artifact-collection-create">${icon('plus', 16)} Create</button>
+      </div>`,
+    actions: [{ label: 'Done', variant: 'primary', onClick: () => {} }],
+    onClose: () => {
+      if (changed) void refresh({ reload: true })
+    },
+    onMount(handle) {
+      const wire = () => {
+        handle.body.querySelectorAll('[data-member]').forEach((box) => {
+          box.addEventListener('change', async () => {
+            const id = box.dataset.member
+            const name = collections.find((col) => col.id === id)?.name || 'collection'
+            const done = box.checked
+              ? await attempt(() => api.addToCollection(id, [artifact.id]), `Added to ${name}`)
+              : await attempt(() => api.removeFromCollection(id, artifact.id), `Removed from ${name}`)
+            if (!done) {
+              box.checked = !box.checked
+              return
+            }
+            changed = true
+            if (box.checked) member.add(id)
+            else member.delete(id)
+          })
+        })
+      }
+      wire()
+      const create = async () => {
+        const input = handle.body.querySelector('#artifact-collection-new')
+        const name = input?.value?.trim()
+        if (!name) {
+          toast('Give the collection a name', 'error')
+          return
+        }
+        const created = await attempt(() =>
+          api.createCollection({ name, workspaceId: artifact.workspaceId, artifactIds: [artifact.id] })
+        )
+        if (!created?.collection) return
+        toast(`Added to ${name}`, 'success')
+        changed = true
+        member.add(created.collection.id)
+        collections.push({ id: created.collection.id, name, artifactCount: 1 })
+        input.value = ''
+        handle.body.querySelector('#artifact-collections').innerHTML = rows()
+        wire()
+      }
+      handle.body.querySelector('#artifact-collection-create')?.addEventListener('click', create)
+      handle.body.querySelector('#artifact-collection-new')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          void create()
+        }
+      })
+    }
+  })
+}
+
+ctx.removeFromCollection = async (artifactId, collection) => {
+  const done = await attempt(
+    () => api.removeFromCollection(collection.id, artifactId),
+    `Removed from ${collection.name}`
+  )
+  if (done) await refresh({ reload: true })
+}
+
+ctx.filterLibraryByCollection = (collectionId) => {
+  ctx.filters.collectionId = collectionId || null
+  ctx.filters.type = 'all'
+  closeSheet()
+  navigate('/library')
 }
 
 ctx.openCollectionCreateSheet = () => {
@@ -1406,6 +1656,7 @@ ctx.openCollectionCreateSheet = () => {
           closeSheet()
           toast('Collection created', 'success')
           await loadCollections()
+          render()
           ctx.openCollectionsSheet()
         }
       }
@@ -1950,8 +2201,13 @@ ctx.openCollectionDetailSheet = async (collectionId) => {
       </div>`,
     actions: [
       {
-        label: 'Share collection',
+        label: 'Show in library',
         variant: 'primary',
+        onClick: () => ctx.filterLibraryByCollection(collectionId)
+      },
+      {
+        label: 'Share collection',
+        variant: 'secondary',
         onClick: () => {
           const collection = { id: collectionId, name: detail?.collection?.name || 'Collection' }
           shareCreateSheet(ctx, collection, () => {})
@@ -2703,6 +2959,11 @@ ctx.openArtifactMenuSheet = (artifact) => {
              <button class="row" id="art-newversion">${icon('upload', 19)} <span style="flex:1">Upload a new version</span></button>`
           : ''
       }
+      ${
+        artifact.canManageCollections
+          ? `<button class="row" id="art-collections">${icon('folder', 19)} <span style="flex:1">Add to or remove from collections</span></button>`
+          : ''
+      }
       <button class="row" id="art-copy">${icon('link', 19)} <span style="flex:1">Copy canonical link</span></button>
       <button class="row" id="art-analytics">${icon('chart', 19)} <span style="flex:1">View analytics</span></button>
       ${
@@ -2724,6 +2985,9 @@ ctx.openArtifactMenuSheet = (artifact) => {
       )
       handle.body.querySelector('#art-tags')?.addEventListener('click', () =>
         ctx.openTagsSheet({ artifact })
+      )
+      handle.body.querySelector('#art-collections')?.addEventListener('click', () =>
+        ctx.openArtifactCollectionsSheet(artifact)
       )
       handle.body.querySelector('#art-newversion')?.addEventListener('click', () =>
         ctx.openVersionUploadSheet(artifact)

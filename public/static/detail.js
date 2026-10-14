@@ -218,8 +218,10 @@ export function renderArtifactDetail(ctx) {
               : ''
           }
 
+          ${collectionsBlock(a)}
+
           <div style="font-size:12.5px;color:var(--text-2);margin-top:13px;display:flex;align-items:center;gap:7px">
-            ${icon('folder', 15)} ${esc(a.workspace?.name || 'Workspace')}
+            ${icon('building', 15)} ${esc(a.workspace?.name || 'Workspace')}
           </div>
         </div>
 
@@ -352,12 +354,63 @@ export function renderArtifactDetail(ctx) {
         )
       })
       root.querySelector('#detail-tag-add')?.addEventListener('click', () => ctx.openAddTagSheet(a))
+      root.querySelector('#detail-collection-add')?.addEventListener('click', () => ctx.openArtifactCollectionsSheet(a))
+      root.querySelectorAll('[data-collection-remove]').forEach((button) => {
+        const collection = (a.collections || []).find((c) => c.id === button.dataset.collectionRemove)
+        if (collection) button.addEventListener('click', () => ctx.removeFromCollection(a.id, collection))
+      })
+      root.querySelectorAll('[data-collection-open]').forEach((button) => {
+        button.addEventListener('click', () => ctx.filterLibraryByCollection(button.dataset.collectionOpen))
+      })
       // Fills in the owner-only Interactive HTML control from the server's
       // settings response, so availability and the warning text are never
       // hard-coded in the client.
       mountHtmlPreviewCard(root, a, ctx)
     }
   }
+}
+
+/**
+ * The collections this artifact is in. A chip opens the library filtered to
+ * that collection; people who can manage collections also get × and "Add".
+ */
+function collectionsBlock(a) {
+  const collections = a.collections || []
+  const canManage = Boolean(a.canManageCollections)
+  if (!collections.length && !canManage) return ''
+  return `
+    <div style="margin-top:13px">
+      <div style="font-size:11.5px;color:var(--text-2);margin-bottom:7px">Collections</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+        ${collections
+          .map(
+            (c) => `<span class="chip chip-collection" style="padding:0 3px 0 0">
+                <button class="btn" data-collection-open="${esc(c.id)}" title="Show ${esc(c.name)} in the library"
+                  style="min-height:24px;padding:0 4px 0 9px;background:transparent;color:inherit;font-size:11.5px;font-weight:550;gap:4px">
+                  ${icon('folder', 12)} ${esc(c.name)}
+                </button>
+                ${
+                  canManage
+                    ? `<button class="btn" data-collection-remove="${esc(c.id)}" title="Remove from ${esc(c.name)}"
+                         aria-label="Remove from ${esc(c.name)}"
+                         style="min-height:22px;padding:0 4px;background:transparent;color:inherit">
+                         ${icon('x', 12)}
+                       </button>`
+                    : ''
+                }
+              </span>`
+          )
+          .join('')}
+        ${
+          canManage
+            ? `<button class="btn btn-ghost" id="detail-collection-add"
+                 style="min-height:30px;padding:0 9px;font-size:12.5px">
+                 ${icon('plus', 14)} ${collections.length ? 'Add to another' : 'Add to a collection'}
+               </button>`
+            : ''
+        }
+      </div>
+    </div>`
 }
 
 /**

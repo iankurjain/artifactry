@@ -120,10 +120,11 @@ export const api = {
   // Artifacts
   // ---------------------------------------------------------------
 
-  listArtifacts: ({ workspaceId, type, sort, limit = 25, offset = 0 } = {}) => {
+  listArtifacts: ({ workspaceId, type, sort, collectionId, limit = 25, offset = 0 } = {}) => {
     const params = new URLSearchParams()
     if (workspaceId) params.set('workspaceId', workspaceId)
     if (type) params.set('type', type)
+    if (collectionId) params.set('collectionId', collectionId)
     if (sort) params.set('sort', sort)
     params.set('limit', String(limit))
     params.set('offset', String(offset))

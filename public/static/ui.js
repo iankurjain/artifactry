@@ -352,7 +352,7 @@ let openSheet = null
  * Escape dismisses it — the accessibility requirements in §113 apply to
  * sheets as well as dialogs.
  */
-export function sheet({ title, content, actions = [], onMount, dismissible = true }) {
+export function sheet({ title, content, actions = [], onMount, onClose, dismissible = true }) {
   closeSheet()
 
   const host = document.getElementById('sheet-host')
@@ -446,6 +446,7 @@ export function sheet({ title, content, actions = [], onMount, dismissible = tru
       }, 260)
       previouslyFocused?.focus?.()
       openSheet = null
+      onClose?.()
     }
   }
 
