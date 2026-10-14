@@ -309,11 +309,12 @@ export interface ArtifactRow {
   metadata_json: string
   /**
    * HTML rendering mode — migration 0005.
-   *   0 (default) — Safe Preview: HTML + CSS render, JavaScript never executes.
-   *   1           — Interactive Preview: JavaScript executes, but only on the
-   *                 isolated preview origin.
-   * Default 0 is a security posture, not a preference; only an explicit,
-   * audited owner action sets it to 1.
+   *   0 — Safe Preview: HTML + CSS render, JavaScript never executes.
+   *   1 — Interactive Preview: JavaScript executes, but only on the isolated
+   *       preview origin.
+   * New HTML artifacts are created with 1 unless the uploader opts out (the
+   * creation audit event records which); the column default stays 0, and a
+   * deployment without the isolated origin serves Safe Preview regardless.
    */
   interactive_html?: number
   /** Migration 0010: the client name the saving AI tool reported, e.g. "Cursor". */

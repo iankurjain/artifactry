@@ -18,7 +18,7 @@ if ! flock -n 9; then
   exit 3
 fi
 
-ALL=(build check-imports check-undefined test-preview test-preview-security test-preview-ui test-authz test-index-sync test-semantic test-extract test-autotag test-mcp-jobs test-tag-decisions test-oauth test-share-domains test-workspace-manage test-handoffs)
+ALL=(build check-imports check-undefined test-preview test-preview-security test-preview-ui test-authz test-index-sync test-semantic test-extract test-autotag test-mcp-jobs test-tag-decisions test-oauth test-share-domains test-workspace-manage test-handoffs test-library-bulk)
 GATES=("$@")
 [ ${#GATES[@]} -eq 0 ] && GATES=("${ALL[@]}")
 
@@ -70,6 +70,9 @@ run_gate() {
     # Headless, same harness: text and code files, made-by provenance,
     # lineage (declared and inferred), handoffs between tools, projects.
     test-handoffs)         node scripts/test-handoffs.mjs ;;
+    # Headless: library bulk move/delete, one collection per artifact (with
+    # migration 0012's dedupe), bulk upload fields and the HTML preview default.
+    test-library-bulk)     node scripts/test-library-bulk.mjs ;;
     *) echo "unknown gate: $g" >&2; return 1 ;;
   esac > "$log" 2>&1
   rc=$?

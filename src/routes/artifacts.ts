@@ -16,6 +16,7 @@
 
 import { Hono } from 'hono'
 import type { AppEnv } from '../middleware'
+import type { ArtifactRow, Principal } from '../types'
 import { guarded, rateLimit, requirePrincipal } from '../middleware'
 import {
   assignTags,
@@ -26,11 +27,11 @@ import {
   normalizeTitle,
   restoreVersion,
   tagsForArtifact,
-  softDeleteArtifact,
+  deleteArtifactPermanently,
   getVersion,
   runEmbeddingStage
 } from '../lib/artifacts'
-import { artifactAccess, assertArtifactPermission, mayReadAnalytics, workspaceRefOf } from '../lib/access'
+import { artifactAccess, assertArtifactPermission, loadArtifactFor, mayReadAnalytics, workspaceRefOf } from '../lib/access'
 import { indexStateFor, isSemanticConfigured } from '../lib/embeddings'
 import { reprocessVersion } from '../lib/reprocess'
 import { assertWorkspaceAccess, effectiveWorkspaceRole, can } from '../lib/principal'
@@ -55,6 +56,7 @@ import { lineageFor, madeByLabel, removeLineage } from '../lib/handoffs'
 import { all, first, nowIso, run } from '../lib/db'
 import {
   badRequest,
+  forbidden,
   notFound,
   ok,
   readJson,
@@ -64,7 +66,7 @@ import {
 import { extensionOf, isSupportedExtension, sanitizeFilename } from '../lib/validate'
 import { ulid } from '../lib/ids'
 import { autoTagArtifact, decideTags, tagsByState } from '../lib/tags'
-import { collectionsOf, fileIntoCollections, noteRecentView, recentlyViewed } from '../lib/collections'
+import { collectionsOf, fileIntoCollections, noteRecentView, placeInCollection, recentlyViewed } from '../lib/collections'
 
 const artifacts = new Hono<AppEnv>()
 
@@ -169,6 +171,9 @@ artifacts.post(
     let description: string | undefined
     let tagSlugs: string[] = []
     let collectionIds: string[] = []
+    // HTML starts in Interactive Preview unless the uploader turns it off.
+    let interactiveHtml = true
+    let acceptSuggestedTags = false
 
     if (contentType.includes('multipart/form-data')) {
       const form = await c.req.formData()
@@ -191,6 +196,9 @@ artifacts.post(
       workspaceId = (form.get('workspaceId') as string | null) ?? undefined
       title = (form.get('title') as string | null) ?? undefined
       description = (form.get('description') as string | null) ?? undefined
+
+      interactiveHtml = form.get('interactiveHtml') !== 'false'
+      acceptSuggestedTags = form.get('acceptSuggestedTags') === 'true'
 
       const rawCollections = form.get('collectionIds')
       if (typeof rawCollections === 'string' && rawCollections.trim()) {
@@ -215,6 +223,7 @@ artifacts.post(
         description?: string
         tags?: string[]
         collectionIds?: string[]
+        interactiveHtml?: boolean
       }>(c)
 
       if (!body.filename) throw badRequest('filename is required')
@@ -225,6 +234,7 @@ artifacts.post(
       description = body.description
       tagSlugs = Array.isArray(body.tags) ? body.tags.map(String) : []
       collectionIds = Array.isArray(body.collectionIds) ? body.collectionIds.map(String) : []
+      interactiveHtml = body.interactiveHtml !== false
 
       if (typeof body.contentBase64 === 'string' && body.contentBase64.trim()) {
         try {
@@ -294,7 +304,8 @@ artifacts.post(
                 }
               : undefined
         },
-        createdBy: principal.userId!
+        createdBy: principal.userId!,
+        interactiveHtml
       },
       origin
     )
@@ -336,6 +347,26 @@ artifacts.post(
     // own extracted content and metadata and attach them as SUGGESTED. Bounded
     // and non-throwing, so an AI outage never fails an upload that succeeded.
     const suggestions = await autoTagArtifact(c.env, principal, result.artifactId)
+
+    // Bulk uploads into a collection keep the system-generated tags rather than
+    // leaving every file with suggestions to review. The same governance as an
+    // accept from the artifact page applies; a refusal never fails the upload.
+    if (acceptSuggestedTags && suggestions.proposed.length) {
+      try {
+        await decideTags(
+          c.env.DB,
+          principal,
+          {
+            id: result.artifactId,
+            organization_id: workspace.organization_id,
+            current_version_id: (await loadArtifact(c.env.DB, result.artifactId))?.current_version_id ?? null
+          },
+          { accept: suggestions.proposed }
+        )
+      } catch (err) {
+        tagWarning = err instanceof Error ? err.message : 'Suggested tags could not be applied'
+      }
+    }
 
     const artifact = await loadArtifact(c.env.DB, result.artifactId)
     const tagState = await tagsByState(c.env.DB, result.artifactId)
@@ -490,6 +521,145 @@ artifacts.get(
 )
 
 // ---------------------------------------------------------------
+// Bulk actions from the library: move to a collection, delete
+//
+// Each artifact is checked on its own against its own workspace, so a mixed
+// or forged list can only ever touch what this person may change. Ids that
+// are missing or not allowed come back in `skipped` rather than failing the
+// whole request.
+// ---------------------------------------------------------------
+
+const BULK_LIMIT = 200
+const DELETE_FORBIDDEN = 'Only workspace Owners and Admins can delete artifacts.'
+
+type WorkspaceRef = { id: string; organization_id: string | null; owner_user_id: string }
+
+/** The real workspace row. workspaceRefOf() reads the uploader as owner, so it is not used for delete. */
+function workspaceOf(db: D1Database, workspaceId: string) {
+  return first<WorkspaceRef>(db, `SELECT id, organization_id, owner_user_id FROM workspaces WHERE id = ?`, [
+    workspaceId
+  ])
+}
+
+function bulkIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) throw badRequest('Provide artifactIds')
+  const ids = [...new Set(raw.map(String).filter(Boolean))]
+  if (!ids.length) throw badRequest('Provide artifactIds')
+  if (ids.length > BULK_LIMIT) throw badRequest(`Select at most ${BULK_LIMIT} artifacts at a time`)
+  return ids
+}
+
+function auditDelete(db: D1Database, principal: Principal, artifact: ArtifactRow) {
+  return recordAudit(db, {
+    organizationId: artifact.organization_id,
+    workspaceId: artifact.workspace_id,
+    actorUserId: principal.userId,
+    actorType: principal.kind === 'AI_GRANT' ? 'AI' : 'USER',
+    action: 'ARTIFACT_DELETE',
+    targetType: 'artifact',
+    targetId: artifact.id,
+    metadata: { title: artifact.title, permanent: true }
+  })
+}
+
+/**
+ * Puts every listed artifact in one collection (moving it out of the one it
+ * was in), or in none when collectionId is null.
+ */
+artifacts.post(
+  '/bulk/collection',
+  rateLimit({ bucket: 'artifact:bulk', limit: 60, windowSeconds: 300 }),
+  guarded(async (c) => {
+    const principal = requirePrincipal(c)
+    const body = await readJson<{ artifactIds?: unknown; collectionId?: unknown }>(c)
+    const ids = bulkIds(body.artifactIds)
+    const collectionId = typeof body.collectionId === 'string' && body.collectionId ? body.collectionId : null
+
+    const collection = collectionId
+      ? await first<{ id: string; name: string; workspace_id: string }>(
+          c.env.DB,
+          `SELECT id, name, workspace_id FROM collections WHERE id = ? AND archived_at IS NULL`,
+          [collectionId]
+        )
+      : null
+    if (collectionId && !collection) throw notFound('Collection not found')
+    if (collection) await assertWorkspaceAccess(c.env.DB, principal, collection.workspace_id, 'collection.manage')
+
+    const moved: string[] = []
+    const skipped: string[] = []
+    const workspaces = new Map<string, WorkspaceRef | null>()
+    for (const id of ids) {
+      const artifact = await loadArtifactFor(c.env.DB, id)
+      // A collection only holds artifacts of its own workspace.
+      if (!artifact || (collection && artifact.workspace_id !== collection.workspace_id)) {
+        skipped.push(id)
+        continue
+      }
+      if (!workspaces.has(artifact.workspace_id)) {
+        workspaces.set(artifact.workspace_id, await workspaceOf(c.env.DB, artifact.workspace_id))
+      }
+      const workspace = workspaces.get(artifact.workspace_id)
+      if (!workspace || !can(principal, 'collection.manage', workspace)) {
+        skipped.push(id)
+        continue
+      }
+      await placeInCollection(c.env.DB, artifact.id, collection?.id ?? null, principal.userId)
+      moved.push(id)
+    }
+
+    return ok(c, {
+      moved: moved.length,
+      skipped,
+      collection: collection ? { id: collection.id, name: collection.name } : null
+    })
+  })
+)
+
+/** Deletes every listed artifact for good. Owners and Admins only. */
+artifacts.post(
+  '/bulk/delete',
+  rateLimit({ bucket: 'artifact:bulk', limit: 60, windowSeconds: 300 }),
+  guarded(async (c) => {
+    const principal = requirePrincipal(c)
+    const body = await readJson<{ artifactIds?: unknown }>(c)
+    const ids = bulkIds(body.artifactIds)
+
+    const allowed: ArtifactRow[] = []
+    const skipped: string[] = []
+    let refused = 0
+    const workspaces = new Map<string, WorkspaceRef | null>()
+    for (const id of ids) {
+      const artifact = await loadArtifactFor(c.env.DB, id)
+      if (!artifact) {
+        skipped.push(id)
+        continue
+      }
+      if (!workspaces.has(artifact.workspace_id)) {
+        workspaces.set(artifact.workspace_id, await workspaceOf(c.env.DB, artifact.workspace_id))
+      }
+      const workspace = workspaces.get(artifact.workspace_id)
+      if (!workspace || !can(principal, 'artifact.read', workspace)) {
+        skipped.push(id)
+      } else if (!can(principal, 'artifact.delete', workspace)) {
+        skipped.push(id)
+        refused++
+      } else {
+        allowed.push(artifact)
+      }
+    }
+    // Nothing deletable and at least one refused for role: say why plainly.
+    if (!allowed.length && refused) throw forbidden(DELETE_FORBIDDEN)
+
+    for (const artifact of allowed) {
+      await deleteArtifactPermanently(c.env, artifact.id)
+      await auditDelete(c.env.DB, principal, artifact)
+    }
+
+    return ok(c, { deleted: allowed.length, skipped })
+  })
+)
+
+// ---------------------------------------------------------------
 // Read one
 // ---------------------------------------------------------------
 
@@ -560,6 +730,8 @@ artifacts.get(
         collections,
         // Matches the check the collection endpoints make against the workspace.
         canManageCollections: workspace ? can(principal, 'collection.manage', workspace) : false,
+        // Deleting is for workspace Owners and Admins, uploader or not.
+        canDelete: workspace ? can(principal, 'artifact.delete', workspace) : false,
         workspace: workspace ? { name: workspace.name, type: workspace.workspace_type } : null,
         lineage: await lineageFor(c.env.DB, principal, artifactId, origin)
       }),
@@ -670,7 +842,7 @@ artifacts.patch(
 )
 
 // ---------------------------------------------------------------
-// Soft delete
+// Delete (permanent)
 // ---------------------------------------------------------------
 
 artifacts.delete(
@@ -678,25 +850,14 @@ artifacts.delete(
   guarded(async (c) => {
     const principal = requirePrincipal(c)
     const artifactId = c.req.param('artifactId')
-    const artifact = await assertArtifactPermission(
-      c.env.DB,
-      principal,
-      artifactId,
-      'artifact.delete'
-    )
+    const artifact = await loadArtifactFor(c.env.DB, artifactId)
+    if (!artifact) throw notFound('Artifact not found')
+    const workspace = await workspaceOf(c.env.DB, artifact.workspace_id)
+    if (!workspace || !can(principal, 'artifact.read', workspace)) throw notFound('Artifact not found')
+    if (!can(principal, 'artifact.delete', workspace)) throw forbidden(DELETE_FORBIDDEN)
 
-    await softDeleteArtifact(c.env, artifactId)
-
-    await recordAudit(c.env.DB, {
-      organizationId: artifact.organization_id,
-      workspaceId: artifact.workspace_id,
-      actorUserId: principal.userId,
-      actorType: principal.kind === 'AI_GRANT' ? 'AI' : 'USER',
-      action: 'ARTIFACT_DELETE',
-      targetType: 'artifact',
-      targetId: artifactId,
-      metadata: { title: artifact.title }
-    })
+    await deleteArtifactPermanently(c.env, artifactId)
+    await auditDelete(c.env.DB, principal, artifact)
 
     return ok(c, { deleted: true, artifactId })
   })

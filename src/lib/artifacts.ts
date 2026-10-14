@@ -19,7 +19,7 @@ import type {
   VersionRow
 } from '../types'
 import { all, first, nowIso, ps, run } from './db'
-import { buildObjectKey, putObject } from './storage'
+import { buildObjectKey, deleteObject, putObject } from './storage'
 import { indexArtifact, loadTagsFor } from './search'
 import { prefixed, slugify, ulid } from './ids'
 import {
@@ -211,6 +211,13 @@ export interface CreateArtifactInput {
   sourceProvider: SourceProvider | null
   metadata?: Record<string, unknown>
   createdBy: string
+  /**
+   * Interactive Preview for an HTML artifact. New HTML artifacts default to ON:
+   * their JavaScript runs, but only in the isolated preview sandbox (see
+   * htmlpreview.ts), and a deployment without that sandbox still serves Safe
+   * Preview. Pass false to start in Safe Preview. Ignored for other types.
+   */
+  interactiveHtml?: boolean
 }
 
 export interface CreateArtifactResult {
@@ -262,6 +269,8 @@ export async function createArtifact(
   })
 
   const slug = slugify(input.title || filename)
+  const mimeType = input.mimeType ?? EXTENSION_MIME[ext] ?? 'application/octet-stream'
+  const interactive = mimeType === 'text/html' && input.interactiveHtml !== false
 
   // 1. Artifact shell — canonical identity available immediately
   const insert = await run(
@@ -269,8 +278,9 @@ export async function createArtifact(
     `INSERT INTO artifacts
        (id, organization_id, workspace_id, owner_user_id, title, description, canonical_slug,
         filename, extension, mime_type, size_bytes, current_version_id, version_count,
-        source_type, source_provider, status, status_detail, metadata_json, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, ?, ?, 'UPLOADING', ?, ?, ?, ?)`,
+        source_type, source_provider, status, status_detail, metadata_json, created_at, updated_at,
+        interactive_html)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, 0, ?, ?, 'UPLOADING', ?, ?, ?, ?, ?)`,
     [
       artifactId,
       input.organizationId,
@@ -281,13 +291,14 @@ export async function createArtifact(
       slug,
       filename,
       ext,
-      input.mimeType ?? EXTENSION_MIME[ext] ?? 'application/octet-stream',
+      mimeType,
       input.sourceType,
       input.sourceProvider,
       'Upload initiated',
       JSON.stringify(input.metadata ?? {}),
       timestamp,
-      timestamp
+      timestamp,
+      interactive ? 1 : 0
     ]
   )
 
@@ -326,7 +337,6 @@ export async function createArtifact(
   }
 
   // 3. Store the binary
-  const mimeType = input.mimeType ?? EXTENSION_MIME[ext] ?? 'application/octet-stream'
   const stored = await putObject(env, objectKey, input.bytes, mimeType)
 
   await run(
@@ -383,7 +393,10 @@ export async function createArtifact(
       filename,
       sizeBytes: stored.size,
       sourceType: input.sourceType,
-      sourceProvider: input.sourceProvider
+      sourceProvider: input.sourceProvider,
+      // The preview mode the artifact starts with, so the trail shows script
+      // execution was on from creation rather than flipped later.
+      ...(mimeType === 'text/html' ? { interactiveHtml: interactive } : {})
     }
   })
 
@@ -756,6 +769,31 @@ export async function softDeleteArtifact(env: Env, artifactId: string): Promise<
     timestamp,
     artifactId
   ])
+}
+
+/**
+ * Deletes an artifact for good: everything softDeleteArtifact does, plus the
+ * stored file of every version and their extracted text, and its collection
+ * membership. Nothing can be restored afterwards. The artifact row stays as a
+ * DELETED tombstone so the audit trail and analytics still resolve.
+ */
+export async function deleteArtifactPermanently(env: Env, artifactId: string): Promise<void> {
+  await softDeleteArtifact(env, artifactId)
+  const db = env.DB
+  const versions = await all<{ r2_object_key: string }>(
+    db,
+    `SELECT r2_object_key FROM artifact_versions WHERE artifact_id = ?`,
+    [artifactId]
+  )
+  for (const version of versions) {
+    // A missing object is already gone; any other storage error is logged
+    // rather than leaving the artifact half-deleted in the library.
+    await deleteObject(env, version.r2_object_key).catch((err) =>
+      console.error('[artifacts] file purge failed during delete', err)
+    )
+  }
+  await run(db, `UPDATE artifact_versions SET extracted_text = NULL WHERE artifact_id = ?`, [artifactId])
+  await run(db, `DELETE FROM collection_artifacts WHERE artifact_id = ?`, [artifactId])
 }
 
 // ---------------------------------------------------------------

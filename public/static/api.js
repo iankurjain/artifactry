@@ -168,6 +168,14 @@ export const api = {
   deleteArtifact: (id) =>
     request(`/api/v1/artifacts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 
+  /** Puts the artifacts in one collection, or in none when collectionId is null. */
+  bulkSetCollection: (artifactIds, collectionId) =>
+    request('/api/v1/artifacts/bulk/collection', { method: 'POST', body: { artifactIds, collectionId } }),
+
+  /** Deletes the artifacts for good. Owners and Admins only. */
+  bulkDelete: (artifactIds) =>
+    request('/api/v1/artifacts/bulk/delete', { method: 'POST', body: { artifactIds } }),
+
   addVersion: (id, formData) =>
     request(`/api/v1/artifacts/${encodeURIComponent(id)}/versions`, {
       method: 'POST',

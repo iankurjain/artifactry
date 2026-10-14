@@ -21,7 +21,9 @@
  *   second layer rather than the only one.
  *
  * Fail-closed rules encoded here:
- *   * the default is SAFE, because `artifacts.interactive_html` defaults to 0;
+ *   * a missing or unrecognised flag means SAFE (the column defaults to 0).
+ *     New HTML uploads ask for INTERACTIVE (createArtifact sets the flag), but
+ *     that is only a request: the rules below still decide;
  *   * INTERACTIVE requires BOTH `PREVIEW_ORIGIN` and `PREVIEW_TOKEN_SECRET`,
  *     so a half-configured deployment degrades to SAFE rather than to
  *     unauthenticated script execution;

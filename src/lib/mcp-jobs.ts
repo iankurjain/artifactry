@@ -1532,14 +1532,9 @@ async function attachToCollection(
     return `No collection named "${needle}" exists in that workspace, so none was used. Create it in the app first.`
   }
 
-  const { prefixed, ulid } = await import('./ids')
-  await db
-    .prepare(
-      `INSERT OR IGNORE INTO collection_artifacts (id, collection_id, artifact_id, added_by, added_at)
-       VALUES (?, ?, ?, ?, ?)`
-    )
-    .bind(prefixed('ca', ulid()), collection.id, artifact.id, principal.userId, nowIso())
-    .run()
+  // An artifact is in one collection only: this moves it out of any other.
+  const { placeInCollection } = await import('./collections')
+  await placeInCollection(db, artifact.id, collection.id, principal.userId)
 
   return `Added to collection "${collection.name}".`
 }

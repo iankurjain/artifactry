@@ -180,6 +180,8 @@ const ctx = {
   search: { query: '', results: [], total: 0, performed: false, loading: false, engine: null, activeFilters: [] },
   detail: { loading: false, artifact: null, versions: [], analytics: null, indexState: null },
   analyticsView: { loading: false, data: null, artifactId: null, title: null },
+  // Library selection mode: which artifacts are ticked for a bulk action.
+  selection: { active: false, ids: new Set() },
   share: {
     loading: false,
     accessible: false,
@@ -298,6 +300,8 @@ function render() {
  */
 async function refresh({ reload = false } = {}) {
   const token = ++renderToken
+  // Selection belongs to the library screen; leaving it ends selection.
+  if (currentRoute.name !== 'library') ctx.clearSelection({ render: false })
   if (reload) {
     try {
       await loadRouteData(currentRoute)
@@ -668,6 +672,12 @@ ctx.refresh = () => refresh({ reload: false })
 
 /** Re-fetch the current route's data, then re-render. Use after a write. */
 ctx.reload = () => refresh({ reload: true })
+
+ctx.clearSelection = ({ render: rerender = true } = {}) => {
+  ctx.selection.active = false
+  ctx.selection.ids.clear()
+  if (rerender) void refresh()
+}
 
 /** Re-fetch the signed-in shell (names, logos, pictures, regional) and the route. */
 ctx.reloadShell = async () => {
@@ -1202,6 +1212,49 @@ function field(label, inputHtml, hint) {
     </div>`
 }
 
+// ---------------------------------------------------------------
+// Interactive Preview at upload. New HTML artifacts start with it ON; the
+// switch lets the uploader start in Safe Preview instead. The server applies
+// the same default when the field is absent.
+// ---------------------------------------------------------------
+
+const INTERACTIVE_ON = 'Interactive Preview is ON — uploaded JavaScript runs in the isolated sandbox.'
+const INTERACTIVE_OFF = 'Interactive Preview is OFF — Safe Preview renders HTML and CSS with JavaScript disabled.'
+
+function interactiveToggleField(prefix, { label = 'HTML preview', hidden = false } = {}) {
+  return `
+    <div id="${prefix}-interactive-field" style="margin-bottom:14px${hidden ? ';display:none' : ''}">
+      <label style="font-size:13px;font-weight:600;display:block;margin-bottom:6px">${esc(label)}</label>
+      <label class="row" style="padding:10px 12px;border:1px solid var(--border);border-radius:12px;cursor:pointer;gap:10px;align-items:flex-start;box-sizing:border-box;min-height:0">
+        <input type="checkbox" id="${prefix}-interactive" checked
+          style="width:18px;height:18px;margin:1px 0 0;accent-color:var(--accent);flex:none">
+        <span style="flex:1;min-width:0">
+          <span style="display:block;font-size:14px;font-weight:560">Interactive Preview</span>
+          <span id="${prefix}-interactive-note" style="display:block;font-size:12px;color:var(--text-2);line-height:1.5;margin-top:2px">${esc(INTERACTIVE_ON)}</span>
+        </span>
+      </label>
+    </div>`
+}
+
+function mountInteractiveToggle(root, prefix) {
+  const box = root.querySelector(`#${prefix}-interactive`)
+  const note = root.querySelector(`#${prefix}-interactive-note`)
+  box?.addEventListener('change', () => {
+    if (note) note.textContent = box.checked ? INTERACTIVE_ON : INTERACTIVE_OFF
+  })
+}
+
+function showInteractiveToggle(root, prefix, visible) {
+  const host = root?.querySelector(`#${prefix}-interactive-field`)
+  if (host) host.style.display = visible ? '' : 'none'
+}
+
+function interactiveChosen(root, prefix) {
+  return root?.querySelector(`#${prefix}-interactive`)?.checked !== false
+}
+
+const isHtmlName = (name) => /\.html?$/i.test(name || '')
+
 function busyButton(label, iconName, busyLabel) {
   return `${spinner()} ${esc(busyLabel || label)}`
 }
@@ -1256,8 +1309,9 @@ ctx.openUploadSheet = () => {
              <input id="upload-file" type="file" class="sr-only" accept="${ACCEPTED}">
            </label>
            <div id="upload-filename" style="font-size:12.5px;color:var(--text-2);margin-top:8px">No file chosen</div>`,
-          'PPTX, PDF, DOCX, HTML or images. HTML artifacts use Safe Preview by default: HTML and CSS render but JavaScript does not execute. Owners can enable Interactive Preview, which runs JavaScript in an isolated, credential-free sandbox with network access blocked by default.'
+          'PPTX, PDF, DOCX, HTML or images.'
         )}
+        ${interactiveToggleField('upload', { hidden: true })}
         ${field(
           'Workspace',
           `<select id="upload-workspace" class="input">${workspaceOptions()}</select>`
@@ -1298,6 +1352,7 @@ ctx.openUploadSheet = () => {
           if (tags) form.append('tags', tags)
           const collectionIds = pickedCollections(panel, 'upload')
           if (collectionIds.length) form.append('collectionIds', collectionIds.join(','))
+          if (isHtmlName(file.name)) form.append('interactiveHtml', String(interactiveChosen(panel, 'upload')))
 
           if (button) {
             button.disabled = true
@@ -1322,16 +1377,147 @@ ctx.openUploadSheet = () => {
     ],
     onMount(handle) {
       mountCollectionPicker(handle.body, 'upload', '#upload-workspace')
+      mountInteractiveToggle(handle.body, 'upload')
       const input = handle.body.querySelector('#upload-file')
       const label = handle.body.querySelector('#upload-filename')
 
       input?.addEventListener('change', () => {
         file = input.files?.[0] || null
+        showInteractiveToggle(handle.body, 'upload', isHtmlName(file?.name))
         if (label) {
           label.textContent = file
             ? `${file.name} · ${formatBytes(file.size)}`
             : 'No file chosen'
         }
+      })
+    }
+  })
+}
+
+const BULK_UPLOAD_MAX = 50
+
+/**
+ * Many files at once into the collection the library is showing. Each file is
+ * named after itself and keeps the tags the system generates for it; HTML
+ * files follow the Interactive Preview switch (on by default). Files go up
+ * one at a time and one failure does not stop the rest. A batch is capped at
+ * 50 files, inside the 60-uploads-per-5-minutes limit on the upload endpoint.
+ */
+ctx.openBulkUploadSheet = (collection) => {
+  if (!collection) return
+  let files = []
+  let running = false
+
+  const queueRow = (f, i) => `
+    <div class="upload-queue-row" data-row="${i}">
+      ${icon('file', 16)}
+      <span class="upload-queue-name">${esc(f.name)}</span>
+      <span class="upload-queue-state" data-state="${i}">${esc(formatBytes(f.size))}</span>
+    </div>`
+
+  sheet({
+    title: `Upload to ${collection.name}`,
+    content: `
+      <div>
+        <label class="drop-zone" id="bulk-drop" style="display:block;cursor:pointer">
+          ${icon('upload', 22)}
+          <div style="font-size:14px;font-weight:600;color:var(--text);margin-top:6px">Choose files or drop them here</div>
+          <div style="margin-top:3px">Each file is named after itself and tagged automatically.</div>
+          <input id="bulk-files" type="file" class="sr-only" multiple accept="${ACCEPTED}">
+        </label>
+        <div class="upload-queue" id="bulk-queue"></div>
+        <div style="margin-top:14px">${interactiveToggleField('bulk', { label: 'HTML files', hidden: true })}</div>
+      </div>`,
+    actions: [
+      {
+        label: 'Upload',
+        variant: 'primary',
+        keepOpen: true,
+        onClick: async () => {
+          const panel = document.querySelector('.sheet')
+          const button = panel?.querySelector('#sheet-actions .btn-primary')
+          if (running) return
+          if (!files.length) {
+            toast('Choose some files first', 'error')
+            return
+          }
+          running = true
+          if (button) {
+            button.disabled = true
+            button.innerHTML = busyButton('Upload', 'upload', 'Uploading…')
+          }
+          const interactive = interactiveChosen(panel, 'bulk')
+          let done = 0
+          let failed = 0
+          for (let i = 0; i < files.length; i++) {
+            const stateEl = panel?.querySelector(`[data-state="${i}"]`)
+            if (stateEl) {
+              stateEl.className = 'upload-queue-state'
+              stateEl.textContent = 'Uploading…'
+            }
+            const form = new FormData()
+            form.append('file', files[i])
+            form.append('workspaceId', collection.workspaceId || state.currentWorkspaceId || '')
+            form.append('collectionIds', collection.id)
+            form.append('acceptSuggestedTags', 'true')
+            if (isHtmlName(files[i].name)) form.append('interactiveHtml', String(interactive))
+            try {
+              await api.uploadArtifact(form)
+              done++
+              if (stateEl) {
+                stateEl.className = 'upload-queue-state is-done'
+                stateEl.textContent = 'Added'
+              }
+            } catch (error) {
+              failed++
+              if (stateEl) {
+                stateEl.className = 'upload-queue-state is-error'
+                stateEl.textContent = error?.message || 'Failed'
+                stateEl.title = error?.message || ''
+              }
+            }
+          }
+          running = false
+          toast(
+            `Added ${done} file${done === 1 ? '' : 's'} to ${collection.name}${failed ? ` · ${failed} failed` : ''}`,
+            failed && !done ? 'error' : 'success'
+          )
+          await loadCollections()
+          if (!failed) closeSheet()
+          else if (button) {
+            // Leave the sheet open on the failures so the reasons stay readable.
+            files = []
+            button.disabled = false
+            button.textContent = 'Upload'
+          }
+          void refresh({ reload: true })
+        }
+      }
+    ],
+    onMount(handle) {
+      mountInteractiveToggle(handle.body, 'bulk')
+      const input = handle.body.querySelector('#bulk-files')
+      const drop = handle.body.querySelector('#bulk-drop')
+      const queue = handle.body.querySelector('#bulk-queue')
+      const take = (list) => {
+        if (running) return
+        files = [...list].slice(0, BULK_UPLOAD_MAX)
+        queue.innerHTML = files.map(queueRow).join('')
+        showInteractiveToggle(handle.body, 'bulk', files.some((f) => isHtmlName(f.name)))
+        if (list.length > BULK_UPLOAD_MAX) {
+          toast(`Up to ${BULK_UPLOAD_MAX} files at a time; the first ${BULK_UPLOAD_MAX} are queued`, 'error')
+        }
+      }
+      input?.addEventListener('change', () => take(input.files || []))
+      drop?.addEventListener('dragover', (e) => {
+        e.preventDefault()
+        drop.classList.add('is-over')
+      })
+      drop?.addEventListener('dragleave', () => drop.classList.remove('is-over'))
+      drop?.addEventListener('drop', (e) => {
+        e.preventDefault()
+        drop.classList.remove('is-over')
+        take(e.dataTransfer?.files || [])
       })
     }
   })
@@ -1351,6 +1537,7 @@ ctx.openContentSheet = () => {
           '<input id="content-filename" class="input" type="text" value="note.html">',
           'Use an .html extension for markup, .txt for plain text.'
         )}
+        ${interactiveToggleField('content')}
         ${field(
           'Content',
           `<textarea id="content-body" class="input" placeholder="<!doctype html>…"></textarea>`
@@ -1385,7 +1572,8 @@ ctx.openContentSheet = () => {
               contentText: content,
               title: title || undefined,
               workspaceId,
-              collectionIds: pickedCollections(panel, 'content')
+              collectionIds: pickedCollections(panel, 'content'),
+              interactiveHtml: interactiveChosen(panel, 'content')
             })
           )
           if (!result) return
@@ -1399,6 +1587,9 @@ ctx.openContentSheet = () => {
     ],
     onMount(handle) {
       mountCollectionPicker(handle.body, 'content', '#content-workspace')
+      mountInteractiveToggle(handle.body, 'content')
+      const filename = handle.body.querySelector('#content-filename')
+      filename?.addEventListener('input', () => showInteractiveToggle(handle.body, 'content', isHtmlName(filename.value)))
     }
   })
 }
@@ -1413,11 +1604,11 @@ ctx.openContentSheet = () => {
 
 function collectionPickerField(prefix) {
   return field(
-    'Collections',
-    `<div id="${prefix}-collections" class="collection-picker" role="group" aria-label="Collections">
+    'Collection',
+    `<div id="${prefix}-collections" class="collection-picker" role="group" aria-label="Collection">
        <span style="font-size:12.5px;color:var(--text-3)">Loading collections…</span>
      </div>`,
-    'Optional. A file can be in more than one collection.'
+    'Optional. A file sits in one collection.'
   )
 }
 
@@ -1437,6 +1628,8 @@ function mountCollectionPicker(root, prefix, workspaceSelector) {
   const host = root.querySelector(`#${prefix}-collections`)
   const select = root.querySelector(workspaceSelector)
   if (!host) return
+  // One collection at most: picking a chip replaces the previous pick, and
+  // picking the chosen one again clears it.
   const selected = new Set()
 
   const paint = (collections) => {
@@ -1446,8 +1639,9 @@ function mountCollectionPicker(root, prefix, workspaceSelector) {
     host.querySelectorAll('[data-pick]').forEach((chip) => {
       chip.addEventListener('click', () => {
         const id = chip.dataset.pick
-        if (selected.has(id)) selected.delete(id)
-        else selected.add(id)
+        const was = selected.has(id)
+        selected.clear()
+        if (!was) selected.add(id)
         paint(collections)
       })
     })
@@ -1465,6 +1659,7 @@ function mountCollectionPicker(root, prefix, workspaceSelector) {
         if (!name) return
         const created = await attempt(() => api.createCollection({ name, workspaceId: select?.value }))
         if (!created?.collection) return
+        selected.clear()
         selected.add(created.collection.id)
         collections.push({ id: created.collection.id, name })
         paint(collections)
@@ -1498,102 +1693,119 @@ function mountCollectionPicker(root, prefix, workspaceSelector) {
 }
 
 /**
- * Which collections one artifact is in. Each tap adds or removes it right
- * away; the artifact screen re-reads server state when the sheet closes.
+ * Choose the one collection for a set of artifacts (one or many) in a
+ * workspace: an existing collection, a new one, or none. Applying moves every
+ * artifact out of whatever collection it was in.
  */
-ctx.openArtifactCollectionsSheet = async (artifact) => {
+async function openCollectionChooser({ title, intro, workspaceId, artifacts, currentId = null }) {
   let collections = []
   try {
-    const result = await api.collections(artifact.workspaceId)
+    const result = await api.collections(workspaceId)
     collections = result?.collections || []
   } catch (error) {
     toast(error.message, 'error')
     return
   }
-  const member = new Set((artifact.collections || []).map((col) => col.id))
-  let changed = false
 
-  const rows = () =>
-    collections.length
-      ? collections
-          .map(
-            (col) => `
-        <label class="row" style="padding:11px 0;cursor:pointer">
-          <input type="checkbox" data-member="${esc(col.id)}" ${member.has(col.id) ? 'checked' : ''}
-            style="width:18px;height:18px;margin:0;accent-color:var(--accent)">
-          <span style="flex:1;min-width:0">
-            <span style="display:block;font-size:14px;font-weight:560">${esc(col.name)}</span>
-            <span style="display:block;font-size:11.5px;color:var(--text-2)">
-              ${col.artifactCount} artifact${col.artifactCount === 1 ? '' : 's'}
-            </span>
-          </span>
-        </label>`
-          )
-          .join('')
-      : '<p style="font-size:13px;color:var(--text-2);margin:0 0 6px">No collections in this workspace yet. Create the first one below.</p>'
+  const option = (value, label, meta, checked) => `
+    <label class="row" style="padding:11px 0;cursor:pointer">
+      <input type="radio" name="collection-choice" value="${esc(value)}" ${checked ? 'checked' : ''}
+        style="width:18px;height:18px;margin:0;accent-color:var(--accent)">
+      <span style="flex:1;min-width:0">
+        <span style="display:block;font-size:14px;font-weight:560">${label}</span>
+        ${meta ? `<span style="display:block;font-size:11.5px;color:var(--text-2)">${meta}</span>` : ''}
+      </span>
+    </label>`
 
   sheet({
-    title: 'Collections',
+    title,
     content: `
-      <p style="font-size:13px;color:var(--text-2);margin:0 0 6px;line-height:1.5">
-        Choose the collections “${esc(artifact.title)}” belongs to.
-      </p>
-      <div id="artifact-collections">${rows()}</div>
-      <div style="display:flex;gap:8px;margin-top:12px">
-        <input id="artifact-collection-new" class="input" type="text" placeholder="New collection name" style="flex:1">
-        <button class="btn btn-secondary" id="artifact-collection-create">${icon('plus', 16)} Create</button>
+      <p style="font-size:13px;color:var(--text-2);margin:0 0 6px;line-height:1.5">${intro}</p>
+      <div id="collection-choices">
+        ${collections
+          .map((col) =>
+            option(
+              col.id,
+              `${icon('folder', 15)} ${esc(col.name)}`,
+              `${col.artifactCount} artifact${col.artifactCount === 1 ? '' : 's'}${col.id === currentId ? ' · current' : ''}`,
+              col.id === currentId
+            )
+          )
+          .join('')}
+        ${option('__new', `${icon('plus', 15)} New collection`, '', !collections.length)}
+        <div id="collection-new-wrap" style="padding:0 0 8px 30px;${collections.length ? 'display:none' : ''}">
+          <input id="collection-new-name" class="input" type="text" placeholder="Collection name" aria-label="New collection name">
+        </div>
+        ${option('', 'No collection', 'Take them out of their collection', false)}
       </div>`,
-    actions: [{ label: 'Done', variant: 'primary', onClick: () => {} }],
-    onClose: () => {
-      if (changed) void refresh({ reload: true })
-    },
-    onMount(handle) {
-      const wire = () => {
-        handle.body.querySelectorAll('[data-member]').forEach((box) => {
-          box.addEventListener('change', async () => {
-            const id = box.dataset.member
-            const name = collections.find((col) => col.id === id)?.name || 'collection'
-            const done = box.checked
-              ? await attempt(() => api.addToCollection(id, [artifact.id]), `Added to ${name}`)
-              : await attempt(() => api.removeFromCollection(id, artifact.id), `Removed from ${name}`)
-            if (!done) {
-              box.checked = !box.checked
+    actions: [
+      {
+        label: 'Apply',
+        variant: 'primary',
+        keepOpen: true,
+        onClick: async () => {
+          const panel = document.querySelector('.sheet')
+          const picked = panel?.querySelector('input[name="collection-choice"]:checked')
+          if (!picked) {
+            toast('Choose a collection', 'error')
+            return
+          }
+          let collectionId = picked.value || null
+          let name = collections.find((col) => col.id === collectionId)?.name
+          if (collectionId === '__new') {
+            name = panel.querySelector('#collection-new-name')?.value?.trim()
+            if (!name) {
+              toast('Give the collection a name', 'error')
               return
             }
-            changed = true
-            if (box.checked) member.add(id)
-            else member.delete(id)
-          })
+            const created = await attempt(() => api.createCollection({ name, workspaceId }))
+            if (!created?.collection) return
+            collectionId = created.collection.id
+          }
+          const ids = artifacts.map((a) => a.id)
+          const result = await attempt(() => api.bulkSetCollection(ids, collectionId))
+          if (!result) return
+          const count = result.moved === 1 ? '1 artifact' : `${result.moved} artifacts`
+          const skipped = result.skipped?.length ? ` · ${result.skipped.length} skipped` : ''
+          toast(collectionId ? `Moved ${count} to ${name}${skipped}` : `Took ${count} out of their collection${skipped}`, 'success')
+          closeSheet()
+          ctx.clearSelection({ render: false })
+          await loadCollections()
+          void refresh({ reload: true })
+        }
+      }
+    ],
+    onMount(handle) {
+      const wrap = handle.body.querySelector('#collection-new-wrap')
+      handle.body.querySelectorAll('input[name="collection-choice"]').forEach((radio) => {
+        radio.addEventListener('change', () => {
+          const isNew = radio.value === '__new' && radio.checked
+          if (wrap) wrap.style.display = isNew ? '' : 'none'
+          if (isNew) handle.body.querySelector('#collection-new-name')?.focus()
         })
-      }
-      wire()
-      const create = async () => {
-        const input = handle.body.querySelector('#artifact-collection-new')
-        const name = input?.value?.trim()
-        if (!name) {
-          toast('Give the collection a name', 'error')
-          return
-        }
-        const created = await attempt(() =>
-          api.createCollection({ name, workspaceId: artifact.workspaceId, artifactIds: [artifact.id] })
-        )
-        if (!created?.collection) return
-        toast(`Added to ${name}`, 'success')
-        changed = true
-        member.add(created.collection.id)
-        collections.push({ id: created.collection.id, name, artifactCount: 1 })
-        input.value = ''
-        handle.body.querySelector('#artifact-collections').innerHTML = rows()
-        wire()
-      }
-      handle.body.querySelector('#artifact-collection-create')?.addEventListener('click', create)
-      handle.body.querySelector('#artifact-collection-new')?.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault()
-          void create()
-        }
       })
     }
+  })
+}
+
+/** The one collection an artifact is in, chosen from its page. */
+ctx.openArtifactCollectionsSheet = (artifact) =>
+  openCollectionChooser({
+    title: 'Collection',
+    intro: `Choose the collection “${esc(artifact.title)}” belongs to. An artifact is in one collection at a time.`,
+    workspaceId: artifact.workspaceId,
+    artifacts: [artifact],
+    currentId: (artifact.collections || [])[0]?.id || null
+  })
+
+/** Library bulk action: put every selected artifact in one collection. */
+ctx.openBulkCollectionSheet = (artifacts) => {
+  if (!artifacts.length) return
+  return openCollectionChooser({
+    title: artifacts.length === 1 ? 'Move 1 artifact' : `Move ${artifacts.length} artifacts`,
+    intro: 'Choose their collection. Artifacts already in another collection move out of it, since an artifact is in one collection at a time.',
+    workspaceId: state.currentWorkspaceId || artifacts[0].workspaceId,
+    artifacts
   })
 }
 
@@ -2961,13 +3173,13 @@ ctx.openArtifactMenuSheet = (artifact) => {
       }
       ${
         artifact.canManageCollections
-          ? `<button class="row" id="art-collections">${icon('folder', 19)} <span style="flex:1">Add to or remove from collections</span></button>`
+          ? `<button class="row" id="art-collections">${icon('folder', 19)} <span style="flex:1">Change collection</span></button>`
           : ''
       }
       <button class="row" id="art-copy">${icon('link', 19)} <span style="flex:1">Copy canonical link</span></button>
       <button class="row" id="art-analytics">${icon('chart', 19)} <span style="flex:1">View analytics</span></button>
       ${
-        artifact.canWrite
+        artifact.canDelete
           ? `<button class="row" id="art-delete" style="color:var(--danger)">${icon('trash', 19)} <span style="flex:1">Delete artifact</span></button>`
           : ''
       }
@@ -3044,23 +3256,54 @@ ctx.openEditNameSheetForArtifact = (artifact) => {
   })
 }
 
-ctx.confirmDeleteArtifact = (artifact) => {
+ctx.confirmDeleteArtifact = (artifact) =>
+  ctx.confirmDeleteArtifacts([artifact], { after: () => navigate('/library') })
+
+/**
+ * Always asks before deleting, for one artifact or many. Deleting is
+ * permanent and only workspace Owners and Admins can do it (the server
+ * refuses everyone else).
+ */
+ctx.confirmDeleteArtifacts = (artifacts, { after } = {}) => {
+  if (!artifacts.length) return
+  const n = artifacts.length
+  const listed = artifacts.slice(0, 5)
   sheet({
-    title: 'Delete artifact?',
+    title: n === 1 ? 'Delete this artifact permanently?' : `Delete ${n} artifacts permanently?`,
     content: `
       <div>
+        <ul style="margin:0 0 12px;padding-left:18px;font-size:13.5px;line-height:1.6">
+          ${listed.map((a) => `<li style="overflow-wrap:anywhere">${esc(a.title)}</li>`).join('')}
+          ${n > listed.length ? `<li style="color:var(--text-2)">and ${n - listed.length} more</li>` : ''}
+        </ul>
         <p style="font-size:13.5px;color:var(--text-2);margin:0;line-height:1.55">
-          "${esc(artifact.title)}" will be removed from your library and any shares for it will be revoked.
+          ${n === 1 ? 'Its files, versions and shares are' : 'Their files, versions and shares are'} removed for good.
+          This cannot be undone.
         </p>
       </div>`,
     actions: [
+      { label: 'Cancel', variant: 'secondary', onClick: () => {} },
       {
-        label: 'Delete',
+        label: n === 1 ? 'Delete permanently' : `Delete ${n} permanently`,
         variant: 'danger',
+        keepOpen: true,
         onClick: async () => {
-          const deleted = await attempt(() => api.deleteArtifact(artifact.id), 'Artifact deleted')
-          if (deleted === null) return
-          navigate('/library')
+          const result =
+            n === 1
+              ? await attempt(() => api.deleteArtifact(artifacts[0].id))
+              : await attempt(() => api.bulkDelete(artifacts.map((a) => a.id)))
+          if (!result) return
+          const deleted = n === 1 ? 1 : result.deleted
+          const skipped = n === 1 ? 0 : result.skipped?.length || 0
+          toast(
+            `Deleted ${deleted === 1 ? '1 artifact' : `${deleted} artifacts`}${skipped ? ` · ${skipped} not allowed` : ''}`,
+            'success'
+          )
+          closeSheet()
+          ctx.clearSelection({ render: false })
+          await loadCollections()
+          if (after) after()
+          else void refresh({ reload: true })
         }
       }
     ]

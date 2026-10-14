@@ -44,7 +44,7 @@ export const GUIDE_SECTIONS = [
     <p><strong>Supported types:</strong> PDF, DOCX, PPTX, HTML, PNG, JPG, JPEG, BMP, GIF and WEBP, plus notes, data and code as plain text: Markdown, TXT, CSV, JSON, YAML and common source files (JS, TS, Python, Go, Rust, Java, SQL and more).</p>
     <p><strong>Size limit:</strong> 25 MB per file (10 MB for text and code files).</p>
     <div class="guide-note">
-      <strong>HTML artifacts use Safe Preview by default. In Safe Preview, HTML and CSS render but JavaScript does not execute. Artifact owners may enable Interactive Preview, which runs JavaScript in an isolated, credential-free sandbox with network access blocked by default.</strong>
+      <strong>New HTML artifacts start with Interactive Preview on: JavaScript runs in an isolated, credential-free sandbox with network access blocked by default. You can turn it off when you upload, or later on the artifact page, to use Safe Preview, where HTML and CSS render but JavaScript does not execute.</strong>
       Safe Preview is served from the library's own address, and the page cannot read your session or reach the library's APIs. Interactive Preview is opt-in per artifact, runs on a separate origin so it holds no cookies and cannot touch library storage, and every change to the setting is recorded in the audit trail.
     </div>
     <p>When you upload, the library:</p>
@@ -152,7 +152,8 @@ export const GUIDE_SECTIONS = [
     'Collections',
     'collection group bundle share collection of artifacts',
     `
-    <p>Collections group related artifacts into a single shareable unit — a pitch deck with its supporting documents, for example.</p>
+    <p>Collections group related artifacts into a single shareable unit — a pitch deck with its supporting documents, for example. An artifact is in one collection at a time; moving it to another takes it out of the first.</p>
+    <p>In the Library, choose <strong>Select</strong> to pick several artifacts and move them to a collection together, or (for workspace Owners and Admins) delete them permanently after a confirmation. While a collection is open, <strong>Upload files</strong> adds many files to it at once, each named after its file and tagged automatically.</p>
     <p>A collection can be shared the same way a single artifact can, and it can be set to include items you add later.</p>
     <p>Deleting a collection never deletes the artifacts inside it; it only removes the grouping.</p>`
   ),
@@ -293,7 +294,7 @@ export const GUIDE_SECTIONS = [
     `
     <p>These are the current, deliberate limits. They are stated here rather than hidden, and each is visible in the app where it applies.</p>
     <ul>
-      <li><strong>HTML has two preview modes.</strong> Safe Preview is the default and runs no JavaScript. Interactive Preview is opt-in per artifact and runs the uploaded JavaScript inside an isolated, credential-free sandbox on a separate origin, with network access blocked by default.</li>
+      <li><strong>HTML has two preview modes.</strong> Interactive Preview is the default for new uploads and runs the uploaded JavaScript inside an isolated, credential-free sandbox on a separate origin, with network access blocked by default. Safe Preview runs no JavaScript; switch to it per artifact, or untick Interactive Preview when you upload.</li>
       <li><strong>Interactive Preview does not support <code>eval</code> or <code>new Function</code>.</strong> Both are blocked, so a script that builds code from strings at run time will not work.</li>
       <li><strong>Interactive Preview has no external network access.</strong> <code>fetch</code>, <code>XMLHttpRequest</code>, WebSocket and beacon requests are all blocked. A page cannot call an API or send data anywhere.</li>
       <li><strong>Libraries loaded from the internet will not work in Interactive Preview.</strong> A CDN script, remote stylesheet or web font is a blocked external resource, so an artifact must carry its HTML, CSS and JavaScript in the file itself. Links may still point outwards, but nothing loads automatically.</li>
