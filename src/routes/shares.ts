@@ -714,9 +714,24 @@ shares.get(
     )
     if (!version) throw notFound('Content unavailable')
 
-    const { getObject, buildDeliveryHeaders } = await import('../lib/storage')
-    const object = await getObject(c.env, version.r2_object_key)
-    if (!object) throw notFound('Content unavailable')
+    const { buildDeliveryHeaders, deliverObject, isContinuationRange } = await import('../lib/storage')
+    const range = c.req.header('Range')
+    const response = await deliverObject(
+      c.env,
+      version.r2_object_key,
+      version.size_bytes,
+      buildDeliveryHeaders({
+        filename: version.filename,
+        mimeType: version.mime_type,
+        size: version.size_bytes,
+        inline: !wantDownload,
+        download: wantDownload
+      }),
+      range
+    )
+    if (!response) throw notFound('Content unavailable')
+    // Only a player's first fetch of shared audio or video counts as a view.
+    if (isContinuationRange(range)) return response
 
     const channel =
       share.access_type === 'PUBLIC_LINK'
@@ -737,15 +752,7 @@ shares.get(
       sessionSeed: clientIp(c)
     })
 
-    return new Response(object.body, {
-      headers: buildDeliveryHeaders({
-        filename: version.filename,
-        mimeType: version.mime_type,
-        size: version.size_bytes,
-        inline: !wantDownload,
-        download: wantDownload
-      })
-    })
+    return response
   })
 )
 
