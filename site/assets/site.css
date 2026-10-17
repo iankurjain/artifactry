@@ -699,6 +699,29 @@ select.input {
 .fade-in.d3 { animation-delay: 0.3s; }
 @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } }
 
+/* ---------- User guide screenshots and animations ---------- */
+.shot { margin: 22px 0 26px; }
+.shot a, .shot video { display: block; }
+.shot img, .shot video {
+  width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--border-strong);
+  background: #f5f6f2; box-shadow: var(--shadow);
+}
+.shot a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 12px; }
+.shot figcaption { font-size: 0.86rem; color: var(--text-3); margin-top: 10px; line-height: 1.5; }
+.shot-narrow { max-width: 440px; }
+.shot-phone { max-width: 270px; }
+.shot-row { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; margin: 22px 0 26px; }
+.shot-row > .shot { margin: 0; flex: 1 1 220px; }
+.shot-row > .shot-phone { flex: 0 1 230px; }
+.shot-video { position: relative; }
+.shot-video video { cursor: pointer; }
+.clip-badge {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--accent); margin-right: 6px;
+}
+.clip-badge::before { content: ''; width: 0; height: 0; border-left: 7px solid currentColor; border-top: 4.5px solid transparent; border-bottom: 4.5px solid transparent; }
+.shot-video.is-paused .clip-badge::after { content: '· click to play'; text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--text-2); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; scroll-behavior: auto !important; }
   .js .reveal { opacity: 1; transform: none; }

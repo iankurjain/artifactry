@@ -417,4 +417,39 @@
       }
     })
   }
+
+  // ---------- User guide animations ----------
+  // Short screen recordings play muted and looped while on screen, pause when
+  // scrolled away, and wait for a click when the visitor prefers less motion.
+
+  const clips = document.querySelectorAll('video[data-clip]')
+  clips.forEach((video) => {
+    const figure = video.closest('figure')
+    const setState = () => figure?.classList.toggle('is-paused', video.paused)
+    video.addEventListener('play', setState)
+    video.addEventListener('pause', setState)
+    video.addEventListener('click', () => {
+      video.dataset.userPaused = video.paused ? '' : '1'
+      if (video.paused) video.play().catch(() => {})
+      else video.pause()
+    })
+    video.addEventListener('keydown', (e) => {
+      if (e.key === ' ' || e.key === 'Enter') {
+        e.preventDefault()
+        video.click()
+      }
+    })
+    setState()
+  })
+  if (clips.length && !reduceMotion && 'IntersectionObserver' in window) {
+    const watcher = new IntersectionObserver(
+      (entries) =>
+        entries.forEach(({ target, isIntersecting }) => {
+          if (isIntersecting && !target.dataset.userPaused) target.play().catch(() => {})
+          else if (!isIntersecting) target.pause()
+        }),
+      { threshold: 0.5 }
+    )
+    clips.forEach((video) => watcher.observe(video))
+  }
 })()
