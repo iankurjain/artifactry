@@ -96,7 +96,7 @@ const TOOLS = [
     steps: [
       'Find the MCP or Connectors setting in the tool.',
       'Add a remote (HTTP) MCP server named <strong>Artifactry</strong> with the URL below.',
-      'If it supports OAuth, sign in here when it asks. If not, create a token under <strong>Add → Connected AI</strong>.'
+      'If it supports OAuth, sign in here when it asks. If not, create an access token under <strong>Profile → Access tokens</strong>.'
     ],
     snippet: (url) => url,
     docs: 'mcp-others'

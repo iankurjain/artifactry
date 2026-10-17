@@ -478,7 +478,7 @@ async function loadRouteData(route) {
       break
     }
     case 'profile': {
-      const profile = await api.profile()
+      const [profile] = await Promise.all([api.profile(), loadAccess()])
       setState({ profile })
       break
     }
@@ -553,6 +553,15 @@ async function loadIntegrations() {
     })
   } catch {
     /* connector list is supplementary */
+  }
+}
+
+/** OAuth sign-ins and personal access tokens, for Profile. */
+async function loadAccess() {
+  try {
+    setState({ access: await api.access() })
+  } catch {
+    setState({ access: null })
   }
 }
 
@@ -1880,131 +1889,6 @@ ctx.openCollectionCreateSheet = () => {
 // AI connectors (§58, §60)
 // ---------------------------------------------------------------
 
-ctx.openConnectSheet = (integration) => {
-  if (!integration) {
-    toast('That connector is not available', 'error')
-    return
-  }
-
-  let scopes = integration.requiredScopes || ['artifact.read', 'artifact.write']
-
-  sheet({
-    title: `Connect ${integration.name}`,
-    content: `
-      <div>
-        <p style="font-size:13.5px;color:var(--text-2);margin:0 0 16px;line-height:1.55">
-          ${esc(integration.description || 'Grant this AI app scoped access to your library.')}
-        </p>
-
-        <div style="font-size:12.5px;font-weight:640;color:var(--text-2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">
-          Access to grant
-        </div>
-
-        ${[
-          ['artifact.read', 'Read artifacts you can already read'],
-          ['artifact.write', 'Create and update artifacts'],
-          ['artifact.share', 'Create and revoke shares'],
-          ['analytics.read', 'Read analytics']
-        ]
-          .map(
-            ([value, label]) => `
-          <label class="row" style="gap:11px;padding:11px 0;cursor:pointer">
-            <input type="checkbox" name="scope" value="${esc(value)}" ${scopes.includes(value) ? 'checked' : ''}
-              style="accent-color:var(--accent);width:20px;height:20px;flex:none">
-            <span style="flex:1;font-size:14px">${esc(label)}</span>
-          </label>`
-          )
-          .join('')}
-
-        <p style="font-size:11.5px;color:var(--text-3);margin:14px 0 0;line-height:1.55">
-          A connector can never exceed your own access. Uncheck anything you do not need.
-        </p>
-      </div>`,
-    actions: [
-      {
-        label: 'Connect',
-        variant: 'primary',
-        keepOpen: true,
-        onClick: async () => {
-          const panel = document.querySelector('.sheet')
-          const selected = Array.from(panel?.querySelectorAll('input[name="scope"]:checked') || []).map(
-            (input) => input.value
-          )
-          if (!selected.length) {
-            toast('Select at least one permission', 'error')
-            return
-          }
-
-          const result = await attempt(() =>
-            api.connectIntegration(integration.integrationId, selected)
-          )
-          if (!result) return
-
-          closeSheet()
-          await loadIntegrations()
-          ctx.openGrantResultSheet(result, integration)
-        }
-      }
-    ],
-    onMount(handle) {
-      handle.body.querySelectorAll('input[name="scope"]').forEach((input) => {
-        input.addEventListener('change', () => {
-          scopes = Array.from(handle.body.querySelectorAll('input[name="scope"]:checked')).map(
-            (i) => i.value
-          )
-        })
-      })
-    }
-  })
-}
-
-/** The one moment a grant token is visible (§58). */
-ctx.openGrantResultSheet = (result, integration) => {
-  sheet({
-    title: 'Connector ready',
-    content: `
-      <div>
-        <p style="font-size:13px;color:var(--text-2);margin:0 0 12px;line-height:1.55">
-          Paste these two values into ${esc(integration?.name || 'your AI app')}:
-        </p>
-
-        <div style="font-size:11.5px;font-weight:640;color:var(--text-2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">MCP endpoint</div>
-        <div class="brand-url" style="padding:11px;border-radius:11px;background:var(--surface-2);
-          font-size:11.5px;word-break:break-all;line-height:1.6">${brandUrl(result.mcpEndpoint)}</div>
-
-        <div style="font-size:11.5px;font-weight:640;color:var(--text-2);text-transform:uppercase;letter-spacing:.05em;margin:14px 0 5px">Access token</div>
-        <div style="padding:11px;border-radius:11px;background:var(--surface-2);font-family:var(--font-mono);
-          font-size:11.5px;word-break:break-all;line-height:1.6">${esc(result.token)}</div>
-
-        <div style="margin-top:14px;padding:11px 13px;border-radius:11px;background:var(--warning-weak);
-          border:1px solid #fedf89;font-size:12px;line-height:1.55;color:#93370d">
-          ${icon('alert', 13)} ${esc(result.note || 'This token cannot be shown again.')}
-        </div>
-
-        <div style="font-size:12.5px;color:var(--text-2);margin-top:14px">
-          Granted scopes: ${esc((result.scopes || []).join(', '))}
-        </div>
-      </div>`,
-    actions: [
-      {
-        label: 'Copy token',
-        variant: 'primary',
-        keepOpen: true,
-        onClick: async () => {
-          await copyText(result.token)
-        }
-      },
-      {
-        label: 'Copy endpoint',
-        keepOpen: true,
-        onClick: async () => {
-          await copyText(result.mcpEndpoint)
-        }
-      }
-    ]
-  })
-}
-
 async function copyText(value) {
   try {
     await navigator.clipboard.writeText(value)
@@ -2020,53 +1904,213 @@ async function copyText(value) {
   }
 }
 
-ctx.openIntegrationSheet = (integration) => {
-  const scopes = integration.scopes || []
+const SCOPE_TEXT = {
+  'artifact.read': 'Search and read artifacts',
+  'artifact.write': 'Save artifacts, add versions and tags',
+  'artifact.share': 'Create and revoke shares',
+  'artifact.analytics.read': 'Read view and download analytics',
+  'workspace.read': 'List workspaces',
+  'team.read': 'List teams',
+  'tags.read': 'List tags',
+  'profile.read': 'Read your name and email'
+}
+
+function scopeChips(scopes) {
+  return (scopes || []).length
+    ? scopes.map((s) => `<span class="chip">${esc(s)}</span>`).join('')
+    : '<span style="color:var(--text-3)">None</span>'
+}
+
+function detailRow(label, value) {
+  return `<div style="display:flex;justify-content:space-between;gap:12px;font-size:13px;padding:6px 0">
+    <span style="color:var(--text-2)">${esc(label)}</span>
+    <span style="font-weight:560;text-align:right">${value}</span>
+  </div>`
+}
+
+/** Create a personal access token: name, scopes, expiry. */
+ctx.openCreateTokenSheet = () => {
+  const access = state.access || {}
+  const defaults = access.defaultTokenScopes || ['artifact.read', 'artifact.write', 'artifact.share']
+  const all = access.availableScopes || Object.keys(SCOPE_TEXT)
+  const expiries = access.tokenExpiryDays || [7, 30, 90, 365]
+  const defaultExpiry = access.defaultTokenExpiryDays || 90
+  const scopeRow = (value) => `
+    <label class="row" style="gap:11px;padding:9px 0;cursor:pointer">
+      <input type="checkbox" name="token-scope" value="${esc(value)}" ${defaults.includes(value) ? 'checked' : ''}
+        style="accent-color:var(--accent);width:20px;height:20px;flex:none">
+      <span style="flex:1;font-size:14px">${esc(SCOPE_TEXT[value] || value)}
+        <span style="display:block;font-size:11.5px;color:var(--text-3);font-family:var(--font-mono)">${esc(value)}</span>
+      </span>
+    </label>`
 
   sheet({
-    title: integration.name,
+    title: 'New access token',
     content: `
       <div>
-        <p style="font-size:13.5px;color:var(--text-2);margin:0 0 14px;line-height:1.55">
-          ${esc(integration.description || 'Connected to your library.')}
+        <p style="font-size:13px;color:var(--text-2);margin:0 0 12px;line-height:1.55">
+          For scripts, scheduled agents, CI and MCP clients that can't sign in with a browser.
+          AI apps like Claude and ChatGPT should sign in instead.
         </p>
+        ${field('Name', '<input id="token-name" class="input" type="text" maxlength="80" placeholder="e.g. Nightly backup script">')}
+        ${field(
+          'Expires',
+          `<select id="token-expiry" class="input">
+            ${expiries.map((d) => `<option value="${d}" ${d === defaultExpiry ? 'selected' : ''}>In ${d} days</option>`).join('')}
+            <option value="never">Never</option>
+          </select>`
+        )}
+        <div style="font-size:12.5px;font-weight:640;color:var(--text-2);text-transform:uppercase;letter-spacing:.05em;margin:14px 0 4px">
+          What it may do
+        </div>
+        ${all.filter((s) => defaults.includes(s)).map(scopeRow).join('')}
+        <details style="margin-top:4px">
+          <summary style="font-size:13px;color:var(--text-2);cursor:pointer;padding:6px 0">More permissions</summary>
+          ${all.filter((s) => !defaults.includes(s)).map(scopeRow).join('')}
+        </details>
+        <p style="font-size:11.5px;color:var(--text-3);margin:12px 0 0;line-height:1.55">
+          A token can never do more than you can. Untick anything it doesn't need.
+        </p>
+      </div>`,
+    actions: [
+      {
+        label: 'Create token',
+        variant: 'primary',
+        keepOpen: true,
+        onClick: async () => {
+          const panel = document.querySelector('.sheet')
+          const name = panel?.querySelector('#token-name')?.value.trim() || ''
+          const expiry = panel?.querySelector('#token-expiry')?.value
+          const scopes = Array.from(panel?.querySelectorAll('input[name="token-scope"]:checked') || []).map((i) => i.value)
+          if (!name) {
+            toast('Give the token a name', 'error')
+            return
+          }
+          if (!scopes.length) {
+            toast('Select at least one permission', 'error')
+            return
+          }
+          const result = await attempt(() =>
+            api.createToken({ name, scopes, expiresInDays: expiry === 'never' ? null : Number(expiry) })
+          )
+          if (!result) return
+          closeSheet()
+          await loadAccess()
+          render()
+          ctx.openTokenResultSheet(result)
+        }
+      }
+    ]
+  })
+}
 
-        <div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0">
-          <span style="color:var(--text-2)">Status</span>
-          <span style="font-weight:560;color:var(--success)">Connected</span>
+/** The one moment a personal access token is visible. */
+ctx.openTokenResultSheet = (result) => {
+  sheet({
+    title: 'Copy your token',
+    content: `
+      <div>
+        <div style="font-size:11.5px;font-weight:640;color:var(--text-2);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px">${esc(result.name)}</div>
+        <div style="padding:11px;border-radius:11px;background:var(--surface-2);font-family:var(--font-mono);
+          font-size:11.5px;word-break:break-all;line-height:1.6">${esc(result.token)}</div>
+
+        <div style="margin-top:14px;padding:11px 13px;border-radius:11px;background:var(--warning-weak);
+          border:1px solid #fedf89;font-size:12px;line-height:1.55;color:#93370d">
+          ${icon('alert', 13)} ${esc(result.note || 'This token cannot be shown again.')}
         </div>
-        <div style="display:flex;justify-content:space-between;font-size:13px;padding:6px 0">
-          <span style="color:var(--text-2)">Token prefix</span>
-          <span style="font-weight:560;font-family:var(--font-mono);font-size:11.5px">${esc(
-            integration.tokenPrefix || '—'
-          )}</span>
-        </div>
+
+        <div style="font-size:11.5px;font-weight:640;color:var(--text-2);text-transform:uppercase;letter-spacing:.05em;margin:14px 0 5px">MCP endpoint</div>
+        <div class="brand-url" style="padding:11px;border-radius:11px;background:var(--surface-2);
+          font-size:11.5px;word-break:break-all;line-height:1.6">${brandUrl(result.mcpEndpoint)}</div>
+        <p style="font-size:12px;color:var(--text-2);margin:10px 0 0;line-height:1.55">
+          Send it as <code>Authorization: Bearer &lt;token&gt;</code>.
+          ${result.expiresAt ? `It expires ${esc(formatDate(result.expiresAt))}.` : 'It does not expire.'}
+        </p>
+      </div>`,
+    actions: [
+      { label: 'Copy token', variant: 'primary', keepOpen: true, onClick: () => copyText(result.token) },
+      { label: 'Done', variant: 'secondary' }
+    ]
+  })
+}
+
+/**
+ * One OAuth sign-in or access token: what it may do, when it was last used,
+ * its latest tool calls from the audit trail, and Revoke.
+ */
+ctx.openAccessSheet = (kind, id) => {
+  const access = state.access || {}
+  const list = kind === 'connection' ? access.connections : kind === 'token' ? access.tokens : access.legacyTokens
+  const item = (list || []).find((x) => x.id === id)
+  if (!item) return
+
+  const title = kind === 'connection' ? item.app : item.name
+  const rows = [
+    kind === 'connection' && item.client ? detailRow('App', esc(item.client)) : '',
+    kind !== 'connection' ? detailRow('Token', `<span style="font-family:var(--font-mono);font-size:11.5px">${esc(item.tokenPrefix)}…</span>`) : '',
+    detailRow(kind === 'connection' ? 'Signed in' : 'Created', esc(formatDate(item.connectedAt || item.createdAt))),
+    detailRow('Last used', item.lastUsedAt ? esc(timeAgo(item.lastUsedAt)) : 'Never'),
+    kind === 'token' ? detailRow('Expires', item.expiresAt ? esc(formatDate(item.expiresAt)) + (item.expired ? ' (expired)' : '') : 'Never') : ''
+  ].join('')
+
+  sheet({
+    title,
+    content: `
+      <div>
+        ${
+          kind === 'legacy'
+            ? `<p style="font-size:12.5px;color:var(--text-2);margin:0 0 8px;line-height:1.55">
+                 A token pasted into ${esc(item.name)} from the older Connect screen. It keeps working;
+                 signing that app in with OAuth, or a named access token, is easier to manage.</p>`
+            : ''
+        }
+        ${rows}
         <div style="font-size:13px;padding:6px 0">
-          <div style="color:var(--text-2);margin-bottom:7px">Scopes</div>
-          <div style="display:flex;flex-wrap:wrap;gap:6px">
-            ${
-              scopes.length
-                ? scopes.map((s) => `<span class="chip">${esc(s)}</span>`).join('')
-                : '<span style="color:var(--text-3)">None</span>'
-            }
-          </div>
+          <div style="color:var(--text-2);margin-bottom:7px">Permissions</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">${scopeChips(item.scopes)}</div>
+        </div>
+        <div style="font-size:13px;padding:10px 0 0">
+          <div style="color:var(--text-2);margin-bottom:7px">Recent activity</div>
+          <div id="access-activity" style="font-size:12.5px;color:var(--text-3)">Loading…</div>
         </div>
       </div>`,
     actions: [
       {
-        label: 'Disconnect',
+        label: kind === 'connection' ? 'Disconnect' : 'Revoke token',
         variant: 'danger',
         onClick: async () => {
           const done = await attempt(
-            () => api.disconnectIntegration(integration.grantId),
-            'Connector disconnected'
+            () => api.revokeToken(item.id),
+            kind === 'connection' ? `${title} disconnected` : 'Token revoked'
           )
           if (done === null) return
-          await loadIntegrations()
+          await Promise.all([loadAccess(), loadIntegrations()])
           render()
         }
       }
-    ]
+    ],
+    async onMount(handle) {
+      const host = handle.body.querySelector('#access-activity')
+      try {
+        const result = await api.accessActivity(item.id)
+        const activity = result?.activity || []
+        host.innerHTML = activity.length
+          ? activity
+              .slice(0, 10)
+              .map(
+                (a) => `<div style="display:flex;justify-content:space-between;gap:10px;padding:4px 0;color:var(--text-1)">
+                  <span style="font-family:var(--font-mono);font-size:11.5px">${esc(a.tool || '—')}${
+                    a.outcome && a.outcome !== 'ok' ? ` <span style="color:var(--danger)">${esc(a.outcome)}</span>` : ''
+                  }</span>
+                  <span style="color:var(--text-3)">${esc(timeAgo(a.at))}</span>
+                </div>`
+              )
+              .join('')
+          : 'No tool calls yet.'
+      } catch {
+        host.textContent = 'Activity is not available right now.'
+      }
+    }
   })
 }
 

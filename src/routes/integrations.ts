@@ -8,6 +8,10 @@
  *   GET    /api/v1/mcp                          → capability discovery (405 for SSE)
  *   PUT    /api/v1/uploads/:uploadId            → whole file for a staged upload (upload_part)
  *   POST   /api/v1/integrations/oauth-clients   → client id + secret for manual OAuth setup
+ *   GET    /api/v1/access                       → OAuth connections + personal access tokens
+ *   GET    /api/v1/access/:grantId/activity     → recent tool calls by one of them
+ *   POST   /api/v1/tokens                       → create a personal access token (shown once)
+ *   DELETE /api/v1/tokens/:grantId              → revoke one token
  *   GET    /api/v1/activity                     → cross-artifact activity feed
  *   GET    /api/v1/profile                      → profile + settings summary (§89)
  */
@@ -33,6 +37,14 @@ import { effectiveWorkspaceRole, readableWorkspaces } from '../lib/principal'
 import { actorDisplay } from '../lib/analytics'
 import { recordAudit } from '../lib/audit'
 import { madeByLabel } from '../lib/handoffs'
+import {
+  DEFAULT_PAT_EXPIRY_DAYS,
+  DEFAULT_PAT_SCOPES,
+  PAT_EXPIRY_DAYS,
+  createPersonalAccessToken,
+  grantActivity,
+  listAccess
+} from '../lib/tokens'
 
 const integrations = new Hono<AppEnv>()
 
@@ -184,7 +196,8 @@ integrations.post(
     windowSeconds: 300,
     keyFrom: (c) => {
       const bearer = readBearer(c)
-      return bearer ? `t:${tokenPrefix(bearer)}` : `ip:${c.req.header('CF-Connecting-IP') ?? 'unknown'}`
+      // Long enough to get past a personal access token's fixed art_pat_ prefix.
+      return bearer ? `t:${tokenPrefix(bearer, 20)}` : `ip:${c.req.header('CF-Connecting-IP') ?? 'unknown'}`
     }
   }),
   guarded(async (c) => {
@@ -271,6 +284,71 @@ integrations.post(
       if (err instanceof OAuthError) throw badRequest(err.message)
       throw err
     }
+  })
+)
+
+// ---------------------------------------------------------------
+// Access: OAuth connections and personal access tokens
+//
+// Managing credentials is a person's job, so every route here needs a browser
+// session: a token can neither list, mint nor revoke tokens.
+// ---------------------------------------------------------------
+
+function requireSession(c: Parameters<typeof requirePrincipal>[0]) {
+  const principal = requirePrincipal(c)
+  if (principal.kind !== 'SESSION') throw badRequest('Manage access from a signed-in browser session')
+  return principal
+}
+
+integrations.get(
+  '/access',
+  guarded(async (c) => {
+    const principal = requireSession(c)
+    return ok(c, {
+      ...(await listAccess(c.env.DB, principal.userId!)),
+      availableScopes: AI_SCOPES,
+      defaultTokenScopes: DEFAULT_PAT_SCOPES,
+      tokenExpiryDays: PAT_EXPIRY_DAYS,
+      defaultTokenExpiryDays: DEFAULT_PAT_EXPIRY_DAYS,
+      mcpEndpoint: `${new URL(c.req.url).origin}/api/v1/mcp`
+    })
+  })
+)
+
+integrations.get(
+  '/access/:grantId/activity',
+  guarded(async (c) => {
+    const principal = requireSession(c)
+    const limit = Number(c.req.query('limit') ?? 25) || 25
+    return ok(c, { activity: await grantActivity(c.env.DB, principal.userId!, c.req.param('grantId'), limit) })
+  })
+)
+
+integrations.post(
+  '/tokens',
+  rateLimit({ bucket: 'pat:create', limit: 20, windowSeconds: 600 }),
+  guarded(async (c) => {
+    const principal = requireSession(c)
+    const body = await readJson<{ name?: unknown; scopes?: unknown; expiresInDays?: unknown }>(c)
+    const created = await createPersonalAccessToken(c.env.DB, principal, body)
+    return ok(
+      c,
+      {
+        ...created,
+        mcpEndpoint: `${new URL(c.req.url).origin}/api/v1/mcp`,
+        note: 'Copy this token now. It is stored only as a hash and cannot be shown again.'
+      },
+      201
+    )
+  })
+)
+
+integrations.delete(
+  '/tokens/:grantId',
+  guarded(async (c) => {
+    const principal = requireSession(c)
+    await disconnectIntegration(c.env.DB, principal, c.req.param('grantId'))
+    return ok(c, { revoked: true })
   })
 )
 

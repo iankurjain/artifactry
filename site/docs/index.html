@@ -192,10 +192,10 @@
             <h2>7. Personal access tokens</h2>
             <p>Some tools can't do a browser sign-in: scripts, scheduled jobs, or an MCP client without OAuth. For those, create a <strong>personal access token</strong>, a long secret string the tool sends with every request.</p>
             <ol class="steps-list">
-              <li>In the app, open <strong>Profile</strong> and scroll to <strong>Connected AI apps</strong>.</li>
-              <li>Choose the app you're connecting (or <strong>Other MCP client</strong> for scripts) and choose <strong>Connect</strong>.</li>
-              <li>Tick only the permissions it needs. A read-only script needs just <code>artifact.read</code>.</li>
-              <li>Copy the token straight away. <strong>It is shown once</strong> and stored only as a hash, so it can't be shown again.</li>
+              <li>In the app, open <strong>Profile</strong> and scroll to <strong>Access tokens</strong>.</li>
+              <li>Choose <strong>Create an access token</strong> and give it a name you'll recognise, such as "Nightly backup script".</li>
+              <li>Tick only the permissions it needs (read, write and share are ticked to start). A read-only script needs just <code>artifact.read</code>. Pick when it expires: 7, 30, 90 (the default) or 365 days, or never.</li>
+              <li>Copy the token straight away. <strong>It is shown once</strong> and stored only as a hash, so it can't be shown again. Tokens start with <code>art_pat_</code>, and the tool sends it as <code>Authorization: Bearer &lt;token&gt;</code>.</li>
             </ol>
             <h3>Permissions (scopes)</h3>
             <table>
@@ -207,10 +207,10 @@
                 <tr><td><code>workspace.read</code></td><td>List your workspaces</td></tr>
                 <tr><td><code>team.read</code></td><td>List teams you can share with</td></tr>
                 <tr><td><code>tags.read</code></td><td>List available tags</td></tr>
-                <tr><td><code>analytics.read</code></td><td>Read usage analytics</td></tr>
+                <tr><td><code>artifact.analytics.read</code></td><td>Read usage analytics</td></tr>
               </tbody>
             </table>
-            <div class="callout warn"><span class="callout-icon" aria-hidden="true">⚠️</span><div><p>Treat a token like a password. Don't paste it into chats, commit it to Git or share it. Pasted tokens don't expire, so if one leaks, open <strong>Profile → Connected AI apps</strong> and <strong>Disconnect</strong> it; it stops working at once.</p></div></div>
+            <div class="callout warn"><span class="callout-icon" aria-hidden="true">⚠️</span><div><p>Treat a token like a password. Don't paste it into chats, commit it to Git or share it. If one leaks, open <strong>Profile → Access tokens</strong>, choose it and <strong>Revoke token</strong>; it stops working at once and your other tokens keep working. Each token shows when it was last used and its recent tool calls.</p></div></div>
           </section>
 
           <section id="http">

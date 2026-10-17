@@ -16,6 +16,9 @@
  *   - Protected resource metadata (RFC 9728) and authorization server
  *     metadata (RFC 8414), so clients discover everything from the MCP URL.
  *   - Dynamic Client Registration (RFC 7591) for public clients.
+ *   - Client ID Metadata Documents: a client whose client_id is an https URL
+ *     is described by the JSON document at that URL, so it needs no
+ *     registration call at all (the MCP spec's preferred method).
  *   - Manually created confidential clients (client id + secret) for clients
  *     that need them typed in: Gemini Enterprise and Copilot Studio "Manual".
  *   - Authorization code + PKCE S256. PKCE is mandatory for public clients.
@@ -44,6 +47,15 @@ export const DEFAULT_OAUTH_SCOPES: AiScope[] = [
 ]
 
 export const MCP_PATH = '/api/v1/mcp'
+
+/** What a person calls each connector row, on the consent page and in Settings. */
+export const CLIENT_LABELS: Record<string, string> = {
+  int_chatgpt: 'ChatGPT',
+  int_claude: 'Claude',
+  int_gemini: 'Gemini',
+  int_copilot: 'Microsoft Copilot',
+  int_other: 'An AI app'
+}
 
 export class OAuthError extends Error {
   status: number
@@ -96,6 +108,7 @@ export function authorizationServerMetadata(origin: string) {
     token_endpoint_auth_methods_supported: ['none', 'client_secret_post', 'client_secret_basic'],
     revocation_endpoint_auth_methods_supported: ['none', 'client_secret_post', 'client_secret_basic'],
     code_challenge_methods_supported: ['S256'],
+    client_id_metadata_document_supported: true,
     service_documentation: `${origin}/guide`
   }
 }
@@ -336,10 +349,161 @@ export async function createManualClient(
   return { client_id: id, client_secret: secret, integration_id: integrationId }
 }
 
-export async function loadClient(db: D1Database, clientId: string): Promise<OAuthClientRow | null> {
-  if (!clientId || clientId.length > 200) return null
+/**
+ * Look up a client. A client_id that is an https URL is a Client ID Metadata
+ * Document: it is fetched on first use and cached. `refresh` re-fetches a copy
+ * older than a day, which the authorization endpoint asks for so a client's
+ * changed redirect URIs or name reach the consent page; the token endpoint
+ * uses the cached copy.
+ */
+export async function loadClient(
+  db: D1Database,
+  clientId: string,
+  opts: { refresh?: boolean } = {}
+): Promise<OAuthClientRow | null> {
+  if (!clientId) return null
+  if (isMetadataClientId(clientId)) return loadMetadataClient(db, clientId, opts.refresh === true)
+  if (clientId.length > 200) return null
   const row = await first<OAuthClientRow>(db, `SELECT * FROM oauth_clients WHERE id = ?`, [clientId])
   return row && row.status === 'ACTIVE' ? row : null
+}
+
+// ---------------------------------------------------------------
+// Client ID Metadata Documents
+// ---------------------------------------------------------------
+
+export const METADATA_DOCUMENT_TTL_SECONDS = 24 * 60 * 60
+const METADATA_DOCUMENT_MAX_BYTES = 5 * 1024
+const METADATA_FETCH_TIMEOUT_MS = 5000
+
+/** An https URL with a path, per the CIMD draft; anything else is a plain id. */
+export function isMetadataClientId(clientId: string): boolean {
+  if (!clientId.startsWith('https://') || clientId.length > 2000) return false
+  try {
+    const url = new URL(clientId)
+    return url.pathname !== '/' && !url.hash && !url.username && !url.password
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Refuse hosts that are not public DNS names. Workers cannot reach private
+ * networks anyway; this keeps the fetch from being pointed at literal IPs or
+ * internal-looking names at all.
+ */
+function publicHost(host: string): boolean {
+  const h = host.toLowerCase()
+  if (!h.includes('.') || h.startsWith('[')) return false
+  if (/^[0-9.]+$/.test(h)) return false
+  return !/(^|\.)(localhost|local|internal|localdomain|home\.arpa)$/.test(h)
+}
+
+async function fetchMetadataDocument(clientId: string): Promise<Record<string, unknown>> {
+  const url = new URL(clientId)
+  if (!publicHost(url.hostname)) {
+    throw new OAuthError('invalid_client', 'client_id URL must be on a public host')
+  }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), METADATA_FETCH_TIMEOUT_MS)
+  let res: Response
+  try {
+    res = await fetch(clientId, {
+      headers: { Accept: 'application/json' },
+      redirect: 'manual',
+      signal: controller.signal
+    })
+  } catch {
+    throw new OAuthError('invalid_client', 'Could not fetch the client metadata document')
+  } finally {
+    clearTimeout(timer)
+  }
+  if (res.status !== 200) {
+    throw new OAuthError('invalid_client', `Client metadata document returned HTTP ${res.status}`)
+  }
+  const text = await res.text()
+  if (text.length > METADATA_DOCUMENT_MAX_BYTES) {
+    throw new OAuthError('invalid_client', 'Client metadata document is too large')
+  }
+  let doc: unknown
+  try {
+    doc = JSON.parse(text)
+  } catch {
+    throw new OAuthError('invalid_client', 'Client metadata document is not JSON')
+  }
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
+    throw new OAuthError('invalid_client', 'Client metadata document must be a JSON object')
+  }
+  return doc as Record<string, unknown>
+}
+
+/**
+ * Validate a fetched document. The document must name itself (client_id equal
+ * to the URL it was fetched from) and, since it is public, may only describe a
+ * public client: PKCE is its proof of possession, as with DCR.
+ */
+export function readMetadataDocument(
+  clientId: string,
+  doc: Record<string, unknown>
+): { clientName: string | null; redirectUris: string[] } {
+  if (doc.client_id !== clientId) {
+    throw new OAuthError('invalid_client', 'client_id in the metadata document does not match its URL')
+  }
+  const method = doc.token_endpoint_auth_method
+  if (method !== undefined && method !== 'none') {
+    throw new OAuthError('invalid_client', 'Only token_endpoint_auth_method "none" is supported for metadata documents')
+  }
+  if (doc.client_secret !== undefined) {
+    throw new OAuthError('invalid_client', 'A metadata document must not contain a client_secret')
+  }
+  const redirectUris = readRedirectList(doc.redirect_uris)
+  const clientName =
+    typeof doc.client_name === 'string' ? doc.client_name.trim().slice(0, 120) || null : null
+  return { clientName, redirectUris }
+}
+
+async function loadMetadataClient(
+  db: D1Database,
+  clientId: string,
+  refresh: boolean
+): Promise<OAuthClientRow | null> {
+  const cached = await first<OAuthClientRow & { metadata_fetched_at: string | null }>(
+    db,
+    `SELECT * FROM oauth_clients WHERE id = ?`,
+    [clientId]
+  )
+  if (cached && cached.status !== 'ACTIVE') return null
+  const fresh =
+    cached?.metadata_fetched_at &&
+    Date.now() - Date.parse(cached.metadata_fetched_at) < METADATA_DOCUMENT_TTL_SECONDS * 1000
+  if (cached && (fresh || !refresh)) return cached
+
+  let parsed: { clientName: string | null; redirectUris: string[] }
+  try {
+    parsed = readMetadataDocument(clientId, await fetchMetadataDocument(clientId))
+  } catch (err) {
+    // A client whose document is briefly unreachable keeps signing in with
+    // the copy it already has; a client never seen before cannot.
+    if (cached) return cached
+    throw err
+  }
+
+  // The URL's host is fetched, not claimed, so it counts as a redirect host
+  // when deciding which connector the client belongs to.
+  const integrationId = integrationForClient(parsed.clientName, [clientId, ...parsed.redirectUris])
+  const now = nowIso()
+  await run(
+    db,
+    `INSERT INTO oauth_clients
+       (id, client_name, redirect_uris, secret_hash, token_endpoint_auth_method,
+        integration_id, created_by_user_id, status, created_at, metadata_fetched_at)
+     VALUES (?, ?, ?, NULL, 'none', ?, NULL, 'ACTIVE', ?, ?)
+     ON CONFLICT(id) DO UPDATE SET client_name = excluded.client_name,
+       redirect_uris = excluded.redirect_uris, integration_id = excluded.integration_id,
+       metadata_fetched_at = excluded.metadata_fetched_at`,
+    [clientId, parsed.clientName, JSON.stringify(parsed.redirectUris), integrationId, now, now]
+  )
+  return first<OAuthClientRow>(db, `SELECT * FROM oauth_clients WHERE id = ?`, [clientId])
 }
 
 /**
@@ -422,7 +586,14 @@ export async function validateAuthorizeRequest(
   params: Record<string, string | undefined>,
   origin: string
 ): Promise<AuthorizeRequest> {
-  const client = await loadClient(db, params.client_id ?? '')
+  let client: OAuthClientRow | null
+  try {
+    client = await loadClient(db, params.client_id ?? '', { refresh: true })
+  } catch (err) {
+    throw Object.assign(err instanceof OAuthError ? err : new OAuthError('invalid_client', 'Unknown client'), {
+      redirectable: false
+    })
+  }
   if (!client) throw Object.assign(new OAuthError('invalid_client', 'Unknown client'), { redirectable: false })
 
   const registered = parseRedirects(client)
@@ -622,8 +793,8 @@ export async function exchangeCode(
     `INSERT INTO integration_grants
        (id, integration_id, user_id, organization_id, scopes, token_hash, token_prefix,
         status, created_at, last_used_at, revoked_at,
-        expires_at, refresh_token_hash, refresh_expires_at, oauth_client_id)
-     VALUES (?, ?, ?, NULL, ?, ?, ?, 'ACTIVE', ?, NULL, NULL, ?, ?, ?, ?)`,
+        expires_at, refresh_token_hash, refresh_expires_at, oauth_client_id, kind)
+     VALUES (?, ?, ?, NULL, ?, ?, ?, 'ACTIVE', ?, NULL, NULL, ?, ?, ?, ?, 'OAUTH')`,
     [
       grantId,
       client.integration_id,

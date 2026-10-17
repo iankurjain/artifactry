@@ -437,14 +437,14 @@ export const api = {
 
   integrations: () => request('/api/v1/integrations'),
 
-  connectIntegration: (integrationId, scopes) =>
-    request(`/api/v1/integrations/${encodeURIComponent(integrationId)}/connect`, {
-      method: 'POST',
-      body: { scopes }
-    }),
-
   disconnectIntegration: (grantId) =>
     request(`/api/v1/integrations/grants/${encodeURIComponent(grantId)}`, { method: 'DELETE' }),
+
+  // OAuth sign-ins and personal access tokens
+  access: () => request('/api/v1/access'),
+  accessActivity: (grantId) => request(`/api/v1/access/${encodeURIComponent(grantId)}/activity`),
+  createToken: (body) => request('/api/v1/tokens', { method: 'POST', body }),
+  revokeToken: (grantId) => request(`/api/v1/tokens/${encodeURIComponent(grantId)}`, { method: 'DELETE' }),
 
   activity: (limit = 20) => request(`/api/v1/activity?limit=${limit}`),
 

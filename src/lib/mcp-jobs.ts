@@ -591,6 +591,34 @@ async function recordClientIdentity(
   if (version) principal.clientVersion = version
 }
 
+/**
+ * One audit row per tool call, under the person the credential belongs to,
+ * keyed by the grant so Settings can show what each connection or token did.
+ * Arguments are deliberately left out: they can hold whole documents.
+ */
+async function auditToolCall(
+  db: D1Database,
+  principal: Principal,
+  tool: string,
+  outcome: 'ok' | 'error' | 'denied'
+): Promise<void> {
+  await recordAudit(db, {
+    actorUserId: principal.userId,
+    actorType: 'AI',
+    action: 'AI_TOOL_CALL',
+    targetType: 'grant',
+    targetId: principal.grantId ?? null,
+    metadata: {
+      tool,
+      outcome,
+      credential: principal.grantKind ?? 'CONNECTOR',
+      integrationId: principal.integrationId ?? null,
+      provider: principal.provider ?? null,
+      client: principal.clientName ?? null
+    }
+  })
+}
+
 export async function handleMcpRequest(
   env: Env,
   principal: Principal,
@@ -662,9 +690,15 @@ export async function handleMcpRequest(
           }
         }
 
-        assertScope(principal, tool)
+        try {
+          assertScope(principal, tool)
+        } catch (err) {
+          await auditToolCall(env.DB, principal, name, 'denied')
+          throw err
+        }
 
         const outcome = await callJobTool(env, principal, name, args, origin)
+        await auditToolCall(env.DB, principal, name, outcome.isError === true ? 'error' : 'ok')
         return {
           jsonrpc: '2.0',
           id,
