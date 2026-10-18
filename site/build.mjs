@@ -22,7 +22,8 @@
  * `node site/build.mjs` after editing a page, an asset or this file.
  */
 
-import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -188,6 +189,19 @@ function prepare(t) {
   return out
 }
 
+// Stamp every local /assets/ URL with a hash of the file, so a deploy never
+// pairs new HTML with a CSS, JS or screenshot still held in a browser or edge
+// cache under the same name.
+function writeHtml(out, file, html) {
+  const versioned = html.replace(/(\s(?:src|href|poster)=")(\/assets\/[^"?#]+)"/g, (m, attr, path) => {
+    const f = join(out, path)
+    if (!existsSync(f)) return m
+    const v = createHash('sha256').update(readFileSync(f)).digest('hex').slice(0, 10)
+    return `${attr}${path}?v=${v}"`
+  })
+  writeFileSync(join(out, file), versioned)
+}
+
 function writeSeo(out, origin, paths) {
   writeFileSync(
     join(out, 'sitemap.xml'),
@@ -207,7 +221,7 @@ const sitePaths = []
 for (const file of readdirSync(join(here, 'pages')).filter((f) => f.endsWith('.html')).sort()) {
   if (file === 'resources.html') continue
   const { meta, body } = readPage(file)
-  writeFileSync(join(siteOut, file), layout(meta, fill(body, site), site))
+  writeHtml(siteOut, file, layout(meta, fill(body, site), site))
   if (!meta.noindex) sitePaths.push(meta.path)
 }
 // Old and guessable paths on the apex go to the docs host.
@@ -223,9 +237,9 @@ const docsOut = prepare(docs)
 // Guide screenshots and animations are docs-only, so they stay off the marketing host.
 cpSync(join(here, 'guide'), join(docsOut, 'assets/guide'), { recursive: true })
 const guide = readPage('resources.html')
-writeFileSync(join(docsOut, 'index.html'), layout({ ...guide.meta, path: '/' }, fill(guide.body, docs), docs))
+writeHtml(docsOut, 'index.html', layout({ ...guide.meta, path: '/' }, fill(guide.body, docs), docs))
 const notFound = readPage('404.html')
-writeFileSync(join(docsOut, '404.html'), layout(notFound.meta, fill(notFound.body, docs), docs))
+writeHtml(docsOut, '404.html', layout(notFound.meta, fill(notFound.body, docs), docs))
 writeSeo(docsOut, docs.origin, ['/'])
 
 console.log(`Built ${sitePaths.length + 1} pages into ${siteOut} and the docs into ${docsOut}`)
