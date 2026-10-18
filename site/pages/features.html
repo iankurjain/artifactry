@@ -1,9 +1,9 @@
-<!--{"title": "Features", "description": "MCP tools for Find, Save and Share, OAuth sign-in for AI apps, permanent links and versions, keyword and semantic search, team sharing, scoped access and an audit trail. Free during beta.", "path": "/features", "nav": "features"}-->
+<!--{"title": "Features", "description": "Handoffs between AI tools, provenance and lineage, projects, versions with permanent links, search by meaning, team sharing, per-app permissions and an audit trail: everything a multi-AI team needs to share one brain. Free during beta.", "path": "/features", "nav": "features"}-->
 <section class="page-hero">
   <div class="container">
     <span class="eyebrow fade-in">Features</span>
-    <h1 class="fade-in d1">Built for the way <span class="grad-text">AI actually works.</span></h1>
-    <p class="fade-in d2">Artifactry isn't a folder of files with an API bolted on. It's designed around three jobs your AI does all day: find what exists, save what it made, and share it with the right people.</p>
+    <h1 class="fade-in d1">Everything your AIs need to <span class="grad-text">share one brain.</span></h1>
+    <p class="fade-in d2">Artifactry isn't a folder with an API bolted on. It's built around the four things a multi-AI team does all day: save what each tool made, hand it to the next tool, find it again, and build on it.</p>
   </div>
 </section>
 
@@ -16,24 +16,68 @@
 
     <div class="feature-row">
       <div class="feature-copy reveal">
-        <span class="eyebrow">MCP tools</span>
-        <h2>Find, Save, Share. In plain language.</h2>
-        <p>Artifactry speaks the Model Context Protocol (MCP), the open standard AI apps use to call tools. Your AI gets eleven focused tools instead of a pile of storage commands, so it does the right thing when you say "save this" or "share that".</p>
+        <span class="eyebrow">Handoffs</span>
+        <h2>Pass the work, not a copy and paste.</h2>
+        <p>When one AI hits its limit or another is better at the next step, it saves the work and leaves a handoff: the artifacts plus a brief written for the next tool. The next tool opens it and starts with everything the last one knew.</p>
         <ul class="checks">
-          <li><span><strong>Find:</strong> <code>search</code> and <code>get</code> look up artifacts by meaning, type, tags, workspace, owner or date.</span></li>
-          <li><span><strong>Save:</strong> <code>save</code>, <code>create_version</code> and <code>upload_part</code> store new work or a new version, even very large files.</span></li>
-          <li><span><strong>Share:</strong> <code>share</code> and <code>revoke_share</code> put work in front of a team, a workspace, specific people or a public link.</span></li>
-          <li><span><strong>Lookups:</strong> <code>list_workspaces</code>, <code>list_teams</code>, <code>list_tags</code> and <code>update_tags</code> so the AI never has to guess a name.</span></li>
+          <li><span><strong>A brief for the next tool:</strong> what to do, what to read first and what's already decided, up to 20 artifacts in reading order.</span></li>
+          <li><span><strong>Read in full:</strong> notes, specs and code come back whole, never a summary of a summary.</span></li>
+          <li><span><strong>Open, picked up, closed:</strong> see every handoff in the workspace and where it stands.</span></li>
         </ul>
       </div>
       <div class="demo reveal reveal-d1" data-demo>
         <div class="demo-bar"><i></i><i></i><i></i><span>artifactry · mcp</span></div>
         <div class="demo-tabs" role="tablist" aria-label="Example tool calls">
-          <button class="demo-tab" role="tab" aria-selected="true" data-script="find">search</button>
+          <button class="demo-tab" role="tab" aria-selected="true" data-script="handoff">handoff</button>
+          <button class="demo-tab" role="tab" aria-selected="false" tabindex="-1" data-script="find">search</button>
           <button class="demo-tab" role="tab" aria-selected="false" tabindex="-1" data-script="save">save</button>
           <button class="demo-tab" role="tab" aria-selected="false" tabindex="-1" data-script="share">share</button>
         </div>
         <div class="demo-body" aria-live="polite"></div>
+      </div>
+    </div>
+
+    <div class="feature-row flip">
+      <div class="feature-copy reveal">
+        <span class="eyebrow">Provenance and lineage</span>
+        <h2>Know which AI made it, and what it was built from.</h2>
+        <p>Every artifact and every version records the tool that saved it. Every artifact can show what it was built from, so a number in a deck traces back to the research behind it.</p>
+        <ul class="checks">
+          <li><span><strong>Made by:</strong> "Claude", "Cursor" or "You", on every version.</span></li>
+          <li><span><strong>Built from:</strong> declared by the AI when it saves, or inferred from what it read just before, and labelled which is which.</span></li>
+          <li><span><strong>Projects:</strong> mark a collection as the home of one multi-tool piece of work, like an account or a launch.</span></li>
+        </ul>
+      </div>
+      <div class="visual-panel reveal reveal-d1">
+        <div class="mini-list">
+          <div class="mini-item"><span class="fc-badge">PPTX</span><strong>Acme executive deck</strong><small>made by Gemini</small></div>
+          <div class="mini-item" style="margin-left:22px"><span class="fc-badge">TS</span><strong>Demo app + spec</strong><small>built from · Cursor</small></div>
+          <div class="mini-item" style="margin-left:44px"><span class="fc-badge">MD</span><strong>Competitive research</strong><small>built from · Claude</small></div>
+        </div>
+        <p class="muted small" style="margin:14px 0 0">Project: Acme expansion · 3 tools · 7 versions</p>
+      </div>
+    </div>
+
+    <div class="feature-row">
+      <div class="feature-copy reveal">
+        <span class="eyebrow">MCP tools</span>
+        <h2>Save, hand off, find, share. In plain language.</h2>
+        <p>Artifactry speaks the Model Context Protocol (MCP), the open standard AI apps use to call tools. Your AI gets fifteen focused tools instead of a pile of storage commands, so it does the right thing when you say "save this" or "hand this to Cursor".</p>
+        <ul class="checks">
+          <li><span><strong>Save:</strong> <code>save</code>, <code>create_version</code> and <code>upload_part</code> store new work or a new version, even very large files.</span></li>
+          <li><span><strong>Hand off:</strong> <code>handoff</code>, <code>get_handoff</code> and <code>list_handoffs</code> move work between tools with a brief.</span></li>
+          <li><span><strong>Find:</strong> <code>search</code> and <code>get</code> look up artifacts by meaning, type, tags, workspace, owner or date.</span></li>
+          <li><span><strong>Share:</strong> <code>share</code> and <code>revoke_share</code> put work in front of a team, a workspace, specific people or a public link.</span></li>
+          <li><span><strong>Lookups:</strong> <code>list_workspaces</code>, <code>list_projects</code>, <code>list_teams</code>, <code>list_tags</code> and <code>update_tags</code> so the AI never has to guess a name.</span></li>
+        </ul>
+      </div>
+      <div class="visual-panel reveal reveal-d1">
+        <div class="mini-list">
+          <div class="mini-item"><span class="fc-badge">SAVE</span><strong>"Save this to Artifactry."</strong><small>3 tools</small></div>
+          <div class="mini-item"><span class="fc-badge">HAND</span><strong>"Hand this to Gemini for the deck."</strong><small>3 tools</small></div>
+          <div class="mini-item"><span class="fc-badge">FIND</span><strong>"Find last week's launch plan."</strong><small>2 tools</small></div>
+          <div class="mini-item"><span class="fc-badge">SHARE</span><strong>"Share it with Board prep for a week."</strong><small>2 tools</small></div>
+        </div>
       </div>
     </div>
 
@@ -66,7 +110,7 @@
           <li><span><strong>Versions:</strong> upload a new file and it becomes v2, v3, v4. Older versions stay downloadable and you can restore any of them.</span></li>
           <li><span><strong>Checked on arrival:</strong> the real file type is verified against its contents, a checksum is recorded, and text is extracted for search.</span></li>
           <li><span><strong>HTML stays HTML:</strong> pages your AI writes are stored exactly as written and open in a safe preview that runs no scripts by default.</span></li>
-          <li><span>PDF, DOCX, PPTX, HTML, PNG, JPG, BMP and GIF, up to 25 MB each.</span></li>
+          <li><span>PDF, DOCX, PPTX, HTML, images, Markdown, data and source code up to 25 MB, audio up to 20 MB and video up to 200 MB, all playable or previewable in the browser.</span></li>
         </ul>
       </div>
       <div class="visual-panel reveal reveal-d1">
@@ -178,8 +222,8 @@
   <div class="container">
     <div class="cta-banner reveal">
       <span class="eyebrow" style="color:var(--volt)">Free during beta</span>
-      <h2>Ready when your AI is.</h2>
-      <p>Create a library, connect an AI app, and save your first artifact in a couple of minutes.</p>
+      <h2>Give every AI on your team the same brain.</h2>
+      <p>Create a workspace, connect your AI tools, and make your first handoff in a couple of minutes.</p>
       <div class="hero-ctas">
         <a class="btn btn-primary" href="{{SIGNUP_URL}}" data-app-link>Start using Artifactry free <span class="arrow" aria-hidden="true">→</span></a>
         <a class="btn btn-secondary" href="{{DOCS}}/">Read the guide</a>

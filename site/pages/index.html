@@ -1,63 +1,58 @@
-<!--{"title": "Artifactry: the memory your AI tools share", "description": "One governed library for everything you and your AI tools create. Save, find and share artifacts from Claude, ChatGPT, Gemini and any MCP client. Free during beta.", "path": "/", "nav": "home", "home": true, "splitforms": true}-->
-<section class="hero">
+<!--{"title": "Artifactry: the second brain for multi-AI work", "description": "Claude researches, Cursor builds, Gemini makes the deck. Artifactry is the second brain they share: every artifact saved, versioned, handed off with a brief and reused as context, so your team's work stays consistent whichever AI made it. Free during beta.", "path": "/", "nav": "home", "home": true}-->
+<section class="hero hero-v2">
   <div class="container hero-grid">
     <div>
-      <span class="eyebrow fade-in">Free during beta</span>
-      <h1 class="fade-in d1">Everything your AI makes, <span class="grad-text">saved, found and shared.</span></h1>
-      <p class="hero-sub fade-in d2">Artifactry is one library for the reports, decks, pages and files you and your AI tools create. Your assistants save their work there, find it again in the next conversation, and share it with the right people, with you in control of every step.</p>
+      <span class="eyebrow fade-in">The second brain for multi-AI work</span>
+      <h1 class="fade-in d1">Every AI on your team.<br><span class="grad-text">One brain.</span></h1>
+      <p class="hero-sub fade-in d2">Claude writes the research. Cursor builds the demo. Gemini turns it into the deck. Artifactry is where all of it lands: saved, versioned, handed from tool to tool with the brief attached, and found again next week. Your team stops starting from zero, and the work comes out consistent whoever made it.</p>
       <div class="hero-ctas fade-in d3">
         <a class="btn btn-primary" href="{{SIGNUP_URL}}" data-app-link>Start free in beta <span class="arrow" aria-hidden="true">→</span></a>
-        <a class="btn btn-secondary" href="{{SITE}}/features">View Features</a>
+        <a class="btn btn-secondary" href="#relay">See a handoff</a>
       </div>
-      <p class="hero-note fade-in d3"><span class="dot" aria-hidden="true"></span>No install, no credit card. Sign in with a code sent to your email.</p>
+      <p class="hero-note fade-in d3"><span class="dot" aria-hidden="true"></span>Works with Claude, ChatGPT, Gemini, Cursor and any MCP client. No credit card.</p>
     </div>
 
-    <div class="hero-visual" aria-hidden="true">
-      <div class="particles"></div>
-      <svg class="links" viewBox="0 0 500 460" preserveAspectRatio="none">
-        <path id="l1" d="M120 70 C 200 90, 210 200, 230 238"/>
-        <path id="l2" d="M400 40 C 360 110, 300 170, 240 236"/>
-        <path id="l3" d="M440 380 C 380 330, 300 290, 240 244"/>
-        <path id="l4" d="M20 200 C 90 210, 160 230, 226 240"/>
-        <path id="l5" d="M140 400 C 180 340, 210 290, 232 248"/>
-        <path id="l6" d="M440 210 C 380 220, 300 232, 246 240"/>
-        <circle class="pulse" r="3.2"><animateMotion dur="3.2s" repeatCount="indefinite"><mpath href="#l1"/></animateMotion></circle>
-        <circle class="pulse" r="3.2"><animateMotion dur="2.6s" repeatCount="indefinite" begin="-1s"><mpath href="#l2"/></animateMotion></circle>
-        <circle class="pulse" r="3.2"><animateMotion dur="3.6s" repeatCount="indefinite" begin="-2s"><mpath href="#l3"/></animateMotion></circle>
-        <circle class="pulse" r="3.2"><animateMotion dur="2.9s" repeatCount="indefinite" begin="-0.5s"><mpath href="#l4"/></animateMotion></circle>
-        <circle class="pulse" r="3.2"><animateMotion dur="3.4s" repeatCount="indefinite" begin="-1.6s"><mpath href="#l5"/></animateMotion></circle>
-        <circle class="pulse" r="3.2"><animateMotion dur="3s" repeatCount="indefinite" begin="-2.4s"><mpath href="#l6"/></animateMotion></circle>
-      </svg>
-
-      <div class="float-card fc-1">
-        <div class="fc-top"><span class="fc-badge">HTML</span><span class="fc-title">Board Q&amp;A</span></div>
-        <div class="fc-line" style="width:92%"></div><div class="fc-line" style="width:70%"></div>
-        <div class="fc-meta"><span class="fc-tag">board</span><span class="fc-tag">q3</span><span class="fc-tag">v2</span></div>
+    <div class="relay-visual fade-in d2" aria-hidden="true">
+      <div class="relay-chain">
+        <div class="relay-stage rs-1">
+          <div class="rs-tool"><span class="tool-dot t-claude"></span>Claude</div>
+          <div class="rs-card">
+            <span class="fc-badge">MD</span>
+            <strong>Acme competitive research</strong>
+            <small>v3 · made by Claude</small>
+          </div>
+        </div>
+        <div class="relay-link"><span class="relay-pulse"></span><em>handoff · brief attached</em></div>
+        <div class="relay-stage rs-2">
+          <div class="rs-tool"><span class="tool-dot t-cursor"></span>Cursor</div>
+          <div class="rs-card">
+            <span class="fc-badge">TS</span>
+            <strong>Demo app + technical spec</strong>
+            <small>v2 · built from research</small>
+          </div>
+        </div>
+        <div class="relay-link"><span class="relay-pulse p2"></span><em>handoff · brief attached</em></div>
+        <div class="relay-stage rs-3">
+          <div class="rs-tool"><span class="tool-dot t-gemini"></span>Gemini</div>
+          <div class="rs-card">
+            <span class="fc-badge">PPTX</span>
+            <strong>Acme executive deck</strong>
+            <small>v1 · built from 2 artifacts</small>
+          </div>
+        </div>
       </div>
-      <div class="float-card fc-2">
-        <div class="fc-top"><span class="fc-badge">PPTX</span><span class="fc-title">Q3 Finance Review</span></div>
-        <div class="fc-line" style="width:85%"></div><div class="fc-line" style="width:60%"></div>
-        <div class="fc-meta"><span class="fc-tag">finance</span><span class="fc-tag">shared · 7d</span></div>
+      <div class="brain-bar">
+        <span class="brain-mark"><svg viewBox="0 0 256 256"><path fill="#F5F6F2" fill-rule="evenodd" d="M48,42 H122 L206,126 V210 A22,22 0 0 1 184,232 H48 A22,22 0 0 1 26,210 V64 A22,22 0 0 1 48,42 Z M62.37,200.50 L101.63,200.50 L157.63,103.50 L118.37,103.50 Z"/><path fill="#B8F23A" d="M197,17 Q200.63,46.37 230,50 Q200.63,53.63 197,83 Q193.37,53.63 164,50 Q193.37,46.37 197,17 Z"/></svg></span>
+        <div class="brain-search"><span class="brain-q" data-typer="find last week's Acme deck|what did we tell Acme about pricing?|our approved security answers">find last week's Acme deck</span><span class="caret"></span></div>
+        <span class="brain-chip">versioned · findable · governed</span>
       </div>
-      <div class="float-card fc-3">
-        <div class="fc-top"><span class="fc-badge">PDF</span><span class="fc-title">Launch plan</span></div>
-        <div class="fc-line" style="width:88%"></div><div class="fc-line" style="width:52%"></div>
-        <div class="fc-meta"><span class="fc-tag">product</span><span class="fc-tag">saved by Claude</span></div>
-      </div>
-
-      <div class="agent-node core">
-        <svg viewBox="0 0 256 256"><path fill="#F5F6F2" fill-rule="evenodd" d="M48,42 H122 L206,126 V210 A22,22 0 0 1 184,232 H48 A22,22 0 0 1 26,210 V64 A22,22 0 0 1 48,42 Z M62.37,200.50 L101.63,200.50 L157.63,103.50 L118.37,103.50 Z"/><path fill="#B8F23A" d="M197,17 Q200.63,46.37 230,50 Q200.63,53.63 197,83 Q193.37,53.63 164,50 Q193.37,46.37 197,17 Z"/></svg>
-      </div>
-      <div class="agent-node n-1">AI</div>
-      <div class="agent-node n-2">MCP</div>
-      <div class="agent-node n-3">you</div>
     </div>
   </div>
 </section>
 
 <section class="strip" aria-label="Compatible AI apps">
   <div class="container strip-inner">
-    <span class="strip-label">Works with</span>
+    <span class="strip-label">One brain for</span>
     <span class="strip-item">Claude</span>
     <span class="strip-item">ChatGPT</span>
     <span class="strip-item">Gemini</span>
@@ -70,30 +65,241 @@
 <section class="section">
   <div class="container">
     <div class="section-head reveal">
-      <span class="eyebrow">Why Artifactry</span>
-      <h2>Your AI's work shouldn't vanish when the chat ends.</h2>
-      <p>Every assistant you use makes useful things. Artifactry gives them one place to keep those things, so nothing gets lost in a chat history again.</p>
+      <span class="eyebrow">The problem</span>
+      <h2>The token limit isn't the problem. <span class="accent">Starting from zero is.</span></h2>
+      <p>You build the battlecard in Claude until the chat runs out, finish the demo in Cursor, and ask a teammate to make the deck in Gemini. Every switch drops what the last tool knew, so the same story comes out five different ways.</p>
+    </div>
+    <div class="grid grid-3">
+      <article class="card pain reveal">
+        <span class="pain-num">01</span>
+        <h3>The good version is buried in a chat</h3>
+        <p>Last week's launch plan lives in someone's ChatGPT history. Nobody can find it, so it gets written again, slightly differently.</p>
+      </article>
+      <article class="card pain reveal reveal-d1">
+        <span class="pain-num">02</span>
+        <h3>Every handoff loses the context</h3>
+        <p>Copy, paste, re-explain. The next AI never sees the research, the decisions or the customer's own words, and guesses the rest.</p>
+      </article>
+      <article class="card pain reveal reveal-d2">
+        <span class="pain-num">03</span>
+        <h3>Quality depends on who prompted</h3>
+        <p>Same product, same customer, three teammates, three tools: different numbers, different claims, different tone. The customer notices.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="section section-band" id="relay">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="eyebrow">How a handoff works</span>
+      <h2>One asset, three AIs, zero re&#8209;explaining.</h2>
+      <p>A solutions engineer preps a strategic account. Each tool does the part it's best at, and each one starts from what the last one made.</p>
+    </div>
+    <ol class="timeline">
+      <li class="tl-step reveal">
+        <div class="tl-node"><span class="tool-dot t-claude"></span></div>
+        <div class="tl-body">
+          <span class="tl-tool">Claude · research</span>
+          <h3>Research the account, then save it</h3>
+          <p class="tl-prompt">"Save this research to Artifactry and hand it to Cursor to build the demo."</p>
+          <p>The report is saved as v1 with a permanent link, tagged from its content, and labelled <strong>made by Claude</strong>. The handoff carries a brief written for the next tool.</p>
+        </div>
+      </li>
+      <li class="tl-step reveal reveal-d1">
+        <div class="tl-node"><span class="tool-dot t-cursor"></span></div>
+        <div class="tl-body">
+          <span class="tl-tool">Cursor · build</span>
+          <h3>Pick up the handoff and build</h3>
+          <p class="tl-prompt">"Open my Artifactry handoff."</p>
+          <p>Cursor reads the brief and the research in full, builds the demo, and saves the code and a technical spec that link back to the research they were <strong>built from</strong>.</p>
+        </div>
+      </li>
+      <li class="tl-step reveal reveal-d2">
+        <div class="tl-node"><span class="tool-dot t-gemini"></span></div>
+        <div class="tl-body">
+          <span class="tl-tool">Gemini · present</span>
+          <h3>Turn it into the deck</h3>
+          <p class="tl-prompt">"Make the executive deck from the Acme research and spec in Artifactry."</p>
+          <p>The deck starts from the real numbers and the real spec, not a paraphrase. It's saved next to them in the same project.</p>
+        </div>
+      </li>
+      <li class="tl-step reveal reveal-d3">
+        <div class="tl-node tl-node-brain"><span class="brain-dot"></span></div>
+        <div class="tl-body">
+          <span class="tl-tool">Next week · anyone, any tool</span>
+          <h3>Find it, reuse it, improve it</h3>
+          <p class="tl-prompt">"Find last week's Acme deck and make a version for Globex."</p>
+          <p>Search reads what's inside every file. The Globex deck becomes v1 of a new artifact, built from the Acme one, so you can always trace where a claim came from.</p>
+        </div>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container moat">
+    <div class="moat-copy reveal">
+      <span class="eyebrow">Why it compounds</span>
+      <h2>Chat history resets. <span class="accent">Your second brain compounds.</span></h2>
+      <p class="lead">Every artifact you save makes the next one better. On day one Artifactry is a library. By month three it holds your approved positioning, your best demos, your winning decks and the proof points behind them, and every AI on the team starts from there.</p>
+      <ul class="checks">
+        <li><span><strong>Your best work becomes the starting point.</strong> Ask any AI to build from what's already approved instead of from a blank prompt.</span></li>
+        <li><span><strong>Consistency without a style police.</strong> When everyone's tools draw on the same source, the numbers, claims and voice line up on their own.</span></li>
+        <li><span><strong>Every claim is traceable.</strong> Lineage shows which artifacts each one was built from, and which AI made each version.</span></li>
+        <li><span><strong>It belongs to the team, not a tool.</strong> Switch models next quarter and the brain stays exactly where it is.</span></li>
+      </ul>
+    </div>
+    <figure class="compound reveal reveal-d1" aria-label="Artifacts linking into a growing graph over three months">
+      <svg viewBox="0 0 420 340" class="compound-svg" aria-hidden="true">
+        <g class="cg-links">
+          <path d="M70 250 L150 190"/><path d="M70 250 L120 300"/><path d="M150 190 L230 230"/>
+          <path d="M150 190 L190 110"/><path d="M230 230 L300 170"/><path d="M190 110 L300 170"/>
+          <path d="M190 110 L270 70"/><path d="M300 170 L370 120"/><path d="M270 70 L370 120"/>
+          <path d="M230 230 L320 280"/><path d="M320 280 L370 220"/><path d="M370 120 L370 220"/>
+          <path d="M120 300 L230 230"/><path d="M270 70 L340 40"/>
+        </g>
+        <g class="cg-nodes">
+          <circle cx="70" cy="250" r="9" style="--d:0"/><circle cx="120" cy="300" r="7" style="--d:1"/>
+          <circle cx="150" cy="190" r="10" style="--d:2"/><circle cx="230" cy="230" r="11" style="--d:3"/>
+          <circle cx="190" cy="110" r="9" style="--d:4"/><circle cx="300" cy="170" r="12" style="--d:5"/>
+          <circle cx="270" cy="70" r="9" style="--d:6"/><circle cx="320" cy="280" r="8" style="--d:7"/>
+          <circle cx="370" cy="120" r="13" style="--d:8" class="hot"/><circle cx="370" cy="220" r="9" style="--d:9"/>
+          <circle cx="340" cy="40" r="7" style="--d:10"/>
+        </g>
+      </svg>
+      <div class="cg-axis"><span>Week 1</span><span>Month 1</span><span>Month 3</span></div>
+      <figcaption class="cg-legend">
+        <span><i class="lg-node"></i>an artifact</span>
+        <span><i class="lg-link"></i>built from</span>
+        <span><i class="lg-hot"></i>the deck everyone reuses</span>
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="section section-band">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="eyebrow">Built for the people who build the assets</span>
+      <h2>Sales, marketing and solutions engineering, on one brain.</h2>
+      <p>The people who make customer-facing work in several AI tools at once, with teammates, under a deadline.</p>
+    </div>
+    <div class="persona reveal" data-persona>
+      <div class="persona-tabs" role="tablist" aria-label="Teams">
+        <button class="persona-tab" role="tab" id="pt-se" aria-selected="true" aria-controls="pp-se">Solutions engineers</button>
+        <button class="persona-tab" role="tab" id="pt-sales" aria-selected="false" aria-controls="pp-sales" tabindex="-1">Sales</button>
+        <button class="persona-tab" role="tab" id="pt-mkt" aria-selected="false" aria-controls="pp-mkt" tabindex="-1">Marketing</button>
+      </div>
+      <div class="persona-panel" role="tabpanel" id="pp-se" aria-labelledby="pt-se">
+        <div>
+          <h3>Demo-ready in one afternoon, not three tools' worth of copy and paste.</h3>
+          <p>Discovery notes in Claude, the POC in Cursor, the architecture deck in Gemini, all from the same source. Your security answers and integration specs are written once and reused on every deal.</p>
+          <a class="text-link" href="{{SITE}}/use-cases#solutions-engineers">How SE teams use Artifactry <span aria-hidden="true">→</span></a>
+        </div>
+        <ul class="asset-list">
+          <li><span class="fc-badge">MD</span>Discovery summary<small>Claude</small></li>
+          <li><span class="fc-badge">TS</span>POC code + spec<small>Cursor</small></li>
+          <li><span class="fc-badge">PPTX</span>Architecture deck<small>Gemini</small></li>
+          <li><span class="fc-badge">PDF</span>Security questionnaire<small>reused · v6</small></li>
+        </ul>
+      </div>
+      <div class="persona-panel" role="tabpanel" id="pp-sales" aria-labelledby="pt-sales" hidden>
+        <div>
+          <h3>Every rep sends the best version, not their version.</h3>
+          <p>Account plans, battlecards, mutual action plans and follow-ups built from the team's latest approved material. Find last quarter's winning proposal in a sentence and adapt it for the next account.</p>
+          <a class="text-link" href="{{SITE}}/use-cases#sales">How sales teams use Artifactry <span aria-hidden="true">→</span></a>
+        </div>
+        <ul class="asset-list">
+          <li><span class="fc-badge">HTML</span>Account plan<small>ChatGPT</small></li>
+          <li><span class="fc-badge">PDF</span>Competitor battlecard<small>reused · v4</small></li>
+          <li><span class="fc-badge">DOCX</span>Proposal<small>Claude</small></li>
+          <li><span class="fc-badge">MP4</span>Personalised demo video<small>uploaded</small></li>
+        </ul>
+      </div>
+      <div class="persona-panel" role="tabpanel" id="pp-mkt" aria-labelledby="pt-mkt" hidden>
+        <div>
+          <h3>One messaging source. Every channel, every tool, on voice.</h3>
+          <p>Positioning, launch plans, campaign briefs and decks in one place. Every AI writes from the approved messaging, so the blog, the email and the sales deck say the same thing.</p>
+          <a class="text-link" href="{{SITE}}/use-cases#marketing">How marketing teams use Artifactry <span aria-hidden="true">→</span></a>
+        </div>
+        <ul class="asset-list">
+          <li><span class="fc-badge">MD</span>Messaging framework<small>approved · v7</small></li>
+          <li><span class="fc-badge">PDF</span>Launch plan<small>Claude</small></li>
+          <li><span class="fc-badge">PPTX</span>Launch deck<small>Gemini</small></li>
+          <li><span class="fc-badge">HTML</span>Landing page draft<small>Cursor</small></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="eyebrow">The habit</span>
+      <h2>Three sentences that change how your team works.</h2>
+      <p>No new app to learn. You say it to whichever AI you're already using.</p>
+    </div>
+    <div class="habits">
+      <div class="habit reveal"><span class="habit-verb">Save</span><p>"Save this to Artifactry."</p><small>Versioned, tagged and findable in seconds.</small></div>
+      <div class="habit reveal reveal-d1"><span class="habit-verb">Find</span><p>"Find last week's launch plan."</p><small>By what's inside it, not what it was called.</small></div>
+      <div class="habit reveal reveal-d2"><span class="habit-verb">Hand off</span><p>"Hand this to Gemini for the deck."</p><small>The next tool gets the work and the brief.</small></div>
+    </div>
+  </div>
+</section>
+
+<section class="section section-band">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="eyebrow">Why not just…</span>
+      <h2>Not another memory feature. Not another folder.</h2>
+      <p>Built-in AI memory remembers facts for one person in one tool. Drives and wikis store files no AI can hand off. Artifactry is the layer in between.</p>
+    </div>
+    <div class="compare reveal">
+      <table>
+        <thead>
+          <tr><th scope="col"><span class="sr-only">Capability</span></th><th scope="col">One AI's memory</th><th scope="col">Shared drive or wiki</th><th scope="col" class="us">Artifactry</th></tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">Works across Claude, ChatGPT, Gemini and Cursor</th><td><span class="no">No</span></td><td><span class="part">Partly</span></td><td class="us"><span class="yes">Yes</span></td></tr>
+          <tr><th scope="row">Shared with your team</th><td><span class="no">No</span></td><td><span class="yes">Yes</span></td><td class="us"><span class="yes">Yes</span></td></tr>
+          <tr><th scope="row">Keeps finished work: decks, docs, code, video</th><td><span class="no">No</span></td><td><span class="yes">Yes</span></td><td class="us"><span class="yes">Yes</span></td></tr>
+          <tr><th scope="row">Hands work from one AI to the next with a brief</th><td><span class="no">No</span></td><td><span class="no">No</span></td><td class="us"><span class="yes">Yes</span></td></tr>
+          <tr><th scope="row">Records which AI made it and what it was built from</th><td><span class="no">No</span></td><td><span class="no">No</span></td><td class="us"><span class="yes">Yes</span></td></tr>
+          <tr><th scope="row">Your AI asks before sharing outside the company</th><td><span class="no">n/a</span></td><td><span class="no">No</span></td><td class="us"><span class="yes">Yes</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="container">
+    <div class="section-head reveal">
+      <span class="eyebrow">Governed by default</span>
+      <h2>A shared brain you can trust with customer work.</h2>
     </div>
     <div class="grid grid-4">
       <article class="card reveal">
-        <div class="card-icon"><svg viewBox="0 0 24 24"><path d="M4 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M9 13h6"/></svg></div>
-        <h3>One library for every AI</h3>
-        <p>Claude, ChatGPT, Gemini and your coding agents all save to the same place, and each can pick up what another made.</p>
+        <div class="card-icon"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6Z"/><path d="m9 12 2 2 4-4"/></svg></div>
+        <h3>Never more than you</h3>
+        <p>An AI sees exactly what its user can see, applied inside every search and every result.</p>
       </article>
       <article class="card reveal reveal-d1">
-        <div class="card-icon"><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></div>
-        <h3>Links that never break</h3>
-        <p>Every artifact gets a permanent address. Rename it, move it or add ten new versions, and the link you shared still works.</p>
+        <div class="card-icon"><svg viewBox="0 0 24 24"><path d="M4 12h10"/><path d="m10 8 4 4-4 4"/><path d="M18 5v14"/></svg></div>
+        <h3>Outside sharing waits</h3>
+        <p>A public link or an outside email always comes back to you for a yes before anything is shared.</p>
       </article>
       <article class="card reveal reveal-d2">
-        <div class="card-icon"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/><path d="M8.5 11h5"/></svg></div>
-        <h3>Find it by what's inside</h3>
-        <p>Search reads the text inside your PDFs, Word files, slides and pages, by keyword and by meaning, and tells you how each result matched.</p>
+        <div class="card-icon"><svg viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
+        <h3>Permissions per app</h3>
+        <p>Each AI app signs in and gets only the access you choose. Disconnect it and it's gone instantly.</p>
       </article>
       <article class="card reveal reveal-d3">
-        <div class="card-icon"><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6Z"/><path d="m9 12 2 2 4-4"/></svg></div>
-        <h3>You stay in charge</h3>
-        <p>An AI can never see more than you can. Sharing outside your organization always waits for your yes, and every action is logged.</p>
+        <div class="card-icon"><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg></div>
+        <h3>Every action logged</h3>
+        <p>Which app did what, to which artifact, and when. Versions keep every earlier draft.</p>
       </article>
     </div>
   </div>
@@ -101,26 +307,27 @@
 
 <section class="section" style="padding-top:24px">
   <div class="container">
-    <div class="section-head reveal">
-      <span class="eyebrow">How it works</span>
-      <h2>Three steps. About two minutes.</h2>
-      <p>No servers to run and nothing to install. Artifactry lives in the cloud and your AI apps connect to it with a secure sign-in.</p>
-    </div>
-    <div class="steps">
-      <div class="step reveal">
-        <div class="step-num">01</div>
-        <h3>Create your library</h3>
-        <p>Enter your email at {{APP_HOST}} and type the 6-digit code we send. Your personal workspace is ready straight away.</p>
+    <div class="steps-wrap reveal">
+      <div class="section-head" style="margin-bottom:40px">
+        <span class="eyebrow">Get started</span>
+        <h2>Two minutes to a shared brain.</h2>
       </div>
-      <div class="step reveal reveal-d1">
-        <div class="step-num">02</div>
-        <h3>Connect your AI</h3>
-        <p>Paste one address into Claude, ChatGPT or Gemini, sign in, and choose what the app may do.<br><code>{{APP_HOST}}/api/v1/mcp</code></p>
-      </div>
-      <div class="step reveal reveal-d2">
-        <div class="step-num">03</div>
-        <h3>Just ask</h3>
-        <p>"Save this to Artifactry." "Find last week's launch plan." "Share it with Board prep for a week." Your AI does the rest.</p>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num">01</div>
+          <h3>Create a workspace</h3>
+          <p>Sign in at {{APP_HOST}} with a code sent to your email, then invite your team.</p>
+        </div>
+        <div class="step">
+          <div class="step-num">02</div>
+          <h3>Connect every AI</h3>
+          <p>Add one address to Claude, ChatGPT, Gemini or Cursor and approve what it may do.<br><code>{{APP_HOST}}/api/v1/mcp</code></p>
+        </div>
+        <div class="step">
+          <div class="step-num">03</div>
+          <h3>Save the first artifact</h3>
+          <p>"Save this to Artifactry." Next week, someone on your team will be glad you did.</p>
+        </div>
       </div>
     </div>
   </div>
@@ -130,11 +337,11 @@
   <div class="container">
     <div class="cta-banner reveal">
       <span class="eyebrow" style="color:var(--volt)">Free during beta</span>
-      <h2>Give your AI a memory that lasts.</h2>
-      <p>Every feature is free while Artifactry is in beta. Start a library in under a minute and connect your first AI app today.</p>
+      <h2>Stop starting from zero.</h2>
+      <p>Give every AI on your team the same brain. Every feature is free while Artifactry is in beta.</p>
       <div class="hero-ctas">
         <a class="btn btn-primary" href="{{SIGNUP_URL}}" data-app-link>Start free in beta <span class="arrow" aria-hidden="true">→</span></a>
-        <a class="btn btn-secondary" href="{{DOCS}}/#mcp">Read the setup guides</a>
+        <a class="btn btn-secondary" href="{{DOCS}}/#mcp">Connect your AI tools</a>
       </div>
     </div>
   </div>

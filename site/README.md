@@ -4,8 +4,10 @@ Static, dependency-free sites built from one source:
 
 | Output | Host | Pages |
 |---|---|---|
-| `public/` | `artifactry.app` | Home, Features, Request a Feature, Terms, Privacy, Cookie Policy, 404 |
+| `public/` | `artifactry.app` | Home, Use cases, Features, Request a Feature, Terms, Privacy, Cookie Policy, 404 |
 | `docs/` | `docs.artifactry.app` | User Guide + MCP Integration (from `pages/resources.html`) |
+
+Positioning, ICP and the copy bank behind the pages are in `MESSAGING.md`.
 
 Login / Sign up links go to `app.artifactry.app/login` and `/signup`. Neither site is part
 of the app's build, so merging does not change the app.
