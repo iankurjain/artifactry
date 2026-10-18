@@ -74,6 +74,7 @@ function layout(meta, body, t) {
   const title = meta.home ? meta.title : `${meta.title} · Artifactry`
   const nav = [
     { id: 'home', href: `${t.site}/`, label: 'Home' },
+    { id: 'use-cases', href: `${t.site}/use-cases`, label: 'Use cases' },
     { id: 'features', href: `${t.site}/features`, label: 'Features' },
     { id: 'resources', href: `${t.docs}/`, label: 'Docs' },
     { id: 'request', href: `${t.site}/request-feature`, label: 'Request a Feature' }
@@ -142,11 +143,12 @@ ${body}
   <div class="container footer-grid">
     <div class="footer-brand">
       <a href="${t.site}/" class="brand" aria-label="Artifactry home">${LOGO}</a>
-      <p>One governed library for everything you and your AI tools create.</p>
+      <p>The second brain for multi-AI work. Save, hand off and reuse everything your team's AI tools create.</p>
       <p class="muted small">Free during beta · <a href="mailto:${CONTACT}">${CONTACT}</a></p>
     </div>
     <nav class="footer-col" aria-label="Product">
       <h2>Product</h2>
+      <a href="${t.site}/use-cases">Use cases</a>
       <a href="${t.site}/features">Features</a>
       <a href="${t.docs}/#guide">User Guide</a>
       <a href="${t.docs}/#mcp">MCP Integration</a>

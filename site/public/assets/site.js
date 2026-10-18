@@ -256,6 +256,32 @@
         ['s', 'https://app.artifactry.app/a/01J9Y…'],
         ['', '\n  suggested tags: board, q3, finance']
       ],
+      handoff: [
+        ['u', 'You: Hand the Acme research to Cursor to build the demo.\n\n'],
+        ['c', '// the AI calls'],
+        ['', '\n'],
+        ['k', 'handoff'],
+        ['', '({ '],
+        ['k', 'to'],
+        ['', ': '],
+        ['s', '"Cursor"'],
+        ['', ', '],
+        ['k', 'title'],
+        ['', ': '],
+        ['s', '"Build the Acme demo"'],
+        ['', ',\n          '],
+        ['k', 'artifacts'],
+        ['', ': ['],
+        ['s', '"Acme competitive research"'],
+        ['', '],\n          '],
+        ['k', 'brief'],
+        ['', ': '],
+        ['s', '"Build a demo of the 3 workflows on p.4…"'],
+        ['', ' })\n\n'],
+        ['c', '// later, in Cursor: "open my Artifactry handoff"'],
+        ['', '\nHandoff from Claude  ·  Build the Acme demo\n  1 artifact, read in full  ·  brief attached\n  '],
+        ['c', 'Whatever Cursor saves links back to the research.']
+      ],
       share: [
         ['u', 'You: Share it with Board prep for 7 days.\n\n'],
         ['c', '// the AI calls'],
@@ -336,10 +362,67 @@
         }
       })
       once.observe(demo)
-      render('find', false)
+      render(demoTabs[0].dataset.script, false)
     } else {
       selectDemo(demoTabs[0], false)
     }
+  }
+
+  // ---------- Home: persona tabs ----------
+
+  document.querySelectorAll('[data-persona]').forEach((box) => {
+    const tabs = Array.from(box.querySelectorAll('[role="tab"]'))
+    const select = (tab) => {
+      tabs.forEach((t) => {
+        const on = t === tab
+        t.setAttribute('aria-selected', String(on))
+        t.tabIndex = on ? 0 : -1
+        document.getElementById(t.getAttribute('aria-controls')).hidden = !on
+      })
+    }
+    tabs.forEach((tab, i) => {
+      tab.addEventListener('click', () => select(tab))
+      tab.addEventListener('keydown', (e) => {
+        const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0
+        if (!d) return
+        e.preventDefault()
+        const next = tabs[(i + d + tabs.length) % tabs.length]
+        next.focus()
+        select(next)
+      })
+    })
+  })
+
+  // ---------- Home: the search line in the hero types a few example asks ----------
+
+  const typer = document.querySelector('[data-typer]')
+  if (typer && !reduceMotion) {
+    const lines = typer.dataset.typer.split('|')
+    let line = 0
+    let pos = lines[0].length
+    let deleting = true
+    let wait = 2200
+    const tick = () => {
+      const text = lines[line]
+      if (deleting) {
+        pos--
+        if (pos <= 0) {
+          deleting = false
+          line = (line + 1) % lines.length
+        }
+      } else {
+        pos++
+        if (pos >= lines[line].length) {
+          deleting = true
+          typer.textContent = lines[line]
+          setTimeout(tick, 2400)
+          return
+        }
+      }
+      typer.textContent = (deleting ? text : lines[line]).slice(0, Math.max(pos, 0))
+      setTimeout(tick, deleting ? 28 : 55)
+    }
+    setTimeout(tick, wait)
   }
 
   // ---------- Features: scope picker demo ----------
