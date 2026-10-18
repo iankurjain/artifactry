@@ -170,7 +170,7 @@
             <p>Most apps use <strong>OAuth sign-in</strong>: you paste the address, a window opens, you sign in to Artifactry and choose <strong>Allow</strong>. There's no token to copy, and access refreshes itself. Step-by-step guides for each app are in the <a href="#mcp">MCP Integration</a> tab.</p>
             <p>In the app, choose <strong>Connect an AI tool</strong> on Home (or <strong>Profile → Set up Claude, ChatGPT, Cursor and more</strong>). Copy the server URL, then open the tool you use for its steps.</p>
             <figure class="shot shot-video is-paused"><video data-clip poster="/assets/guide/connect-poster.webp" width="1280" height="800" muted loop playsinline preload="none" tabindex="0" aria-label="Animation: opening the Claude setup steps and copying the server URL. Click to play or pause."><source src="/assets/guide/connect.webm" type="video/webm"><source src="/assets/guide/connect.mp4" type="video/mp4"></video><figcaption><span class="clip-badge">Animation</span>The Connect page: one URL for every tool, with short steps for each.</figcaption></figure>
-            <figure class="shot shot-narrow"><a href="/assets/guide/oauth-consent.webp" target="_blank" rel="noopener"><img src="/assets/guide/oauth-consent.webp" width="880" height="864" alt="The Connect Claude to Artifactry? consent screen listing what Claude will be able to do, with Cancel and Allow" loading="lazy" decoding="async"></a><figcaption>What you see when an AI app asks to connect. It lists exactly what the app may do; choose <strong>Allow</strong> to finish.</figcaption></figure>
+            <figure class="shot shot-narrow"><a href="/assets/guide/oauth-consent.webp" target="_blank" rel="noopener"><img src="/assets/guide/oauth-consent.webp" width="880" height="964" alt="The Connect Claude to Artifactry? consent screen with a ticked checkbox for each permission Claude asks for, and Cancel and Allow" loading="lazy" decoding="async"></a><figcaption>What you see when an AI app asks to connect. Untick anything you don't want it to do, then choose <strong>Allow</strong>.</figcaption></figure>
             <h3>What your AI can do once connected</h3>
             <table>
               <thead><tr><th>Job</th><th>Tools</th><th>Example request</th></tr></thead>
@@ -191,9 +191,14 @@
             <ol class="steps-list">
               <li>In the app, open <strong>Profile</strong> and scroll to <strong>Access tokens</strong>.</li>
               <li>Choose <strong>Create an access token</strong> and give it a name you'll recognise, such as "Nightly backup script".</li>
-              <li>Tick only the permissions it needs (read, write and share are ticked to start). A read-only script needs just <code>artifact.read</code>. Pick when it expires: 7, 30, 90 (the default) or 365 days, or never.</li>
-              <li>Copy the token straight away. <strong>It is shown once</strong> and stored only as a hash, so it can't be shown again. Tokens start with <code>art_pat_</code>, and the tool sends it as <code>Authorization: Bearer &lt;token&gt;</code>.</li>
+              <li>Tick only the permissions it needs (read, write and share are ticked to start). A read-only script needs just <code>artifact.read</code>. Pick when it expires: 7, 30, 90 (the default) or 365 days, or never.
+                <figure class="shot shot-narrow"><a href="/assets/guide/token-scopes.webp" target="_blank" rel="noopener"><img src="/assets/guide/token-scopes.webp" width="1120" height="1304" alt="The New access token sheet with a name, an expiry of 90 days and checkboxes for read, write and share" loading="lazy" decoding="async"></a><figcaption>Name the token, choose when it expires and what it may do.</figcaption></figure>
+              </li>
+              <li>Copy the token straight away. <strong>It is shown once</strong> and stored only as a hash, so it can't be shown again. Tokens start with <code>art_pat_</code>, and the tool sends it as <code>Authorization: Bearer &lt;token&gt;</code>.
+                <figure class="shot shot-narrow"><a href="/assets/guide/token-created.webp" target="_blank" rel="noopener"><img src="/assets/guide/token-created.webp" width="1120" height="824" alt="The Copy your token sheet showing the new token, a warning that it cannot be shown again, and the MCP endpoint" loading="lazy" decoding="async"></a><figcaption>The only time the token is shown. Copy it into your script or tool.</figcaption></figure>
+              </li>
             </ol>
+            <figure class="shot"><a href="/assets/guide/connected-apps.webp" target="_blank" rel="noopener"><img src="/assets/guide/connected-apps.webp" width="1624" height="868" alt="Profile showing Connected AI apps (Cursor and Claude, each signed in) and Access tokens (Nightly backup script and GitHub Actions publish)" loading="lazy" decoding="async"></a><figcaption><strong>Profile</strong> lists every signed-in AI app and every access token, with when each was last used.</figcaption></figure>
             <h3>Permissions (scopes)</h3>
             <table>
               <thead><tr><th>Scope</th><th>Allows</th></tr></thead>
@@ -208,6 +213,7 @@
               </tbody>
             </table>
             <div class="callout warn"><span class="callout-icon" aria-hidden="true">⚠️</span><div><p>Treat a token like a password. Don't paste it into chats, commit it to Git or share it. If one leaks, open <strong>Profile → Access tokens</strong>, choose it and <strong>Revoke token</strong>; it stops working at once and your other tokens keep working. Each token shows when it was last used and its recent tool calls.</p></div></div>
+            <figure class="shot shot-narrow"><a href="/assets/guide/token-detail.webp" target="_blank" rel="noopener"><img src="/assets/guide/token-detail.webp" width="1120" height="722" alt="A token named Nightly backup script with its prefix, dates, permissions, recent activity and a Revoke token button" loading="lazy" decoding="async"></a><figcaption>Open a token to see what it may do and what it did recently, or to revoke it.</figcaption></figure>
           </section>
 
           <section id="http">
