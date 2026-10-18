@@ -160,7 +160,12 @@ export async function listAccess(db: D1Database, userId: string) {
     .filter((r) => r.kind === 'OAUTH')
     .map((r) => ({
       id: r.id,
-      app: CLIENT_LABELS[r.integration_id] ?? 'An AI app',
+      // "Other MCP client" has no brand of its own, so the app's own name
+      // (Cursor, Windsurf) is the better label in the person's own list.
+      app:
+        r.integration_id === 'int_other' && (r.client_name ?? r.oauth_client_name)
+          ? (r.client_name ?? r.oauth_client_name)!
+          : CLIENT_LABELS[r.integration_id] ?? 'An AI app',
       // What the app reported during its MCP handshake, else what it
       // registered as ("Claude Code", "Cursor").
       client: r.client_name ?? r.oauth_client_name ?? null,
