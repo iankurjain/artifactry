@@ -888,29 +888,14 @@ export function renderAdd(ctx) {
             </span>
             ${icon('chevron', 16)}
           </button>
-          ${
-            (ctx.state.integrations || []).length
-              ? ctx.state.integrations
-                  .map(
-                    (i) => `
-            <button class="row" data-connect="${esc(i.integrationId)}" style="padding:12px 14px">
-              ${icon('ai', 20)}
-              <span style="flex:1">
-                ${esc(i.name)}
-                <span style="display:block;font-size:11.5px;color:var(--text-2)">
-                  ${i.connected ? `Connected · ${(i.scopes || []).length} scope(s)` : 'Not connected'}
-                </span>
-              </span>
-              ${
-                i.connected
-                  ? `<span class="chip" style="background:var(--success-weak);color:var(--success)">${icon('check', 12)} Connected</span>`
-                  : `<span class="chip">Connect</span>`
-              }
-            </button>`
-                  )
-                  .join('')
-              : '<p style="padding:16px;font-size:13px;color:var(--text-2);margin:0">No connectors available.</p>'
-          }
+          <button class="row" data-nav="/profile" style="padding:12px 14px">
+            ${icon('lock', 20)}
+            <span style="flex:1">
+              Access tokens and signed-in apps
+              <span style="display:block;font-size:11.5px;color:var(--text-2)">Create a token for a script, or disconnect an app, in Profile</span>
+            </span>
+            ${icon('chevron', 16)}
+          </button>
         </div>
 
         <p style="font-size:12px;color:var(--text-3);margin:18px 0 0;line-height:1.6">
@@ -925,15 +910,6 @@ export function renderAdd(ctx) {
       root.querySelector('#add-upload')?.addEventListener('click', () => ctx.openUploadSheet())
       root.querySelector('#add-html')?.addEventListener('click', () => ctx.openContentSheet())
       root.querySelector('#add-collection')?.addEventListener('click', () => ctx.openCollectionCreateSheet())
-
-      root.querySelectorAll('[data-connect]').forEach((button) => {
-        button.addEventListener('click', () => {
-          const id = button.dataset.connect
-          const integration = (ctx.state.integrations || []).find((i) => i.integrationId === id)
-          if (integration?.connected) ctx.openIntegrationSheet(integration)
-          else ctx.openConnectSheet(integration)
-        })
-      })
     }
   }
 }
@@ -945,6 +921,7 @@ export function renderAdd(ctx) {
 export function renderProfile(ctx) {
   const state = ctx.state
   const profile = state.profile || {}
+  const access = state.access || {}
   const usage = profile.usage || { artifacts: 0, bytes: 0, downloads: 0, views: 0 }
 
   return {
@@ -1036,29 +1013,50 @@ export function renderProfile(ctx) {
             </span>
             ${icon('chevron', 16)}
           </button>
-          ${
-            (state.integrations || []).length
-              ? state.integrations
-                  .map(
-                    (i) => `
-            <button class="row" data-manage-integration="${esc(i.integrationId)}" style="padding:12px 14px">
+          ${(access.connections || [])
+            .map(
+              (c) => `
+            <button class="row" data-access="connection:${esc(c.id)}" style="padding:12px 14px">
               ${icon('ai', 20)}
-              <span style="flex:1">
-                ${esc(i.name)}
+              <span style="flex:1;min-width:0">
+                ${esc(c.app)}${c.client && c.client !== c.app ? ` <span style="color:var(--text-2)">· ${esc(c.client)}</span>` : ''}
                 <span style="display:block;font-size:11.5px;color:var(--text-2)">
-                  ${i.connected ? `${(i.scopes || []).map((s) => esc(s.replace('artifact.', '').replace('.read', ' r').replace('.write', ' w'))).join(' · ')}` : 'Not connected'}
+                  Signed in · ${(c.scopes || []).length} permission${(c.scopes || []).length === 1 ? '' : 's'} · ${c.lastUsedAt ? `used ${esc(timeAgo(c.lastUsedAt))}` : 'not used yet'}
                 </span>
               </span>
-              ${
-                i.connected
-                  ? `<span class="chip" style="background:var(--success-weak);color:var(--success)">${icon('check', 12)}</span>`
-                  : '<span class="chip">Connect</span>'
-              }
+              ${icon('chevron', 16)}
             </button>`
-                  )
-                  .join('')
-              : '<p style="padding:16px;font-size:13px;color:var(--text-2);margin:0">No connectors configured.</p>'
-          }
+            )
+            .join('')}
+        </div>
+
+        <h2 style="font-size:14px;font-weight:640;margin:22px 0 9px">Access tokens</h2>
+        <div class="card" style="overflow:hidden">
+          <button class="row" id="profile-new-token" style="padding:12px 14px">
+            ${icon('plus', 20)}
+            <span style="flex:1">
+              Create an access token
+              <span style="display:block;font-size:11.5px;color:var(--text-2)">For scripts, scheduled agents, CI and MCP clients without sign-in</span>
+            </span>
+            ${icon('chevron', 16)}
+          </button>
+          ${[...(access.tokens || []).map((t) => ['token', t]), ...(access.legacyTokens || []).map((t) => ['legacy', t])]
+            .map(
+              ([kind, t]) => `
+            <button class="row" data-access="${kind}:${esc(t.id)}" style="padding:12px 14px">
+              ${icon('lock', 20)}
+              <span style="flex:1;min-width:0">
+                ${esc(t.name)}${kind === 'legacy' ? ' <span style="color:var(--text-2)">· pasted token</span>' : ''}
+                <span style="display:block;font-size:11.5px;color:var(--text-2)">
+                  <span style="font-family:var(--font-mono)">${esc(t.tokenPrefix)}…</span>
+                  · ${t.lastUsedAt ? `used ${esc(timeAgo(t.lastUsedAt))}` : 'never used'}
+                  ${kind === 'token' ? (t.expired ? '· <span style="color:var(--danger)">expired</span>' : t.expiresAt ? `· expires ${esc(formatDate(t.expiresAt))}` : '· no expiry') : ''}
+                </span>
+              </span>
+              ${icon('chevron', 16)}
+            </button>`
+            )
+            .join('')}
         </div>
 
         <h2 style="font-size:14px;font-weight:640;margin:22px 0 9px">Active shares</h2>
@@ -1138,13 +1136,11 @@ export function renderProfile(ctx) {
       root.querySelectorAll('[data-org]').forEach((button) => {
         button.addEventListener('click', () => ctx.openOrgSheet(button.dataset.org))
       })
-      root.querySelectorAll('[data-manage-integration]').forEach((button) => {
+      root.querySelector('#profile-new-token')?.addEventListener('click', () => ctx.openCreateTokenSheet())
+      root.querySelectorAll('[data-access]').forEach((button) => {
         button.addEventListener('click', () => {
-          const integration = (ctx.state.integrations || []).find(
-            (i) => i.integrationId === button.dataset.manageIntegration
-          )
-          if (integration?.connected) ctx.openIntegrationSheet(integration)
-          else ctx.openConnectSheet(integration)
+          const [kind, id] = button.dataset.access.split(':')
+          ctx.openAccessSheet(kind, id)
         })
       })
       root.querySelectorAll('[data-share-manage]').forEach((button) => {

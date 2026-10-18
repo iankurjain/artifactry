@@ -404,6 +404,8 @@ export interface Principal {
   integrationId?: string
   provider?: SourceProvider
   grantId?: string
+  /** Which credential the call carries: OAuth sign-in, personal access token, or a legacy pasted connector token. */
+  grantKind?: 'OAUTH' | 'PAT' | 'CONNECTOR'
   /**
    * The AI application that reported itself when the grant was issued, e.g.
    * "Claude Desktop". Recorded on every artifact the connection produces and

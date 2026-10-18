@@ -51,6 +51,8 @@ interface GrantRow {
   client_name: string | null
   client_version: string | null
   expires_at: string | null
+  kind: string | null
+  name: string | null
 }
 
 /**
@@ -111,13 +113,14 @@ async function resolveAiGrant(db: D1Database, rawToken: string): Promise<Princip
   const tokenHash = await hashGrantToken(rawToken)
   const grant = await first<GrantRow>(
     db,
-    `SELECT id, integration_id, user_id, scopes, status, client_name, client_version, expires_at
+    `SELECT id, integration_id, user_id, scopes, status, client_name, client_version, expires_at, kind, name
        FROM integration_grants WHERE token_hash = ?`,
     [tokenHash]
   )
   if (!grant || grant.status !== 'ACTIVE') return null
-  // OAuth access tokens expire; a pasted token (expires_at NULL) does not. An
-  // expired token is a 401, which is what tells the client to refresh.
+  // OAuth access tokens expire, and so does a personal access token created
+  // with an expiry; a pasted connector token (expires_at NULL) does not. An
+  // expired token is a 401, which is what tells an OAuth client to refresh.
   if (grant.expires_at && Date.parse(grant.expires_at) <= Date.now()) return null
 
   const user = await first<UserRow>(db, `SELECT * FROM users WHERE id = ?`, [grant.user_id])
@@ -155,6 +158,7 @@ async function resolveAiGrant(db: D1Database, rawToken: string): Promise<Princip
     scopes,
     integrationId: grant.integration_id,
     grantId: grant.id,
+    grantKind: (grant.kind as Principal['grantKind']) ?? 'CONNECTOR',
     // CUSTOM ("Other MCP client") is a catalog bucket, not a provider, so it is
     // attributed like any other API caller.
     provider:
@@ -163,7 +167,9 @@ async function resolveAiGrant(db: D1Database, rawToken: string): Promise<Princip
         : undefined,
     // Reported by the client during `initialize`; null until it has connected
     // once. Only ever what the client says about itself.
-    clientName: grant.client_name ?? undefined,
+    // A personal access token has no client handshake to rely on, so its own
+    // name ("Nightly backup") stands in until a client reports one.
+    clientName: grant.client_name ?? (grant.kind === 'PAT' ? grant.name ?? undefined : undefined),
     clientVersion: grant.client_version ?? undefined
   }
 }

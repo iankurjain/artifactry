@@ -61,6 +61,7 @@ export interface GrantRow {
   created_at: string
   last_used_at: string | null
   revoked_at: string | null
+  kind?: string | null
 }
 
 export const PROVIDER_ACTIONS: Record<string, AuditAction> = {
@@ -98,7 +99,7 @@ export async function connectedIntegrations(
   const grants = await all<GrantRow>(
     db,
     `SELECT * FROM integration_grants
-      WHERE user_id = ? AND status = 'ACTIVE'
+      WHERE user_id = ? AND status = 'ACTIVE' AND kind != 'PAT'
       ORDER BY created_at DESC`,
     [userId]
   )
@@ -167,11 +168,12 @@ export async function connectIntegration(
   )
   if (!integration) throw notFound('Connector not found')
 
-  // Reconnecting replaces the previous grant so old tokens stop working
+  // Reconnecting replaces the previous pasted token so it stops working. OAuth
+  // sign-ins and personal access tokens are separate credentials and survive.
   await run(
     db,
     `UPDATE integration_grants SET status = 'REVOKED', revoked_at = ?
-      WHERE user_id = ? AND integration_id = ? AND status = 'ACTIVE'`,
+      WHERE user_id = ? AND integration_id = ? AND status = 'ACTIVE' AND kind = 'CONNECTOR'`,
     [nowIso(), principal.userId, integrationId]
   )
 
@@ -231,10 +233,10 @@ export async function disconnectIntegration(
   await recordAudit(db, {
     actorUserId: principal.userId,
     actorType: 'USER',
-    action: 'AI_DISCONNECT',
+    action: grant.kind === 'PAT' ? 'TOKEN_REVOKE' : 'AI_DISCONNECT',
     targetType: 'integration',
     targetId: grant.integration_id,
-    metadata: { grantId }
+    metadata: { grantId, kind: grant.kind ?? 'CONNECTOR' }
   })
 }
 

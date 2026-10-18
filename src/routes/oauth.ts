@@ -30,6 +30,8 @@ import {
   registerClient,
   revokeToken,
   validateAuthorizeRequest,
+  CLIENT_LABELS,
+  isMetadataClientId,
   type AuthorizeRequest
 } from '../lib/oauth'
 import type { AiScope } from '../types'
@@ -130,13 +132,6 @@ const SCOPE_LABELS: Record<AiScope, string> = {
   'profile.read': 'Read your name and email'
 }
 
-const CLIENT_LABELS: Record<string, string> = {
-  int_chatgpt: 'ChatGPT',
-  int_claude: 'Claude',
-  int_gemini: 'Gemini',
-  int_copilot: 'Microsoft Copilot',
-  int_other: 'An AI app'
-}
 
 function esc(value: string): string {
   return String(value)
@@ -177,6 +172,9 @@ function page(
   h1 { font-size: 19px; margin: 0 0 6px; }
   p { font-size: 14px; line-height: 1.55; color: #3d434a; margin: 0 0 14px; }
   ul { padding-left: 18px; margin: 0 0 18px; font-size: 14px; line-height: 1.6; }
+  ul.scopes { list-style: none; padding: 0; margin: 0 0 14px; }
+  label.scope { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; font-weight: 400; margin: 0; padding: 7px 0; cursor: pointer; }
+  label.scope input { width: 18px; height: 18px; margin: 2px 0 0; flex: none; }
   label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 6px; }
   input[type=email], input[type=text] { width: 100%; min-height: 42px; padding: 0 12px;
     border: 1px solid #cfd2c7; border-radius: 10px; font-size: 15px; }
@@ -298,22 +296,43 @@ function consentPage(
   const clientLabel = CLIENT_LABELS[req.client.integration_id] ?? 'An AI app'
   const reported = req.client.client_name && req.client.client_name !== clientLabel ? req.client.client_name : null
   const redirectHost = new URL(req.redirectUri).host
-  const scopes = req.scopes.map((s) => `<li>${esc(SCOPE_LABELS[s] ?? s)}</li>`).join('')
+  // A metadata-document client was fetched from its own URL, so its host is
+  // something we checked rather than something the client claimed.
+  const verifiedHost = isMetadataClientId(req.client.id) ? new URL(req.client.id).host : null
+  const scopes = req.scopes
+    .map(
+      (s) => `<li><label class="scope"><input type="checkbox" name="grant_scope" value="${esc(s)}" checked>
+  <span>${esc(SCOPE_LABELS[s] ?? s)}<span class="muted" style="display:block">${esc(s)}</span></span></label></li>`
+    )
+    .join('')
   return page(c, {
     title: `Connect ${clientLabel}`,
     formAction: new URL(req.redirectUri).origin,
     body: `<h1>Connect ${esc(clientLabel)} to Artifactry?</h1>
-<p>Signed in as <strong>${esc(email)}</strong>. ${esc(clientLabel)}${reported ? ` (reports itself as “${esc(reported)}”)` : ''} will be able to:</p>
-<ul>${scopes}</ul>
-<p class="muted">It can never do more than you can, and you can disconnect it any time in Artifactry Settings. After you approve, you return to <strong>${esc(redirectHost)}</strong>.</p>
+<p>Signed in as <strong>${esc(email)}</strong>. ${esc(clientLabel)}${reported ? ` (reports itself as “${esc(reported)}”)` : ''}${verifiedHost ? `, verified from <strong>${esc(verifiedHost)}</strong>,` : ''} is asking to:</p>
 <form method="post" action="/oauth/authorize">
   ${hiddenFields(params)}
+  <input type="hidden" name="scope_choice" value="1">
+  <ul class="scopes">${scopes}</ul>
+  <p class="muted">Untick anything you don't want it to do. It can never do more than you can, every action it takes is recorded under your name, and you can disconnect it any time in Artifactry Settings. After you approve, you return to <strong>${esc(redirectHost)}</strong>.</p>
   <div class="row">
     <button class="secondary" type="submit" name="decision" value="deny">Cancel</button>
     <button type="submit" name="decision" value="approve">Allow</button>
   </div>
 </form>`
   })
+}
+
+/**
+ * The scopes the person left ticked, never more than the client asked for. A
+ * form without the consent page's marker (an older page still open in a tab)
+ * approves what was asked, which is what that page showed.
+ */
+function approvedScopes(req: AuthorizeRequest, form: Record<string, unknown>): AiScope[] {
+  if (form.scope_choice !== '1') return req.scopes
+  const raw = form.grant_scope
+  const ticked = (Array.isArray(raw) ? raw : raw === undefined ? [] : [raw]).map(String)
+  return req.scopes.filter((s) => ticked.includes(s))
 }
 
 function authorizeParams(source: Record<string, unknown>): Record<string, string | undefined> {
@@ -336,6 +355,9 @@ function authorizeParams(source: Record<string, unknown>): Record<string, string
 
 oauth.get(
   '/oauth/authorize',
+  // Per browser IP: this page is opened by the person, not by the AI
+  // provider's servers, and a metadata-document client_id makes it fetch a URL.
+  rateLimit({ bucket: 'oauth:authorize-page', limit: 120, windowSeconds: 600 }),
   guarded(async (c) => {
     const params = authorizeParams(c.req.query())
     let req: AuthorizeRequest
@@ -365,7 +387,7 @@ oauth.post(
       return page(c, { title: 'Cannot connect', status: 403, body: '<h1>Request blocked</h1><p>Start again from the AI app.</p>' })
     }
 
-    const form = (await c.req.parseBody()) as Record<string, unknown>
+    const form = (await c.req.parseBody({ all: true })) as Record<string, unknown>
     const params = authorizeParams(form)
     let req: AuthorizeRequest
     try {
@@ -388,7 +410,16 @@ oauth.post(
       })
     }
 
-    const code = await issueCode(c.env.DB, req, principal.userId, req.scopes)
+    const scopes = approvedScopes(req, form)
+    if (!scopes.length) {
+      return redirectWith(c, req.redirectUri, {
+        error: 'access_denied',
+        error_description: 'No permissions were approved',
+        state: req.state,
+        iss: originOf(c)
+      })
+    }
+    const code = await issueCode(c.env.DB, req, principal.userId, scopes)
     return redirectWith(c, req.redirectUri, { code, state: req.state, iss: originOf(c) })
   })
 )

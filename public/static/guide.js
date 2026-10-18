@@ -134,7 +134,7 @@ export const GUIDE_SECTIONS = [
     'Connecting an AI agent (MCP)',
     'mcp ai agent chatgpt claude gemini connector token scope search save share find confirmation prompt tool',
     `
-    <p>You can connect an AI application to your library so it can work with your artifacts directly. Connect from <strong>Profile</strong> or the <strong>Add</strong> menu, choose the least privilege you need, and paste the MCP endpoint and access token into the AI app. <strong>The token is shown once.</strong></p>
+    <p>You can connect an AI application to your library so it can work with your artifacts directly. Most apps sign in with OAuth: you approve, and can untick, what they may do. For anything that can't, create an access token in <strong>Profile → Access tokens</strong> with the least privilege it needs. <strong>The token is shown once.</strong></p>
     <p>The agent works in three jobs rather than low-level operations:</p>
     <ul>
       <li><strong>Find</strong> — search by natural language, with filters for workspace, type, tags, collection, owner and date range.</li>
@@ -226,7 +226,7 @@ export const GUIDE_SECTIONS = [
     <p><strong>Saving files:</strong> HTML pages the AI writes are stored exactly as written. Files you upload or the AI generates in ChatGPT are handed over directly. Other apps can pass a public link to the file.</p>
     <p><strong>Permissions are granular.</strong> Each capability is granted separately and enforced on every request, and an app can never do more than you can. Sharing outside your organization always asks you first.</p>
     <p>Long pages and big files are fine: if a file is too large for the app to send in one go, it sends it in parts and Artifactry puts them back together before saving.</p>
-    <p>Disconnecting an app in Profile revokes it straight away; the app will ask you to sign in again. Apps that cannot sign in with OAuth can still use a token from <em>Profile → Connected AI apps</em>.</p>`
+    <p>Disconnecting an app in Profile revokes it straight away; the app will ask you to sign in again. Apps that cannot sign in with OAuth (scripts, scheduled agents, CI) use a personal access token from <em>Profile → Access tokens</em>: named, limited to the permissions you tick, shown once and revocable on its own.</p>`
   ),
 
   S(
@@ -314,7 +314,7 @@ export const GUIDE_SECTIONS = [
     <p><strong>"My upload failed."</strong> The most common causes are a file over 25 MB, or a file whose contents do not match its extension (for example a video renamed to <code>.pdf</code>). Both are rejected deliberately.</p>
     <p><strong>"A share link will not open for someone."</strong> Check whether it has expired or been revoked, and whether the recipient is using the address it was granted to. Email shares only open for the entitled address, after the code is redeemed.</p>
     <p><strong>"I cannot find a file I uploaded."</strong> Confirm you are in the right workspace, and try searching a word you know is in the document. If it is a scanned PDF, search by its title or tags instead — scanned pages have no searchable text.</p>
-    <p><strong>"An AI app says it is not authorised."</strong> The token may have been revoked or replaced by a newer connection, or it may lack the specific permission the action needs. Reconnect it in Profile → Connected AI apps.</p>`
+    <p><strong>"An AI app says it is not authorised."</strong> The token may have been revoked or replaced by a newer connection, or it may lack the specific permission the action needs. Sign it in again, or create a new token in Profile → Access tokens.</p>`
   )
 ]
 
