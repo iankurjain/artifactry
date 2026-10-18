@@ -251,6 +251,24 @@ These are honest capability gaps, not omissions:
 
 ---
 
+### Audio and video
+
+- **Formats.** Audio: mp3, m4a, aac, wav, ogg/oga, flac. Video: mp4, m4v, mov, webm. Each is checked
+  against its signature (ID3/MPEG frames, `ftyp`, RIFF/WAVE, OggS, fLaC, EBML) and served under its
+  own type, never the one the browser declared.
+- **Limits.** Audio up to **20 MB**, video up to **200 MB**, in every workspace (the 25 MB platform
+  cap and the workspace cap do not apply to them).
+- **Parted upload.** The web app sends audio and video in 8 MB parts straight into an R2 multipart
+  upload at the artifact's final key (`POST /api/v1/artifacts/media-uploads`, `PUT …/:id/parts/:n`,
+  `POST …/:id/complete`), so a 200 MB video never passes through one request or a Worker's memory.
+  Each part must be exactly its size, so the joined file is exactly the declared size. Upload state
+  lives in R2 under `staging/media/`, so there is no migration.
+- **Playback.** The artifact page plays them inline with the browser's own player; `/content` (and
+  the share `/content`) answer `Range` requests with `206`, so seeking works and Safari plays video.
+  Only a play's first request counts as a view.
+- **Not yet.** A new *version* of a video over 25 MB, and MCP `save` of media over 25 MB, still go
+  through the one-request path and its 25 MB cap. No transcripts or thumbnails are made.
+
 ## Data architecture
 
 **Storage services**
@@ -668,6 +686,7 @@ bash scripts/run-gates.sh
 | `test-tag-decisions` | 41 assertions over tag decisions on both the REST and MCP surfaces |
 | `test-oauth` | 83 assertions: the full connector OAuth flow through the real app bundle, the MCP transport, and every `save` source |
 | `test-share-domains` | 93 assertions: custom share domain admin flow, link issuing, what a customer hostname may serve, preview framing, and the share-edge Worker |
+| `test-media` | 39 assertions: audio (20 MB) and video (200 MB) limits, parted uploads into R2 multipart, signature checks, ranged playback delivery |
 
 `scripts/check-undefined.mjs` exists because a bundle that builds clean can still reference a symbol
 that was never imported — that caused three separate `500`s in the preview path, and the gate caught

@@ -106,6 +106,78 @@ export function buildDeliveryHeaders(opts: {
   return headers
 }
 
+/**
+ * A single `bytes=` range of an object of `size` bytes, or null when the
+ * request asks for the whole file. Audio and video players fetch in ranges to
+ * seek, and Safari will not play a video served without them. A range that
+ * cannot be satisfied is reported as such so the caller can answer 416.
+ */
+export function parseRange(
+  header: string | null | undefined,
+  size: number
+): { offset: number; length: number } | 'unsatisfiable' | null {
+  if (!header) return null
+  const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim())
+  if (!m || (m[1] === '' && m[2] === '')) return null
+  let start: number
+  let end: number
+  if (m[1] === '') {
+    // Suffix range: the last N bytes.
+    const suffix = Number(m[2])
+    if (!suffix) return 'unsatisfiable'
+    start = Math.max(0, size - suffix)
+    end = size - 1
+  } else {
+    start = Number(m[1])
+    end = m[2] === '' ? size - 1 : Math.min(Number(m[2]), size - 1)
+  }
+  if (start >= size || end < start) return 'unsatisfiable'
+  return { offset: start, length: end - start + 1 }
+}
+
+/**
+ * Answer a delivery request, honouring a Range header. `headers` are the ones
+ * buildDeliveryHeaders made for the whole file.
+ */
+export async function deliverObject(
+  env: Env,
+  key: string,
+  size: number,
+  headers: Record<string, string>,
+  rangeHeader: string | null | undefined
+): Promise<Response | null> {
+  const range = parseRange(rangeHeader, size)
+  if (range === 'unsatisfiable') {
+    return new Response(null, { status: 416, headers: { 'Content-Range': `bytes */${size}`, 'Accept-Ranges': 'bytes' } })
+  }
+  if (!range) {
+    const object = await getObject(env, key)
+    if (!object) return null
+    return new Response(object.body, { headers: { ...headers, 'Accept-Ranges': 'bytes' } })
+  }
+  const object = (await env.R2.get(key, { range })) as R2ObjectBody | null
+  if (!object) return null
+  return new Response(object.body, {
+    status: 206,
+    headers: {
+      ...headers,
+      'Accept-Ranges': 'bytes',
+      'Content-Length': String(range.length),
+      'Content-Range': `bytes ${range.offset}-${range.offset + range.length - 1}/${size}`
+    }
+  })
+}
+
+/**
+ * True when a request is a player's follow-up range, not the first fetch: any
+ * range not starting at 0, and Safari's two-byte probe before it plays.
+ */
+export function isContinuationRange(rangeHeader: string | null | undefined): boolean {
+  if (!rangeHeader) return false
+  const range = rangeHeader.trim()
+  return !/^bytes=0-/.test(range) || range === 'bytes=0-1'
+}
+
 // NOTE: the CSP applied to an HTML preview now lives in lib/htmlpreview.ts
 // (safePreviewCsp / interactivePreviewCsp / previewDocumentCsp).
 //

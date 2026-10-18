@@ -30,7 +30,8 @@ import {
   effectiveLimit,
   isSupportedExtension,
   sanitizeFilename,
-  EXTENSION_MIME
+  EXTENSION_MIME,
+  isMediaExtension
 } from './validate'
 import { conflict, notFound, tooLarge, unsupported } from './http'
 import { recordAudit } from './audit'
@@ -151,6 +152,11 @@ export function scanFile(ext: string, bytes: Uint8Array): ScanVerdict {
   return { verdict: 'CLEAN', reason: null }
 }
 
+function limitScope(ext: string): string {
+  const kind = kindForExtension(ext)
+  return kind === 'AUDIO' ? 'audio' : kind === 'VIDEO' ? 'video' : 'this workspace'
+}
+
 export interface ValidateOutcome {
   ok: boolean
   status: ArtifactStatus
@@ -160,16 +166,18 @@ export interface ValidateOutcome {
 export function validateUpload(
   ext: string,
   bytes: Uint8Array,
-  declaredLimit: number
+  declaredLimit: number,
+  // The whole file's size when `bytes` is only its head (a parted upload).
+  size: number = bytes.byteLength
 ): ValidateOutcome {
   if (!isSupportedExtension(ext)) {
     throw unsupported(`.${ext || 'unknown'} is not a supported artifact format`)
   }
 
-  if (bytes.byteLength > declaredLimit) {
+  if (size > declaredLimit) {
     throw tooLarge(
-      `File exceeds the ${Math.floor(declaredLimit / (1024 * 1024))} MB limit for this workspace`,
-      { actualBytes: bytes.byteLength, limitBytes: declaredLimit }
+      `File exceeds the ${Math.floor(declaredLimit / (1024 * 1024))} MB limit for ${limitScope(ext)}`,
+      { actualBytes: size, limitBytes: declaredLimit }
     )
   }
 
@@ -218,6 +226,13 @@ export interface CreateArtifactInput {
    * Preview. Pass false to start in Safe Preview. Ignored for other types.
    */
   interactiveHtml?: boolean
+  /**
+   * The file is already in R2 (a parted audio or video upload): `bytes` is then
+   * only its head, enough for the signature and scan checks, and nothing is
+   * written to storage again. The ids are the ones its object key was built
+   * from.
+   */
+  stored?: { artifactId: string; versionId: string; objectKey: string; size: number; checksum: string }
 }
 
 export interface CreateArtifactResult {
@@ -257,10 +272,10 @@ export async function createArtifact(
 
   const limit = effectiveLimit(ext, orgLimit, platformLimit)
 
-  const artifactId = prefixed('art', ulid())
-  const versionId = prefixed('ver', ulid())
+  const artifactId = input.stored?.artifactId ?? prefixed('art', ulid())
+  const versionId = input.stored?.versionId ?? prefixed('ver', ulid())
 
-  const objectKey = buildObjectKey({
+  const objectKey = input.stored?.objectKey ?? buildObjectKey({
     organizationId: input.organizationId,
     ownerUserId: input.ownerUserId,
     workspaceId: input.workspaceId,
@@ -269,7 +284,8 @@ export async function createArtifact(
   })
 
   const slug = slugify(input.title || filename)
-  const mimeType = input.mimeType ?? EXTENSION_MIME[ext] ?? 'application/octet-stream'
+  // Audio and video are always served under their own type, never a declared one.
+  const mimeType = (isMediaExtension(ext) ? EXTENSION_MIME[ext] : input.mimeType) ?? EXTENSION_MIME[ext] ?? 'application/octet-stream'
   const interactive = mimeType === 'text/html' && input.interactiveHtml !== false
 
   // 1. Artifact shell — canonical identity available immediately
@@ -307,9 +323,11 @@ export async function createArtifact(
   await recordJob(db, artifactId, versionId, 'SCAN', 'PENDING', { declaredExtension: ext })
 
   // 2. Validate + scan before anything is persisted
-  const validation = validateUpload(ext, input.bytes, limit)
+  const validation = validateUpload(ext, input.bytes, limit, input.stored?.size)
 
   if (!validation.ok) {
+    // A parted upload is already in storage; a file that failed never stays there.
+    if (input.stored) await deleteObject(env, objectKey).catch(() => {})
     await run(
       db,
       `UPDATE artifacts SET status = ?, status_detail = ?, updated_at = ? WHERE id = ?`,
@@ -336,8 +354,10 @@ export async function createArtifact(
     }
   }
 
-  // 3. Store the binary
-  const stored = await putObject(env, objectKey, input.bytes, mimeType)
+  // 3. Store the binary (a parted upload is already stored)
+  const stored = input.stored
+    ? { size: input.stored.size, checksum: input.stored.checksum }
+    : await putObject(env, objectKey, input.bytes, mimeType)
 
   await run(
     db,

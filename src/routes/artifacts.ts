@@ -2,6 +2,10 @@
  * Artifact routes — PRD §106.
  *
  *   POST   /api/v1/artifacts
+ *   POST   /api/v1/artifacts/media-uploads              (audio / video in parts)
+ *   PUT    /api/v1/artifacts/media-uploads/:id/parts/:n
+ *   POST   /api/v1/artifacts/media-uploads/:id/complete
+ *   DELETE /api/v1/artifacts/media-uploads/:id
  *   GET    /api/v1/artifacts
  *   GET    /api/v1/artifacts/:artifactId
  *   PATCH  /api/v1/artifacts/:artifactId
@@ -14,7 +18,7 @@
  *   GET    /api/v1/artifacts/:artifactId/analytics
  */
 
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import type { AppEnv } from '../middleware'
 import type { ArtifactRow, Principal } from '../types'
 import { guarded, rateLimit, requirePrincipal } from '../middleware'
@@ -29,13 +33,14 @@ import {
   tagsForArtifact,
   deleteArtifactPermanently,
   getVersion,
-  runEmbeddingStage
+  runEmbeddingStage,
+  type CreateArtifactInput
 } from '../lib/artifacts'
 import { artifactAccess, assertArtifactPermission, loadArtifactFor, mayReadAnalytics, workspaceRefOf } from '../lib/access'
 import { indexStateFor, isSemanticConfigured } from '../lib/embeddings'
 import { reprocessVersion } from '../lib/reprocess'
 import { assertWorkspaceAccess, effectiveWorkspaceRole, can } from '../lib/principal'
-import { getObject, buildDeliveryHeaders } from '../lib/storage'
+import { buildDeliveryHeaders, deliverObject, getObject, isContinuationRange } from '../lib/storage'
 import {
   interactiveAvailable,
   previewCspFor,
@@ -65,6 +70,14 @@ import {
 } from '../lib/http'
 import { extensionOf, isSupportedExtension, sanitizeFilename } from '../lib/validate'
 import { ulid } from '../lib/ids'
+import {
+  MEDIA_PART_BYTES,
+  MediaUploadError,
+  abortMediaUpload,
+  completeMediaUpload,
+  startMediaUpload,
+  uploadMediaPart
+} from '../lib/mediauploads'
 import { autoTagArtifact, decideTags, tagsByState } from '../lib/tags'
 import { collectionsOf, fileIntoCollections, noteRecentView, placeInCollection, recentlyViewed } from '../lib/collections'
 
@@ -145,6 +158,176 @@ function safeParse(raw: unknown): unknown {
   }
 }
 
+/** The workspace an upload lands in, checked server-side. */
+async function resolveUploadWorkspace(
+  c: Context<AppEnv>,
+  principal: Principal,
+  workspaceId: string | undefined
+): Promise<{ id: string; name: string; organization_id: string | null }> {
+  // Resolve the target workspace server-side; default to personal (§6)
+  let workspace
+  if (workspaceId) {
+    workspace = await assertWorkspaceAccess(c.env.DB, principal, workspaceId, 'artifact.create')
+  } else {
+    const personal = await first<{
+      id: string
+      name: string
+      organization_id: string | null
+      owner_user_id: string
+    }>(
+      c.env.DB,
+      `SELECT w.id, w.name, w.organization_id, w.owner_user_id FROM workspaces w
+        WHERE w.owner_user_id = ? AND w.workspace_type = 'PERSONAL' AND w.archived_at IS NULL
+        ORDER BY w.created_at ASC LIMIT 1`,
+      [principal.userId]
+    )
+    if (!personal) throw badRequest('No workspace available. Provide workspaceId.')
+    workspace = personal
+  }
+
+  return workspace
+}
+
+interface UploadFields {
+  bytes: Uint8Array
+  filename: string
+  declaredMime?: string
+  workspaceId?: string
+  title?: string
+  description?: string
+  tagSlugs: string[]
+  collectionIds: string[]
+  interactiveHtml: boolean
+  acceptSuggestedTags: boolean
+  /** Set for a parted audio or video upload already in R2 (see CreateArtifactInput). */
+  stored?: CreateArtifactInput['stored']
+  workspace?: { id: string; name: string; organization_id: string | null }
+}
+
+/**
+ * Create the artifact, then apply tags, collections and suggestions. Shared by
+ * the one-request upload and the parted audio and video upload.
+ */
+async function saveUpload(c: Context<AppEnv>, principal: Principal, fields: UploadFields): Promise<Response> {
+  const { bytes, filename, declaredMime, title, description, tagSlugs, collectionIds, interactiveHtml, acceptSuggestedTags } = fields
+  const workspace = fields.workspace ?? (await resolveUploadWorkspace(c, principal, fields.workspaceId))
+  const origin = new URL(c.req.url).origin
+
+  const result = await createArtifact(
+    c.env,
+    {
+      workspaceId: workspace.id,
+      organizationId: workspace.organization_id,
+      ownerUserId: principal.userId!,
+      title: normalizeTitle(title, filename),
+      description: description ?? null,
+      filename,
+      mimeType: declaredMime,
+      bytes,
+      sourceType: principal.kind === 'AI_GRANT' ? 'API' : 'WEB_UPLOAD',
+      sourceProvider: principal.kind === 'AI_GRANT' ? (principal.provider ?? 'API') : 'WEB',
+      metadata: {
+        uploadedVia: principal.kind === 'AI_GRANT' ? 'ai-connector' : 'web',
+        aiProvenance:
+          principal.kind === 'AI_GRANT'
+            ? {
+                provider: principal.provider ?? 'API',
+                integrationId: principal.integrationId ?? null,
+                createdByUser: principal.userId
+              }
+            : undefined
+      },
+      createdBy: principal.userId!,
+      interactiveHtml,
+      stored: fields.stored
+    },
+    origin
+  )
+
+  // Explicitly supplied tags become CONFIRMED immediately: a person naming a
+  // tag is the decision, not a suggestion. decideTags also handles the
+  // taxonomy change (a user may create a tag), so an unknown slug is created
+  // rather than silently dropped as it was when tags were admin-governed.
+  let tagWarning: string | null = null
+  if (tagSlugs.length) {
+    try {
+      await decideTags(
+        c.env.DB,
+        principal,
+        {
+          id: result.artifactId,
+          organization_id: workspace.organization_id,
+          current_version_id: (await loadArtifact(c.env.DB, result.artifactId))?.current_version_id ?? null
+        },
+        { add: tagSlugs }
+      )
+    } catch (err) {
+      // The artifact exists and is usable; a tag refusal must not turn a
+      // successful upload into an error response.
+      tagWarning = err instanceof Error ? err.message : 'Tags could not be applied'
+    }
+  }
+
+  // Collections chosen at save time. Ids outside the workspace, or without
+  // collection.manage there, are skipped rather than failing the upload.
+  const filedInto = await fileIntoCollections(
+    c.env.DB,
+    principal,
+    { id: result.artifactId, workspace_id: workspace.id },
+    collectionIds
+  )
+
+  // Automatic tagging: generate a small set of suggestions from the artifact's
+  // own extracted content and metadata and attach them as SUGGESTED. Bounded
+  // and non-throwing, so an AI outage never fails an upload that succeeded.
+  const suggestions = await autoTagArtifact(c.env, principal, result.artifactId)
+
+  // Bulk uploads into a collection keep the system-generated tags rather than
+  // leaving every file with suggestions to review. The same governance as an
+  // accept from the artifact page applies; a refusal never fails the upload.
+  if (acceptSuggestedTags && suggestions.proposed.length) {
+    try {
+      await decideTags(
+        c.env.DB,
+        principal,
+        {
+          id: result.artifactId,
+          organization_id: workspace.organization_id,
+          current_version_id: (await loadArtifact(c.env.DB, result.artifactId))?.current_version_id ?? null
+        },
+        { accept: suggestions.proposed }
+      )
+    } catch (err) {
+      tagWarning = err instanceof Error ? err.message : 'Suggested tags could not be applied'
+    }
+  }
+
+  const artifact = await loadArtifact(c.env.DB, result.artifactId)
+  const tagState = await tagsByState(c.env.DB, result.artifactId)
+
+  const status = result.status === 'READY' ? 201 : 200
+
+  return ok(
+    c,
+    {
+      artifact: artifact
+        ? presentArtifact(artifact as unknown as Record<string, unknown>, {
+            tags: tagState.confirmed,
+            collections: filedInto
+          })
+        : { id: result.artifactId, status: result.status },
+      canonicalUrl: result.canonicalUrl,
+      detail: result.detail,
+      workspace: { id: workspace.id, name: workspace.name },
+      tags: tagState,
+      suggestedTags: suggestions.created,
+      tagging: taggingReport(suggestions),
+      ...(tagWarning ? { tagWarning } : {})
+    },
+    status
+  )
+}
+
 // ---------------------------------------------------------------
 // Create — multipart upload
 // ---------------------------------------------------------------
@@ -155,8 +338,6 @@ artifacts.post(
   guarded(async (c) => {
     const principal = requirePrincipal(c)
     const contentType = c.req.header('Content-Type') ?? ''
-
-    const origin = new URL(c.req.url).origin
 
     /**
      * Two accepted shapes:
@@ -255,143 +436,131 @@ artifacts.post(
     const ext = extensionOf(filename)
     if (!isSupportedExtension(ext)) {
       throw unsupported(
-        `.${ext || 'unknown'} is not a supported format. Supported: pptx, pdf, docx, html, png, jpg, jpeg, bmp, gif`
+        `.${ext || 'unknown'} is not a supported format. Supported: pptx, pdf, docx, html, images, text and code, audio (mp3, m4a, wav, ogg, flac) and video (mp4, mov, webm)`
       )
     }
 
-    // Resolve the target workspace server-side; default to personal (§6)
-    let workspace
-    if (workspaceId) {
-      workspace = await assertWorkspaceAccess(c.env.DB, principal, workspaceId, 'artifact.create')
-    } else {
-      const personal = await first<{
-        id: string
-        name: string
-        organization_id: string | null
-        owner_user_id: string
-      }>(
-        c.env.DB,
-        `SELECT w.id, w.name, w.organization_id, w.owner_user_id FROM workspaces w
-          WHERE w.owner_user_id = ? AND w.workspace_type = 'PERSONAL' AND w.archived_at IS NULL
-          ORDER BY w.created_at ASC LIMIT 1`,
-        [principal.userId]
+    return saveUpload(c, principal, {
+      bytes,
+      filename,
+      declaredMime,
+      workspaceId,
+      title,
+      description,
+      tagSlugs,
+      collectionIds,
+      interactiveHtml,
+      acceptSuggestedTags
+    })
+  })
+)
+
+// ---------------------------------------------------------------
+// Create — audio and video, in parts (see lib/mediauploads.ts)
+// ---------------------------------------------------------------
+
+function mediaError(err: unknown): never {
+  if (err instanceof MediaUploadError) {
+    if (err.status === 404) throw notFound(err.message)
+    if (err.status === 413) throw tooLarge(err.message)
+    if (err.status === 415) throw unsupported(err.message)
+    throw badRequest(err.message)
+  }
+  throw err
+}
+
+artifacts.post(
+  '/media-uploads',
+  rateLimit({ bucket: 'artifact:create', limit: 60, windowSeconds: 300 }),
+  guarded(async (c) => {
+    const principal = requirePrincipal(c)
+    const body = await readJson<{
+      filename?: string
+      size?: number
+      workspaceId?: string
+      title?: string
+      description?: string
+      tags?: string[]
+      collectionIds?: string[]
+      acceptSuggestedTags?: boolean
+    }>(c)
+    if (!body.filename) throw badRequest('filename is required')
+    const workspace = await resolveUploadWorkspace(c, principal, body.workspaceId)
+    try {
+      return ok(c, await startMediaUpload(c.env, principal, workspace, { ...body, filename: body.filename, size: body.size }), 201)
+    } catch (err) {
+      mediaError(err)
+    }
+  })
+)
+
+artifacts.put(
+  '/media-uploads/:uploadId/parts/:part',
+  rateLimit({ bucket: 'artifact:media-part', limit: 600, windowSeconds: 300 }),
+  guarded(async (c) => {
+    const principal = requirePrincipal(c)
+    const declared = Number(c.req.header('Content-Length') ?? NaN)
+    // Refuse an oversized part before reading it into memory.
+    if (declared > MEDIA_PART_BYTES) throw tooLarge(`A part can be at most ${MEDIA_PART_BYTES} bytes`)
+    try {
+      const body = await c.req.arrayBuffer()
+      return ok(
+        c,
+        await uploadMediaPart(c.env, principal, c.req.param('uploadId'), Number(c.req.param('part')), body)
       )
-      if (!personal) throw badRequest('No workspace available. Provide workspaceId.')
-      workspace = personal
+    } catch (err) {
+      mediaError(err)
     }
+  })
+)
 
-    const result = await createArtifact(
-      c.env,
-      {
-        workspaceId: workspace.id,
-        organizationId: workspace.organization_id,
-        ownerUserId: principal.userId!,
-        title: normalizeTitle(title, filename),
-        description: description ?? null,
-        filename,
-        mimeType: declaredMime,
-        bytes,
-        sourceType: principal.kind === 'AI_GRANT' ? 'API' : 'WEB_UPLOAD',
-        sourceProvider: principal.kind === 'AI_GRANT' ? (principal.provider ?? 'API') : 'WEB',
-        metadata: {
-          uploadedVia: principal.kind === 'AI_GRANT' ? 'ai-connector' : 'web',
-          aiProvenance:
-            principal.kind === 'AI_GRANT'
-              ? {
-                  provider: principal.provider ?? 'API',
-                  integrationId: principal.integrationId ?? null,
-                  createdByUser: principal.userId
-                }
-              : undefined
-        },
-        createdBy: principal.userId!,
-        interactiveHtml
-      },
-      origin
-    )
-
-    // Explicitly supplied tags become CONFIRMED immediately: a person naming a
-    // tag is the decision, not a suggestion. decideTags also handles the
-    // taxonomy change (a user may create a tag), so an unknown slug is created
-    // rather than silently dropped as it was when tags were admin-governed.
-    let tagWarning: string | null = null
-    if (tagSlugs.length) {
-      try {
-        await decideTags(
-          c.env.DB,
-          principal,
-          {
-            id: result.artifactId,
-            organization_id: workspace.organization_id,
-            current_version_id: (await loadArtifact(c.env.DB, result.artifactId))?.current_version_id ?? null
-          },
-          { add: tagSlugs }
-        )
-      } catch (err) {
-        // The artifact exists and is usable; a tag refusal must not turn a
-        // successful upload into an error response.
-        tagWarning = err instanceof Error ? err.message : 'Tags could not be applied'
+artifacts.post(
+  '/media-uploads/:uploadId/complete',
+  guarded(async (c) => {
+    const principal = requirePrincipal(c)
+    const body = await readJson<{ parts?: unknown }>(c)
+    let joined: Awaited<ReturnType<typeof completeMediaUpload>>
+    try {
+      joined = await completeMediaUpload(c.env, principal, c.req.param('uploadId'), body.parts)
+    } catch (err) {
+      mediaError(err)
+    }
+    const { meta, head, stored } = joined
+    try {
+      // Access is checked again: it may have changed while the parts went up.
+      const workspace = await resolveUploadWorkspace(c, principal, meta.workspace_id)
+      return await saveUpload(c, principal, {
+        bytes: head,
+        filename: meta.filename,
+        workspace,
+        title: meta.fields.title,
+        description: meta.fields.description,
+        tagSlugs: meta.fields.tags ?? [],
+        collectionIds: meta.fields.collectionIds ?? [],
+        interactiveHtml: false,
+        acceptSuggestedTags: Boolean(meta.fields.acceptSuggestedTags),
+        stored
+      })
+    } catch (err) {
+      // No artifact row points at the file unless saving got that far.
+      if (!(await loadArtifact(c.env.DB, stored.artifactId))) {
+        await c.env.R2.delete(stored.objectKey).catch(() => {})
       }
+      throw err
     }
+  })
+)
 
-    // Collections chosen at save time. Ids outside the workspace, or without
-    // collection.manage there, are skipped rather than failing the upload.
-    const filedInto = await fileIntoCollections(
-      c.env.DB,
-      principal,
-      { id: result.artifactId, workspace_id: workspace.id },
-      collectionIds
-    )
-
-    // Automatic tagging: generate a small set of suggestions from the artifact's
-    // own extracted content and metadata and attach them as SUGGESTED. Bounded
-    // and non-throwing, so an AI outage never fails an upload that succeeded.
-    const suggestions = await autoTagArtifact(c.env, principal, result.artifactId)
-
-    // Bulk uploads into a collection keep the system-generated tags rather than
-    // leaving every file with suggestions to review. The same governance as an
-    // accept from the artifact page applies; a refusal never fails the upload.
-    if (acceptSuggestedTags && suggestions.proposed.length) {
-      try {
-        await decideTags(
-          c.env.DB,
-          principal,
-          {
-            id: result.artifactId,
-            organization_id: workspace.organization_id,
-            current_version_id: (await loadArtifact(c.env.DB, result.artifactId))?.current_version_id ?? null
-          },
-          { accept: suggestions.proposed }
-        )
-      } catch (err) {
-        tagWarning = err instanceof Error ? err.message : 'Suggested tags could not be applied'
-      }
+artifacts.delete(
+  '/media-uploads/:uploadId',
+  guarded(async (c) => {
+    const principal = requirePrincipal(c)
+    try {
+      await abortMediaUpload(c.env, principal, c.req.param('uploadId'))
+    } catch (err) {
+      mediaError(err)
     }
-
-    const artifact = await loadArtifact(c.env.DB, result.artifactId)
-    const tagState = await tagsByState(c.env.DB, result.artifactId)
-
-    const status = result.status === 'READY' ? 201 : 200
-
-    return ok(
-      c,
-      {
-        artifact: artifact
-          ? presentArtifact(artifact as unknown as Record<string, unknown>, {
-              tags: tagState.confirmed,
-              collections: filedInto
-            })
-          : { id: result.artifactId, status: result.status },
-        canonicalUrl: result.canonicalUrl,
-        detail: result.detail,
-        workspace: { id: workspace.id, name: workspace.name },
-        tags: tagState,
-        suggestedTags: suggestions.created,
-        tagging: taggingReport(suggestions),
-        ...(tagWarning ? { tagWarning } : {})
-      },
-      status
-    )
+    return ok(c, { aborted: true })
   })
 )
 
@@ -890,8 +1059,20 @@ artifacts.get(
 
     if (!version) throw notFound('No content available for this artifact')
 
-    const object = await getObject(c.env, version.r2_object_key)
-    if (!object) throw notFound('Artifact content is unavailable')
+    const range = c.req.header('Range')
+    const headers = buildDeliveryHeaders({
+      filename: version.filename,
+      mimeType: version.mime_type,
+      size: version.size_bytes,
+      inline: !wantDownload,
+      download: wantDownload
+    })
+    const response = await deliverObject(c.env, version.r2_object_key, version.size_bytes, headers, range)
+    if (!response) throw notFound('Artifact content is unavailable')
+
+    // A player seeking through audio or video asks for many ranges; only the
+    // first fetch is a view.
+    if (isContinuationRange(range)) return response
 
     // Analytics: count successful retrieval (§45)
     await recordEvent(c.env.DB, {
@@ -918,15 +1099,7 @@ artifacts.get(
       metadata: { versionId: version.id, provider: principal.provider ?? null }
     })
 
-    const headers = buildDeliveryHeaders({
-      filename: version.filename,
-      mimeType: version.mime_type,
-      size: version.size_bytes,
-      inline: !wantDownload,
-      download: wantDownload
-    })
-
-    return new Response(object.body, { headers })
+    return response
   })
 )
 

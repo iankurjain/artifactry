@@ -12,7 +12,7 @@
  * in one place, and keeps the screens pure enough to reason about in isolation.
  */
 
-import { api, getState, setState } from './api.js'
+import { api, getState, setState, AUDIO_EXTENSIONS, VIDEO_EXTENSIONS } from './api.js'
 import {
   esc,
   icon,
@@ -334,7 +334,8 @@ function goBack() {
 async function loadArtifacts({ workspaceId, collectionId = ctx.filters.collectionId, sort = ctx.filters.sort } = {}) {
   const result = await api.listArtifacts({
     workspaceId: workspaceId ?? state.currentWorkspaceId ?? undefined,
-    type: ctx.filters.type && ctx.filters.type !== 'all' && ctx.filters.type !== 'image'
+    // Groups of extensions are filtered on the page; one extension by the server.
+    type: ctx.filters.type && !['all', 'image', 'audio', 'video'].includes(ctx.filters.type)
       ? ctx.filters.type
       : undefined,
     collectionId: collectionId || undefined,
@@ -862,6 +863,10 @@ async function runSearch({ save = true } = {}) {
     const types =
       filters.type === 'image'
         ? ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp']
+        : filters.type === 'audio'
+          ? AUDIO_EXTENSIONS
+        : filters.type === 'video'
+          ? VIDEO_EXTENSIONS
         : filters.type === 'html'
           ? ['html', 'htm']
           : filters.type === 'text'
@@ -925,6 +930,8 @@ ctx.openFilterSheet = () => {
     ['docx', 'Document (DOCX)'],
     ['html', 'Web page (HTML)'],
     ['image', 'Image'],
+    ['audio', 'Audio'],
+    ['video', 'Video'],
     ['text', 'Notes (Markdown, text)']
   ]
   const makers = [
@@ -1183,6 +1190,8 @@ ctx.openAnalyticsScreen = (artifactId) => navigate(`/a/${encodeURIComponent(arti
 
 const ACCEPTED =
   '.pptx,.pdf,.docx,.html,.htm,.png,.jpg,.jpeg,.bmp,.gif,.webp,' +
+  // Audio (up to 20 MB) and video (up to 200 MB)
+  [...AUDIO_EXTENSIONS, ...VIDEO_EXTENSIONS].map((ext) => `.${ext},`).join('') +
   // Notes, data and code (stored and shown as plain text)
   '.txt,.md,.markdown,.csv,.tsv,.json,.yaml,.yml,.toml,.ini,.log,.js,.mjs,.cjs,.jsx,.ts,.tsx,.py,.rb,.go,.rs,' +
   '.java,.kt,.swift,.c,.h,.cpp,.hpp,.cs,.php,.sql,.sh,.css,.scss,.graphql,.proto'
@@ -1309,7 +1318,7 @@ ctx.openUploadSheet = () => {
              <input id="upload-file" type="file" class="sr-only" accept="${ACCEPTED}">
            </label>
            <div id="upload-filename" style="font-size:12.5px;color:var(--text-2);margin-top:8px">No file chosen</div>`,
-          'PPTX, PDF, DOCX, HTML or images.'
+          'PPTX, PDF, DOCX, HTML, images, text, audio (up to 20 MB) or video (up to 200 MB).'
         )}
         ${interactiveToggleField('upload', { hidden: true })}
         ${field(
@@ -1359,7 +1368,11 @@ ctx.openUploadSheet = () => {
             button.innerHTML = busyButton('Upload', 'upload', 'Uploading…')
           }
 
-          const result = await attempt(() => api.uploadArtifact(form))
+          // Audio and video go up in parts, so show how far along they are.
+          const onProgress = (share) => {
+            if (button) button.innerHTML = busyButton('Upload', 'upload', `Uploading… ${Math.floor(share * 100)}%`)
+          }
+          const result = await attempt(() => api.uploadArtifact(form, { onProgress }))
           if (!result) {
             if (button) {
               button.disabled = false
@@ -1462,7 +1475,11 @@ ctx.openBulkUploadSheet = (collection) => {
             form.append('acceptSuggestedTags', 'true')
             if (isHtmlName(files[i].name)) form.append('interactiveHtml', String(interactive))
             try {
-              await api.uploadArtifact(form)
+              await api.uploadArtifact(form, {
+                onProgress: (share) => {
+                  if (stateEl) stateEl.textContent = `Uploading… ${Math.floor(share * 100)}%`
+                }
+              })
               done++
               if (stateEl) {
                 stateEl.className = 'upload-queue-state is-done'
