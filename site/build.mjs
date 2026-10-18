@@ -218,6 +218,8 @@ writeSeo(siteOut, site.origin, sitePaths)
 // ---- docs.artifactry.app ----
 const docs = TARGETS.docs
 const docsOut = prepare(docs)
+// Guide screenshots and animations are docs-only, so they stay off the marketing host.
+cpSync(join(here, 'guide'), join(docsOut, 'assets/guide'), { recursive: true })
 const guide = readPage('resources.html')
 writeFileSync(join(docsOut, 'index.html'), layout({ ...guide.meta, path: '/' }, fill(guide.body, docs), docs))
 const notFound = readPage('404.html')

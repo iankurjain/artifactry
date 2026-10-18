@@ -15,6 +15,12 @@ of the app's build, so merging does not change the app.
 - `pages/*.html`: page bodies. Each starts with a JSON header comment (title, description,
   path, nav). Bodies use placeholders (`{{SITE}}`, `{{DOCS}}`, `{{LOGIN_URL}}`,
   `{{MCP_URL}}`, `{{CONTACT}}`, …) so a page works on either host.
+- `guide/`: User Guide screenshots (`.webp`) and short screen recordings (`.webm` with an
+  `.mp4` fallback and a `-poster.webp`). Copied into `docs/assets/guide/` only, so they never
+  ship on the marketing host. Recordings play muted and looped while on screen and wait for
+  a click when the visitor prefers reduced motion. They were captured from a local run of
+  the app with demo data (a "Northwind Marketing" workspace), signed in through the
+  directory-review account.
 - `assets/`, `_headers`: shared CSS, JS, brand files and `og.png`, copied into both outputs.
 - `build.mjs`: hosts, URLs and the contact email live at the top. It writes `public/` and
   `docs/` (both committed, so the hosts need no build step), plus sitemaps, robots.txt and
