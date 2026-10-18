@@ -82,6 +82,8 @@ export function renderArtifactDetail(ctx) {
   const versions = detail.versions || []
   const isHtml = a.mimeType === 'text/html'
   const isImage = ['image/png', 'image/jpeg', 'image/bmp', 'image/gif', 'image/webp'].includes(a.mimeType)
+  const media = (a.mimeType || '').startsWith('audio/') ? 'audio' : (a.mimeType || '').startsWith('video/') ? 'video' : null
+  const contentSrc = safeUrl(`/api/v1/artifacts/${encodeURIComponent(a.id)}/content`)
   // Notes, data and code are served as text/plain and shown as text.
   const isText = (a.mimeType || '').startsWith('text/plain')
   const processing = ['UPLOADING', 'PROCESSING'].includes(a.status)
@@ -123,6 +125,22 @@ export function renderArtifactDetail(ctx) {
             : isText
               ? `<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px">
                    <pre id="detail-text" class="text-preview" aria-label="Contents of ${esc(a.title)}">Loading…</pre>
+                 </div>`
+            : media === 'video' && !processing && !failed
+              ? `<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px;background:#000">
+                   <video controls playsinline preload="metadata" src="${contentSrc}"
+                     aria-label="Video: ${esc(a.title)}" style="display:block;width:100%;max-height:70vh;background:#000"></video>
+                 </div>`
+            : media === 'audio' && !processing && !failed
+              ? `<div class="card" style="padding:16px;margin-bottom:14px">
+                   <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px">
+                     ${fileBadge(a.extension)}
+                     <div style="min-width:0">
+                       <div style="font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.filename || a.title)}</div>
+                       <div style="font-size:12px;color:var(--text-2);margin-top:2px">Audio · ${esc(formatBytes(a.sizeBytes))}</div>
+                     </div>
+                   </div>
+                   <audio controls preload="metadata" src="${contentSrc}" aria-label="Audio: ${esc(a.title)}" style="width:100%"></audio>
                  </div>`
             : isImage
               ? `<div class="card" style="padding:10px;margin-bottom:14px;text-align:center">

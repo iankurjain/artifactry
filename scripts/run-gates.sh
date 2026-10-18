@@ -18,7 +18,7 @@ if ! flock -n 9; then
   exit 3
 fi
 
-ALL=(build check-imports check-undefined test-preview test-preview-security test-preview-ui test-authz test-index-sync test-semantic test-extract test-autotag test-mcp-jobs test-tag-decisions test-oauth test-auth-model test-share-domains test-workspace-manage test-handoffs test-library-bulk)
+ALL=(build check-imports check-undefined test-preview test-preview-security test-preview-ui test-authz test-index-sync test-semantic test-extract test-autotag test-mcp-jobs test-tag-decisions test-oauth test-auth-model test-share-domains test-workspace-manage test-handoffs test-library-bulk test-media)
 GATES=("$@")
 [ ${#GATES[@]} -eq 0 ] && GATES=("${ALL[@]}")
 
@@ -74,6 +74,9 @@ run_gate() {
     # Headless: library bulk move/delete, one collection per artifact (with
     # migration 0012's dedupe), bulk upload fields and the HTML preview default.
     test-library-bulk)     node scripts/test-library-bulk.mjs ;;
+    # Headless: audio and video limits, parted uploads into R2 multipart,
+    # signature checks and ranged playback delivery.
+    test-media)            node scripts/test-media.mjs ;;
     *) echo "unknown gate: $g" >&2; return 1 ;;
   esac > "$log" 2>&1
   rc=$?

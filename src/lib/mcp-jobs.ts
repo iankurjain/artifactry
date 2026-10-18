@@ -138,7 +138,7 @@ const UPLOAD_ID_SCHEMA = {
 
 const SOURCE_URL_SCHEMA = {
   type: 'string',
-  description: 'Public https URL Artifactry downloads the file from (pptx, docx, pdf, png, jpg, webp, gif, html)'
+  description: 'Public https URL Artifactry downloads the file from (pptx, docx, pdf, png, jpg, webp, gif, html, mp3, m4a, wav, mp4, webm)'
 }
 
 export interface ToolOutcome {
@@ -220,7 +220,8 @@ export const MCP_TOOLS: McpToolDefinition[] = [
     _meta: { 'openai/fileParams': ['file_ref'] },
     description:
       'Persist what the AI has just produced: HTML pages, slide decks (pptx), documents (docx, pdf), ' +
-      'images (png, jpg, webp, gif), and text or code files (md, txt, json, csv, yaml, py, ts, js, sql, …). Pick ONE source: ' +
+      'images (png, jpg, webp, gif), audio (mp3, m4a, wav, ogg, flac), video (mp4, mov, webm; larger videos upload from the web app), ' +
+      'and text or code files (md, txt, json, csv, yaml, py, ts, js, sql, …). Pick ONE source: ' +
       '(1) an HTML page or a text/code file — pass the full text as content with file "name.html" / "spec.md" / ' +
       '"main.py"; it is stored exactly as given. ' +
       'If the file is too big to write into one call: when it already exists as a file where you can run code ' +

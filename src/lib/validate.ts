@@ -21,6 +21,40 @@ export const EXTENSION_MIME: Record<string, string> = {
 }
 
 /**
+ * Audio and video, played in the browser's own player on the artifact page.
+ * Only formats every current browser plays are accepted, and each one is
+ * served under the type below rather than whatever the uploader declared.
+ */
+export const AUDIO_EXTENSIONS = ['mp3', 'm4a', 'aac', 'wav', 'ogg', 'oga', 'flac'] as const
+export const VIDEO_EXTENSIONS = ['mp4', 'm4v', 'mov', 'webm'] as const
+
+Object.assign(EXTENSION_MIME, {
+  mp3: 'audio/mpeg',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  wav: 'audio/wav',
+  ogg: 'audio/ogg',
+  oga: 'audio/ogg',
+  flac: 'audio/flac',
+  mp4: 'video/mp4',
+  m4v: 'video/mp4',
+  mov: 'video/quicktime',
+  webm: 'video/webm'
+})
+
+export function isAudioExtension(ext: string): boolean {
+  return (AUDIO_EXTENSIONS as readonly string[]).includes(ext)
+}
+
+export function isVideoExtension(ext: string): boolean {
+  return (VIDEO_EXTENSIONS as readonly string[]).includes(ext)
+}
+
+export function isMediaExtension(ext: string): boolean {
+  return isAudioExtension(ext) || isVideoExtension(ext)
+}
+
+/**
  * Plain-text formats: notes, specs, data and source code. These are what one AI
  * tool hands the next (a research note to Cursor, code and a spec to Gemini),
  * so they are first-class artifacts with their full text searchable.
@@ -43,10 +77,12 @@ export function isTextExtension(ext: string): boolean {
   return (TEXT_EXTENSIONS as readonly string[]).includes(ext)
 }
 
-export type ArtifactKind = 'PRESENTATION' | 'DOCUMENT' | 'WEB' | 'IMAGE' | 'TEXT'
+export type ArtifactKind = 'PRESENTATION' | 'DOCUMENT' | 'WEB' | 'IMAGE' | 'TEXT' | 'AUDIO' | 'VIDEO'
 
 export function kindForExtension(ext: string): ArtifactKind {
   if (isTextExtension(ext)) return 'TEXT'
+  if (isAudioExtension(ext)) return 'AUDIO'
+  if (isVideoExtension(ext)) return 'VIDEO'
   switch (ext) {
     case 'pptx':
       return 'PRESENTATION'
@@ -70,16 +106,25 @@ export const TYPE_LIMITS: Record<ArtifactKind, number> = {
   TEXT: 10 * 1024 * 1024,
   IMAGE: 50 * 1024 * 1024,
   DOCUMENT: 100 * 1024 * 1024,
-  PRESENTATION: 250 * 1024 * 1024
+  PRESENTATION: 250 * 1024 * 1024,
+  AUDIO: 20 * 1024 * 1024,
+  VIDEO: 200 * 1024 * 1024
 }
 
-/** Effective limit = min(type ceiling, org ceiling, platform ceiling). */
+/**
+ * Effective limit = min(type ceiling, org ceiling, platform ceiling).
+ *
+ * Audio and video are the exception: their ceilings (20 MB and 200 MB) are the
+ * product's own and apply in every workspace. A video bigger than one request
+ * can carry goes up in parts (see lib/mediauploads.ts), never through memory.
+ */
 export function effectiveLimit(
   ext: string,
   orgLimit: number | null,
   platformLimit: number
 ): number {
   const kind = kindForExtension(ext)
+  if (kind === 'AUDIO' || kind === 'VIDEO') return TYPE_LIMITS[kind]
   return Math.min(TYPE_LIMITS[kind], orgLimit ?? platformLimit, platformLimit)
 }
 
@@ -124,6 +169,11 @@ const ZIP_SIGNATURES = [
   [0x50, 0x4b, 0x05, 0x06], // empty archive
   [0x50, 0x4b, 0x07, 0x08] // spanning
 ]
+
+function ascii(bytes: Uint8Array, offset: number, length: number): string {
+  if (bytes.length < offset + length) return ''
+  return String.fromCharCode(...bytes.subarray(offset, offset + length))
+}
 
 function startsWith(bytes: Uint8Array, sig: number[]): boolean {
   if (bytes.length < sig.length) return false
@@ -171,6 +221,48 @@ export function magicBytesMatch(
         bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
         ? { ok: true }
         : { ok: false, reason: 'File does not begin with a WebP signature' }
+    case 'mp3':
+      // An ID3 tag, or straight into an MPEG audio frame (11 sync bits).
+      return startsWith(bytes, [0x49, 0x44, 0x33]) || (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0)
+        ? { ok: true }
+        : { ok: false, reason: 'File does not begin with an MP3 signature' }
+    case 'aac':
+      // ADTS frames (12 sync bits), optionally behind an ID3 tag, or ADIF.
+      return startsWith(bytes, [0x49, 0x44, 0x33]) ||
+        startsWith(bytes, [0x41, 0x44, 0x49, 0x46]) ||
+        (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xf0) === 0xf0)
+        ? { ok: true }
+        : { ok: false, reason: 'File does not begin with an AAC signature' }
+    case 'wav':
+      return startsWith(bytes, [0x52, 0x49, 0x46, 0x46]) && ascii(bytes, 8, 4) === 'WAVE'
+        ? { ok: true }
+        : { ok: false, reason: 'File does not begin with a WAV signature' }
+    case 'ogg':
+    case 'oga':
+      return startsWith(bytes, [0x4f, 0x67, 0x67, 0x53])
+        ? { ok: true }
+        : { ok: false, reason: 'File does not begin with an Ogg signature' }
+    case 'flac':
+      return startsWith(bytes, [0x66, 0x4c, 0x61, 0x43])
+        ? { ok: true }
+        : { ok: false, reason: 'File does not begin with a FLAC signature' }
+    case 'webm':
+      // EBML header (Matroska / WebM)
+      return startsWith(bytes, [0x1a, 0x45, 0xdf, 0xa3])
+        ? { ok: true }
+        : { ok: false, reason: 'File does not begin with a WebM signature' }
+    case 'mp4':
+    case 'm4v':
+    case 'm4a':
+      // ISO base media: the first box is `ftyp`.
+      return ascii(bytes, 4, 4) === 'ftyp'
+        ? { ok: true }
+        : { ok: false, reason: 'File does not begin with an MP4 signature' }
+    case 'mov':
+      // QuickTime: usually `ftyp`, but older files open with another atom.
+      return ['ftyp', 'moov', 'mdat', 'wide', 'free', 'skip', 'pnot'].includes(ascii(bytes, 4, 4))
+        ? { ok: true }
+        : { ok: false, reason: 'File does not begin with a QuickTime signature' }
     case 'pptx':
     case 'docx':
       return ZIP_SIGNATURES.some((sig) => startsWith(bytes, sig))

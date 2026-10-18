@@ -180,6 +180,19 @@ export function kindLabel(extension) {
     case 'gif':
     case 'webp':
       return 'Image'
+    case 'mp3':
+    case 'm4a':
+    case 'aac':
+    case 'wav':
+    case 'ogg':
+    case 'oga':
+    case 'flac':
+      return 'Audio'
+    case 'mp4':
+    case 'm4v':
+    case 'mov':
+    case 'webm':
+      return 'Video'
     case 'md':
     case 'markdown':
     case 'txt':
@@ -311,6 +324,10 @@ export function fileBadge(extension) {
   const [bg, fg] = palette[ext] ||
     (['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'].includes(ext)
       ? ['#ecfdf3', '#067647']
+      : ['mp3', 'm4a', 'aac', 'wav', 'ogg', 'oga', 'flac'].includes(ext)
+        ? ['#fdf2fa', '#c11574']
+      : ['mp4', 'm4v', 'mov', 'webm'].includes(ext)
+        ? ['#fff6ed', '#c4320a']
       : CODE_EXTENSIONS.includes(ext)
         ? ['#f0f9ff', '#026aa2']
         : ['#eef0e9', '#5a6066'])

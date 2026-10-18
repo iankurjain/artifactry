@@ -101,6 +101,75 @@ async function request(path, options = {}) {
 export { ApiError }
 
 // ---------------------------------------------------------------
+// Audio and video
+//
+// A video can be up to 200 MB, more than one request may carry, so audio and
+// video go up in parts the server names the size of, one after another, then
+// are joined into the artifact. Other files go up in one request as before.
+// ---------------------------------------------------------------
+
+export const AUDIO_EXTENSIONS = ['mp3', 'm4a', 'aac', 'wav', 'ogg', 'oga', 'flac']
+export const VIDEO_EXTENSIONS = ['mp4', 'm4v', 'mov', 'webm']
+const MB = 1024 * 1024
+export const MEDIA_LIMITS = { audio: 20 * MB, video: 200 * MB }
+
+export function mediaKind(name) {
+  const ext = String(name || '').split('.').pop().toLowerCase()
+  if (AUDIO_EXTENSIONS.includes(ext)) return 'audio'
+  if (VIDEO_EXTENSIONS.includes(ext)) return 'video'
+  return null
+}
+
+async function uploadMedia(form, { onProgress } = {}) {
+  const file = form.get('file')
+  const list = (key) =>
+    String(form.get(key) || '')
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean)
+  const kind = mediaKind(file.name)
+  if (file.size > MEDIA_LIMITS[kind]) {
+    throw new ApiError(413, 'TOO_LARGE', `${kind === 'audio' ? 'Audio' : 'Video'} files can be up to ${MEDIA_LIMITS[kind] / MB} MB.`)
+  }
+  const started = await request('/api/v1/artifacts/media-uploads', {
+    method: 'POST',
+    body: {
+      filename: file.name,
+      size: file.size,
+      workspaceId: form.get('workspaceId') || undefined,
+      title: form.get('title') || undefined,
+      description: form.get('description') || undefined,
+      tags: list('tags'),
+      collectionIds: list('collectionIds'),
+      acceptSuggestedTags: form.get('acceptSuggestedTags') === 'true'
+    }
+  })
+  const base = `/api/v1/artifacts/media-uploads/${encodeURIComponent(started.uploadId)}`
+  try {
+    const parts = []
+    for (let n = 1; n <= started.partCount; n++) {
+      const piece = file.slice((n - 1) * started.partSize, Math.min(n * started.partSize, file.size))
+      let sent
+      // One retry per part: a dropped connection should not lose a big upload.
+      for (let attempt = 0; ; attempt++) {
+        try {
+          sent = await request(`${base}/parts/${n}`, { method: 'PUT', body: piece })
+          break
+        } catch (error) {
+          if (attempt >= 1 || (error.status && error.status < 500)) throw error
+        }
+      }
+      parts.push({ partNumber: sent.partNumber, etag: sent.etag })
+      onProgress?.(Math.min(n * started.partSize, file.size) / file.size)
+    }
+    return await request(`${base}/complete`, { method: 'POST', body: { parts } })
+  } catch (error) {
+    void request(base, { method: 'DELETE' }).catch(() => {})
+    throw error
+  }
+}
+
+// ---------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------
 
@@ -139,8 +208,11 @@ export const api = {
   reprocess: (id) =>
     request(`/api/v1/artifacts/${encodeURIComponent(id)}/reprocess`, { method: 'POST', body: {} }),
 
-  uploadArtifact: (formData) =>
-    request('/api/v1/artifacts', { method: 'POST', body: formData }),
+  uploadArtifact: (formData, options) => {
+    const file = formData.get('file')
+    if (file instanceof File && mediaKind(file.name)) return uploadMedia(formData, options)
+    return request('/api/v1/artifacts', { method: 'POST', body: formData })
+  },
 
   createArtifactFromContent: (payload) =>
     request('/api/v1/artifacts', { method: 'POST', body: payload }),

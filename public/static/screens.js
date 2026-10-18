@@ -29,6 +29,7 @@ import {
   roleLabel
 } from './ui.js'
 import { firstRunCard, handoffsSection } from './handoffs.js'
+import { mediaKind } from './api.js'
 
 // ---------------------------------------------------------------
 // Shared-recipient HTML preview
@@ -411,7 +412,9 @@ export function renderLibrary(ctx) {
     ['pdf', 'PDF'],
     ['docx', 'DOCX'],
     ['html', 'HTML'],
-    ['image', 'Images']
+    ['image', 'Images'],
+    ['audio', 'Audio'],
+    ['video', 'Video']
   ]
 
   const sorts = [
@@ -424,6 +427,7 @@ export function renderLibrary(ctx) {
   const visible = state.artifacts.filter((a) => {
     if (activeType === 'all') return true
     if (activeType === 'image') return ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'].includes(a.extension)
+    if (activeType === 'audio' || activeType === 'video') return mediaKind(`x.${a.extension}`) === activeType
     return a.extension === activeType
   })
 
