@@ -1,0 +1,24 @@
+{
+  "name": "artifactry",
+  "version": "1.0.0",
+  "description": "The second brain for multi-AI work. Save what Claude makes to your team's Artifactry library, find past work, and hand it to the next AI tool with the brief attached.",
+  "author": {
+    "name": "Artifactry",
+    "email": "admin@artifactry.app",
+    "url": "https://artifactry.app"
+  },
+  "homepage": "https://docs.artifactry.app",
+  "repository": "https://github.com/iankurjain/artifactry",
+  "keywords": [
+    "artifactry",
+    "knowledge",
+    "handoff",
+    "library",
+    "mcp",
+    "productivity"
+  ],
+  "icon": ".claude-plugin/icon.png",
+  "privacyPolicyUrl": "https://artifactry.app/privacy.html",
+  "termsOfServiceUrl": "https://artifactry.app/terms.html",
+  "license": "MIT"
+}

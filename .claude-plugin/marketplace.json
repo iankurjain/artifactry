@@ -1,0 +1,19 @@
+{
+  "name": "artifactry",
+  "owner": {
+    "name": "Artifactry",
+    "email": "admin@artifactry.app"
+  },
+  "metadata": {
+    "description": "Official Artifactry plugins for Claude."
+  },
+  "plugins": [
+    {
+      "name": "artifactry",
+      "source": "./plugins/artifactry",
+      "description": "The second brain for multi-AI work: save, find and hand off your team's work across AI tools.",
+      "category": "productivity",
+      "homepage": "https://artifactry.app"
+    }
+  ]
+}

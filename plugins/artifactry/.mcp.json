@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "artifactry": {
+      "type": "http",
+      "url": "https://app.artifactry.app/api/v1/mcp"
+    }
+  }
+}
