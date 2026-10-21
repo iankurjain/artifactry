@@ -1,0 +1,112 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "artifactry",
+  "version": "1.0.0",
+  "description": "The second brain for multi-AI work. Save what ChatGPT makes to your team's Artifactry library, find past work, and hand it to the next AI tool with a written brief attached.",
+  "author": {
+    "name": "Artifactry",
+    "email": "admin@artifactry.app",
+    "url": "https://artifactry.app"
+  },
+  "homepage": "https://artifactry.app",
+  "repository": "https://github.com/iankurjain/artifactry",
+  "license": "MIT",
+  "keywords": [
+    "artifactry",
+    "knowledge",
+    "library",
+    "handoff",
+    "versions",
+    "productivity"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Artifactry",
+        "shortDescription": "Second brain for multi-AI work",
+        "longDescription": "Artifactry is the second brain for multi-AI work. Every AI tool your team uses saves to it, hands off through it and builds on it, so the work stays consistent whoever made it.\n\nAsk ChatGPT to save a doc, deck, page, code or media file to your library, with versions and tags suggested from its content. Find past work with keyword and semantic search over the text inside every file, then open it and build on it. Revise something you saved and Artifactry keeps the earlier versions. Share a file with a team, a workspace or specific people, and hand work to another AI tool with a written brief so it can pick up where ChatGPT left off.\n\nChatGPT only ever sees what your Artifactry account can access, and sharing outside your organization always waits for your confirmation.",
+        "developerName": "Kevalin Ventures Pte Ltd",
+        "category": "Productivity",
+        "capabilities": [
+          "Save docs, decks, pages, code and media to your library",
+          "Keep earlier versions when you revise a saved file",
+          "Search by keyword and meaning across the text inside every file",
+          "Open saved work and build on it",
+          "Suggest tags from each file's content",
+          "Share with a team, a workspace or specific people",
+          "Hand work to another AI tool with a written brief"
+        ],
+        "websiteURL": "https://artifactry.app",
+        "supportURL": "https://docs.artifactry.app/#troubleshooting",
+        "privacyPolicyURL": "https://artifactry.app/privacy.html",
+        "termsOfServiceURL": "https://artifactry.app/terms.html",
+        "defaultPrompt": [
+          "Save this to my Artifactry library.",
+          "Find last week's launch plan in Artifactry.",
+          "Hand this work off in Artifactry with a brief for the next AI tool."
+        ],
+        "brandColor": "#4E7A00",
+        "brandColorDark": "#B8F23A",
+        "composerIcon": "./assets/icon.png",
+        "composerIconDark": "./assets/icon-dark.png",
+        "logo": "./assets/logo.png",
+        "logoDark": "./assets/logo-dark.png"
+      },
+      "onboardingSkill": "./skills/get-started/SKILL.md",
+      "review": {
+        "test_cases": {
+          "positive": [
+            {
+              "description": "Save new work: ChatGPT writes a short document and saves it as a new artifact.",
+              "prompt": "Write a five-item project kickoff checklist and save it to my Artifactry library as kickoff-checklist.md.",
+              "tools_triggered": "save",
+              "expected_behavior": "ChatGPT writes the checklist, calls save once with file kickoff-checklist.md and the markdown content, and replies with the saved artifact's title and Artifactry link. It may list the suggested tags and offer to confirm them. It does not paste the whole file back."
+            },
+            {
+              "description": "Find past work: keyword and semantic search over the reviewer's sample library.",
+              "prompt": "Find the Q4 launch plan in my Artifactry library.",
+              "tools_triggered": "search",
+              "expected_behavior": "ChatGPT calls search with a query about the Q4 launch plan and shows a short list that includes the sample artifact \"Q4 Launch Plan\" with its type, when it was updated and its link. It does not invent results that search did not return."
+            },
+            {
+              "description": "Open and use saved work: ChatGPT reads a saved file and answers from its contents.",
+              "prompt": "Open the Q4 launch plan from Artifactry and summarize its milestones.",
+              "tools_triggered": "search, get",
+              "expected_behavior": "ChatGPT finds the \"Q4 Launch Plan\" artifact with search, opens it with get, and summarizes the milestones written in the file (Beta in October, launch in November, review in December). The summary is based only on the file's contents."
+            },
+            {
+              "description": "Revise saved work: ChatGPT adds a section and saves it as a new version, keeping the old one.",
+              "prompt": "Add a short Risks section to the Q4 launch plan in Artifactry and save it as a new version.",
+              "tools_triggered": "search, get, create_version",
+              "expected_behavior": "ChatGPT opens the \"Q4 Launch Plan\" artifact, writes the updated document with a Risks section, and calls create_version on that same artifact rather than save. It replies with the artifact's link and says a new version was added; the previous version is kept in Artifactry."
+            },
+            {
+              "description": "Hand off work: ChatGPT leaves a handoff with a brief for another AI tool.",
+              "prompt": "Hand the Q4 launch plan to Gemini through Artifactry so it can turn it into a five-slide deck.",
+              "tools_triggered": "search, handoff",
+              "expected_behavior": "ChatGPT finds the \"Q4 Launch Plan\" artifact, calls handoff with that artifact, a brief written to the next tool asking for a five-slide deck, and to set to Gemini. It replies with the handoff id (hof_...) and the one-line prompt the user pastes into Gemini."
+            }
+          ],
+          "negative": [
+            {
+              "description": "General knowledge question with no library intent; Artifactry should not be called.",
+              "prompt": "What is the capital of Australia?"
+            },
+            {
+              "description": "Creative writing with no request to save, find or share; Artifactry should not be called.",
+              "prompt": "Write a haiku about the ocean."
+            },
+            {
+              "description": "Public web lookup unrelated to the user's saved work; Artifactry should not be called.",
+              "prompt": "What are today's top technology news headlines?"
+            }
+          ]
+        },
+        "commerce": false
+      },
+      "publication": {
+        "release_notes": "First release. Save, find, open, version, share and hand off work in your Artifactry library from ChatGPT and Codex, with OAuth sign-in and confirmation before anything is shared outside your organization."
+      }
+    }
+  }
+}

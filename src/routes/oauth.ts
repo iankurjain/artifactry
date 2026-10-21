@@ -91,6 +91,15 @@ oauth.get('/.well-known/oauth-authorization-server', asm)
 // Path-suffixed form some clients try first (RFC 8414 §3.1 with an issuer path).
 oauth.get('/.well-known/oauth-authorization-server/api/v1/mcp', asm)
 
+// OpenAI plugin directory domain check: the submission portal issues a token
+// and fetches it here as plain text. Unset = 404, so nothing is claimed.
+oauth.get('/.well-known/openai-apps-challenge', (c) => {
+  const token = (c.env.OPENAI_APPS_CHALLENGE ?? '').trim()
+  if (!token) return c.text('Not found', 404)
+  noStore(c)
+  return c.text(token)
+})
+
 // ---------------------------------------------------------------
 // Dynamic Client Registration
 // ---------------------------------------------------------------

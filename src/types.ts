@@ -22,6 +22,8 @@ export interface Env {
   /** Directory-review sign-in: this one address signs in with REVIEWER_CODE, no email sent. Both unset = off. */
   REVIEWER_EMAIL?: string
   REVIEWER_CODE?: string
+  /** Token from the OpenAI plugin portal, served at /.well-known/openai-apps-challenge. */
+  OPENAI_APPS_CHALLENGE?: string
 
   // Interactive HTML preview on an isolated origin.
   //

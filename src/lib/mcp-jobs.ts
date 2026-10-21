@@ -401,7 +401,8 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   {
     name: 'update_tags',
     title: 'Update tags',
-    annotations: WRITES,
+    // `remove` detaches tags outright, which directory reviewers count as destructive.
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
     description:
       'Change the tags on an artifact: accept a suggested tag, reject one, add a new one, or remove one. ' +
       'Tags are case-insensitively deduplicated, and a rejected tag is remembered so it is not offered ' +
