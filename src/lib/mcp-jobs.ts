@@ -110,6 +110,8 @@ export interface McpToolDefinition {
 
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, openWorldHint: false }
 const WRITES = { readOnlyHint: false, destructiveHint: false, openWorldHint: false }
+// save and create_version can download from source_url / file_ref, which reaches outside Artifactry.
+const WRITES_FETCHES = { readOnlyHint: false, destructiveHint: false, openWorldHint: true }
 
 /**
  * A file handed over by the chat app itself. ChatGPT fills this in for any
@@ -217,7 +219,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   {
     name: 'save',
     title: 'Save to Artifactry',
-    annotations: WRITES,
+    annotations: WRITES_FETCHES,
     _meta: { 'openai/fileParams': ['file_ref'] },
     description:
       'Persist what the AI has just produced: HTML pages, slide decks (pptx), documents (docx, pdf), ' +
@@ -272,7 +274,7 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   {
     name: 'create_version',
     title: 'Save a new version',
-    annotations: WRITES,
+    annotations: WRITES_FETCHES,
     _meta: { 'openai/fileParams': ['file_ref'] },
     description:
       'Add a new version to an existing artifact, preserving all prior versions. Use this instead of save ' +
@@ -303,7 +305,8 @@ export const MCP_TOOLS: McpToolDefinition[] = [
   {
     name: 'upload_part',
     title: 'Upload a large file in parts',
-    annotations: WRITES,
+    // Resending a part number overwrites that piece, so mark it destructive.
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
     description:
       'Get a file that is too large for a single save call into Artifactry. ' +
       'BEST for large or binary files that already exist on disk where you can run code (for example a multi-MB HTML ' +
