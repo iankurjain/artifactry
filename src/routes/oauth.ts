@@ -456,7 +456,7 @@ oauth.post(
   async (c) => {
     try {
       const form = await readForm(c)
-      const client = await authenticateClient(c.env.DB, form, c.req.header('Authorization'))
+      const client = await authenticateClient(c.env.DB, form, c.req.header('Authorization'), `${originOf(c)}${new URL(c.req.url).pathname}`)
       let tokens
       if (form.grant_type === 'authorization_code') tokens = await exchangeCode(c.env, client, form)
       else if (form.grant_type === 'refresh_token') tokens = await refreshGrant(c.env, client, form)
@@ -472,7 +472,7 @@ oauth.post(
 oauth.post('/oauth/revoke', async (c) => {
   try {
     const form = await readForm(c)
-    const client = await authenticateClient(c.env.DB, form, c.req.header('Authorization'))
+    const client = await authenticateClient(c.env.DB, form, c.req.header('Authorization'), `${originOf(c)}${new URL(c.req.url).pathname}`)
     await revokeToken(c.env, client, form.token ?? '')
     noStore(c)
     return c.body(null, 200)
