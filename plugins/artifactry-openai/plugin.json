@@ -102,7 +102,8 @@
             }
           ]
         },
-        "commerce": false
+        "commerce": false,
+        "demo_recording_url": "https://app.artifactry.app/s/4-VUdoVuWGkw8gcrHcE8vPEGMflPR-SpEjG2sNbAxrk"
       },
       "publication": {
         "release_notes": "First release. Save, find, open, version, share and hand off work in your Artifactry library from ChatGPT and Codex, with OAuth sign-in and confirmation before anything is shared outside your organization."
