@@ -441,6 +441,11 @@ const token = () => tokens.access_token
   check('search is annotated read-only', byName.search?.annotations?.readOnlyHint === true)
   check('save declares file_ref as a ChatGPT file parameter',
     JSON.stringify(byName.save?._meta?.['openai/fileParams']) === '["file_ref"]')
+  for (const name of ['save', 'create_version']) {
+    const ref = byName[name]?.inputSchema?.properties?.file_ref
+    check(`${name} file_ref follows OpenAI's file schema (download_url and file_id required)`,
+      JSON.stringify([...(ref?.required ?? [])].sort()) === '["download_url","file_id"]')
+  }
   check('revoke_share is annotated destructive', byName.revoke_share?.annotations?.destructiveHint === true)
 
   const narrow = await tool(token(), 'list_teams', {})

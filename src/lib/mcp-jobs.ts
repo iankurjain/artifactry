@@ -120,15 +120,16 @@ const WRITES = { readOnlyHint: false, destructiveHint: false, openWorldHint: fal
 const FILE_REF_SCHEMA = {
   type: 'object',
   description:
-    'A file from the conversation. ChatGPT fills this automatically for uploaded or generated files; ' +
-    'other clients may pass { download_url, file_name }.',
+    'A file from the conversation. ChatGPT fills this automatically for uploaded or generated files. ' +
+    'Other clients should use source_url instead.',
   properties: {
     download_url: { type: 'string' },
     file_id: { type: 'string' },
     file_name: { type: 'string' },
     mime_type: { type: 'string' }
   },
-  required: ['download_url']
+  // OpenAI's file-param schema: download_url and file_id required, the rest optional.
+  required: ['download_url', 'file_id']
 }
 
 const UPLOAD_ID_SCHEMA = {
