@@ -447,6 +447,9 @@ const token = () => tokens.access_token
       JSON.stringify([...(ref?.required ?? [])].sort()) === '["download_url","file_id"]')
   }
   check('revoke_share is annotated destructive', byName.revoke_share?.annotations?.destructiveHint === true)
+  check('save and create_version are annotated open-world (they fetch source_url / file_ref)',
+    byName.save?.annotations?.openWorldHint === true && byName.create_version?.annotations?.openWorldHint === true)
+  check('upload_part is annotated destructive', byName.upload_part?.annotations?.destructiveHint === true)
 
   const narrow = await tool(token(), 'list_teams', {})
   check('a tool outside the approved scopes is refused', !!narrow.error || narrow.isError === true)
