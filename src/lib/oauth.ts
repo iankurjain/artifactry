@@ -105,8 +105,9 @@ export function authorizationServerMetadata(origin: string) {
     response_types_supported: ['code'],
     response_modes_supported: ['query'],
     grant_types_supported: ['authorization_code', 'refresh_token'],
-    token_endpoint_auth_methods_supported: ['none', 'client_secret_post', 'client_secret_basic'],
-    revocation_endpoint_auth_methods_supported: ['none', 'client_secret_post', 'client_secret_basic'],
+    token_endpoint_auth_methods_supported: ['none', 'client_secret_post', 'client_secret_basic', 'private_key_jwt'],
+    token_endpoint_auth_signing_alg_values_supported: JWT_ALGS,
+    revocation_endpoint_auth_methods_supported: ['none', 'client_secret_post', 'client_secret_basic', 'private_key_jwt'],
     code_challenge_methods_supported: ['S256'],
     client_id_metadata_document_supported: true,
     service_documentation: `${origin}/guide`
@@ -373,7 +374,7 @@ export async function loadClient(
 // ---------------------------------------------------------------
 
 export const METADATA_DOCUMENT_TTL_SECONDS = 24 * 60 * 60
-const METADATA_DOCUMENT_MAX_BYTES = 5 * 1024
+const METADATA_DOCUMENT_MAX_BYTES = 16 * 1024
 const METADATA_FETCH_TIMEOUT_MS = 5000
 
 /** An https URL with a path, per the CIMD draft; anything else is a plain id. */
@@ -400,10 +401,15 @@ function publicHost(host: string): boolean {
 }
 
 async function fetchMetadataDocument(clientId: string): Promise<Record<string, unknown>> {
-  const url = new URL(clientId)
-  if (!publicHost(url.hostname)) {
-    throw new OAuthError('invalid_client', 'client_id URL must be on a public host')
+  return fetchPublicJson(clientId, 'client metadata document')
+}
+
+async function fetchPublicJson(target: string, what: string): Promise<Record<string, unknown>> {
+  const url = new URL(target)
+  if (url.protocol !== 'https:' || !publicHost(url.hostname)) {
+    throw new OAuthError('invalid_client', `The ${what} URL must be https on a public host`)
   }
+  const clientId = target
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), METADATA_FETCH_TIMEOUT_MS)
   let res: Response
@@ -414,44 +420,52 @@ async function fetchMetadataDocument(clientId: string): Promise<Record<string, u
       signal: controller.signal
     })
   } catch {
-    throw new OAuthError('invalid_client', 'Could not fetch the client metadata document')
+    throw new OAuthError('invalid_client', `Could not fetch the ${what}`)
   } finally {
     clearTimeout(timer)
   }
   if (res.status !== 200) {
-    throw new OAuthError('invalid_client', `Client metadata document returned HTTP ${res.status}`)
+    throw new OAuthError('invalid_client', `The ${what} returned HTTP ${res.status}`)
   }
   const text = await res.text()
   if (text.length > METADATA_DOCUMENT_MAX_BYTES) {
-    throw new OAuthError('invalid_client', 'Client metadata document is too large')
+    throw new OAuthError('invalid_client', `The ${what} is too large`)
   }
   let doc: unknown
   try {
     doc = JSON.parse(text)
   } catch {
-    throw new OAuthError('invalid_client', 'Client metadata document is not JSON')
+    throw new OAuthError('invalid_client', `The ${what} is not JSON`)
   }
   if (!doc || typeof doc !== 'object' || Array.isArray(doc)) {
-    throw new OAuthError('invalid_client', 'Client metadata document must be a JSON object')
+    throw new OAuthError('invalid_client', `The ${what} must be a JSON object`)
   }
   return doc as Record<string, unknown>
 }
 
 /**
  * Validate a fetched document. The document must name itself (client_id equal
- * to the URL it was fetched from) and, since it is public, may only describe a
- * public client: PKCE is its proof of possession, as with DCR.
+ * to the URL it was fetched from). Being public, it can't carry a secret, so it
+ * describes either a public client (PKCE is its proof of possession, as with
+ * DCR) or one that signs a JWT with a key published in the document
+ * (private_key_jwt, which ChatGPT uses).
  */
 export function readMetadataDocument(
   clientId: string,
   doc: Record<string, unknown>
-): { clientName: string | null; redirectUris: string[] } {
+): { clientName: string | null; redirectUris: string[]; authMethod: 'none' | 'private_key_jwt' } {
   if (doc.client_id !== clientId) {
     throw new OAuthError('invalid_client', 'client_id in the metadata document does not match its URL')
   }
-  const method = doc.token_endpoint_auth_method
-  if (method !== undefined && method !== 'none') {
-    throw new OAuthError('invalid_client', 'Only token_endpoint_auth_method "none" is supported for metadata documents')
+  const method = doc.token_endpoint_auth_method ?? 'none'
+  if (method !== 'none' && method !== 'private_key_jwt') {
+    throw new OAuthError(
+      'invalid_client',
+      'Metadata documents must use token_endpoint_auth_method "none" or "private_key_jwt"'
+    )
+  }
+  if (method === 'private_key_jwt' && typeof doc.jwks_uri !== 'string' && !isJwkSet(doc.jwks)) {
+    throw new OAuthError('invalid_client', 'private_key_jwt needs jwks_uri or jwks in the metadata document')
   }
   if (doc.client_secret !== undefined) {
     throw new OAuthError('invalid_client', 'A metadata document must not contain a client_secret')
@@ -459,7 +473,7 @@ export function readMetadataDocument(
   const redirectUris = readRedirectList(doc.redirect_uris)
   const clientName =
     typeof doc.client_name === 'string' ? doc.client_name.trim().slice(0, 120) || null : null
-  return { clientName, redirectUris }
+  return { clientName, redirectUris, authMethod: method }
 }
 
 async function loadMetadataClient(
@@ -478,7 +492,7 @@ async function loadMetadataClient(
     Date.now() - Date.parse(cached.metadata_fetched_at) < METADATA_DOCUMENT_TTL_SECONDS * 1000
   if (cached && (fresh || !refresh)) return cached
 
-  let parsed: { clientName: string | null; redirectUris: string[] }
+  let parsed: ReturnType<typeof readMetadataDocument>
   try {
     parsed = readMetadataDocument(clientId, await fetchMetadataDocument(clientId))
   } catch (err) {
@@ -497,11 +511,12 @@ async function loadMetadataClient(
     `INSERT INTO oauth_clients
        (id, client_name, redirect_uris, secret_hash, token_endpoint_auth_method,
         integration_id, created_by_user_id, status, created_at, metadata_fetched_at)
-     VALUES (?, ?, ?, NULL, 'none', ?, NULL, 'ACTIVE', ?, ?)
+     VALUES (?, ?, ?, NULL, ?, ?, NULL, 'ACTIVE', ?, ?)
      ON CONFLICT(id) DO UPDATE SET client_name = excluded.client_name,
        redirect_uris = excluded.redirect_uris, integration_id = excluded.integration_id,
+       token_endpoint_auth_method = excluded.token_endpoint_auth_method,
        metadata_fetched_at = excluded.metadata_fetched_at`,
-    [clientId, parsed.clientName, JSON.stringify(parsed.redirectUris), integrationId, now, now]
+    [clientId, parsed.clientName, JSON.stringify(parsed.redirectUris), parsed.authMethod, integrationId, now, now]
   )
   return first<OAuthClientRow>(db, `SELECT * FROM oauth_clients WHERE id = ?`, [clientId])
 }
@@ -509,15 +524,19 @@ async function loadMetadataClient(
 /**
  * Authenticate the client at the token endpoint. A public client proves
  * nothing here (PKCE does that); a confidential client must present its
- * secret, by POST body or HTTP Basic.
+ * secret, by POST body or HTTP Basic; a private_key_jwt metadata client signs
+ * a client_assertion with a key from its document.
  */
 export async function authenticateClient(
   db: D1Database,
   form: Record<string, string>,
-  authorizationHeader: string | undefined
+  authorizationHeader: string | undefined,
+  endpoint = ''
 ): Promise<OAuthClientRow> {
   let clientId = form.client_id ?? ''
   let secret = form.client_secret ?? ''
+  const assertion = form.client_assertion ?? ''
+  if (!clientId && assertion) clientId = jwtClaims(assertion)?.sub ?? ''
 
   if (authorizationHeader && /^basic\s+/i.test(authorizationHeader)) {
     try {
@@ -535,7 +554,9 @@ export async function authenticateClient(
   const client = await loadClient(db, clientId)
   if (!client) throw new OAuthError('invalid_client', 'Unknown client', 401)
 
-  if (client.secret_hash) {
+  if (client.token_endpoint_auth_method === 'private_key_jwt') {
+    await verifyClientAssertion(client.id, form, endpoint)
+  } else if (client.secret_hash) {
     if (!secret) throw new OAuthError('invalid_client', 'Client secret required', 401)
     const presented = await hashClientSecret(secret)
     if (!timingSafeEqual(presented, client.secret_hash)) {
@@ -543,6 +564,109 @@ export async function authenticateClient(
     }
   }
   return client
+}
+
+// ---------------------------------------------------------------
+// private_key_jwt (RFC 7523 client assertions)
+// ---------------------------------------------------------------
+
+const JWT_ALGS = ['RS256', 'ES256']
+const JWT_BEARER = 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer'
+const ASSERTION_MAX_AGE_SECONDS = 10 * 60
+
+interface JwtClaims {
+  iss?: string
+  sub?: string
+  aud?: string | string[]
+  exp?: number
+}
+
+function isJwkSet(v: unknown): v is { keys: JsonWebKey[] } {
+  return !!v && typeof v === 'object' && Array.isArray((v as { keys?: unknown }).keys)
+}
+
+function b64urlBytes(s: string): Uint8Array {
+  const b64 = s.replace(/-/g, '+').replace(/_/g, '/')
+  const bin = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4))
+  return Uint8Array.from(bin, (ch) => ch.charCodeAt(0))
+}
+
+function b64urlJson<T>(s: string): T | null {
+  try {
+    return JSON.parse(new TextDecoder().decode(b64urlBytes(s))) as T
+  } catch {
+    return null
+  }
+}
+
+function jwtClaims(jwt: string): JwtClaims | null {
+  const parts = jwt.split('.')
+  return parts.length === 3 ? b64urlJson<JwtClaims>(parts[1]) : null
+}
+
+/**
+ * Check a client_assertion: signed by a key in the client's metadata document
+ * (re-fetched, so key rotation is picked up), naming the client as iss and sub
+ * and this endpoint as audience, and not expired.
+ */
+async function verifyClientAssertion(clientId: string, form: Record<string, string>, endpoint: string) {
+  const fail = (why: string): never => {
+    throw new OAuthError('invalid_client', `Client assertion rejected: ${why}`, 401)
+  }
+  if (form.client_assertion_type !== JWT_BEARER || !form.client_assertion) fail('missing client_assertion')
+  const [h, p, sig] = form.client_assertion.split('.')
+  if (!h || !p || !sig) fail('malformed JWT')
+  const header = b64urlJson<{ alg?: string; kid?: string }>(h)
+  const claims = b64urlJson<JwtClaims>(p)
+  if (!header || !claims) fail('malformed JWT')
+  if (!header!.alg || !JWT_ALGS.includes(header!.alg)) fail(`unsupported alg ${header!.alg}`)
+  if (claims!.iss !== clientId || claims!.sub !== clientId) fail('iss and sub must be the client_id')
+  const aud = Array.isArray(claims!.aud) ? claims!.aud : [claims!.aud]
+  const issuer = endpoint ? new URL(endpoint).origin : ''
+  if (endpoint && !aud.some((a) => a === endpoint || a === issuer)) fail('wrong audience')
+  const now = Math.floor(Date.now() / 1000)
+  if (typeof claims!.exp !== 'number' || claims!.exp < now - 30 || claims!.exp > now + ASSERTION_MAX_AGE_SECONDS) {
+    fail('expired or too long-lived')
+  }
+
+  const doc = await fetchMetadataDocument(clientId)
+  const published: unknown = isJwkSet(doc.jwks)
+    ? doc.jwks
+    : typeof doc.jwks_uri === 'string'
+      ? await fetchPublicJson(doc.jwks_uri, 'JWKS')
+      : null
+  if (!isJwkSet(published)) return fail('no keys published')
+  const rsa = header!.alg === 'RS256'
+  const candidates = published.keys.filter(
+    (k: JsonWebKey & { kid?: string }) => k.kty === (rsa ? 'RSA' : 'EC') && (!header!.kid || (k as { kid?: string }).kid === header!.kid)
+  )
+  const data = new TextEncoder().encode(`${h}.${p}`)
+  const signature = b64urlBytes(sig)
+  for (const jwk of candidates) {
+    try {
+      const { kid: _kid, use: _use, alg: _alg, key_ops: _ops, ...material } = jwk as JsonWebKey & {
+        kid?: string
+        use?: string
+      }
+      const key = await crypto.subtle.importKey(
+        'jwk',
+        material,
+        rsa ? { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' } : { name: 'ECDSA', namedCurve: 'P-256' },
+        false,
+        ['verify']
+      )
+      const ok = await crypto.subtle.verify(
+        rsa ? 'RSASSA-PKCS1-v1_5' : { name: 'ECDSA', hash: 'SHA-256' },
+        key,
+        signature,
+        data
+      )
+      if (ok) return
+    } catch {
+      // Try the next key.
+    }
+  }
+  fail('signature does not match a published key')
 }
 
 // ---------------------------------------------------------------
