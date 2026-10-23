@@ -708,11 +708,20 @@ select.input {
 }
 .shot a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 12px; }
 .shot figcaption { font-size: 0.86rem; color: var(--text-3); margin-top: 10px; line-height: 1.5; }
-.shot-narrow { max-width: 440px; }
-.shot-phone { max-width: 270px; }
-.shot-row { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; margin: 22px 0 26px; }
-.shot-row > .shot { margin: 0; flex: 1 1 220px; }
-.shot-row > .shot-phone { flex: 0 1 230px; }
+/* Narrow and phone screenshots sit centred in a full-width panel, so every figure
+   shares the same edges as the wide ones. In a row, each figure gets an equal-height
+   panel and the captions line up underneath. */
+.shot-narrow > a, .shot-phone > a, .shot-row > .shot > a {
+  display: flex; align-items: center; justify-content: center;
+  padding: 18px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border);
+}
+.shot-narrow img { max-width: 440px; }
+.shot-phone img { max-width: 270px; }
+.shot-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 18px; align-items: stretch; margin: 22px 0 26px; }
+.shot-row > .shot { margin: 0; display: flex; flex-direction: column; min-width: 0; }
+.shot-row > .shot > a { flex: 1; padding: 14px; }
+.shot-row img { width: auto; max-width: 100%; max-height: 460px; }
+.shot-row > .shot-phone img { max-height: 520px; }
 .shot-video { position: relative; }
 .shot-video video { cursor: pointer; }
 .clip-badge {

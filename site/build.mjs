@@ -22,6 +22,7 @@
  * `node site/build.mjs` after editing a page, an asset or this file.
  */
 
+import { createHash } from 'node:crypto'
 import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -48,6 +49,19 @@ const LOGO = readFileSync(join(here, 'assets/brand/artifactry-horizontal-reverse
   .replace(/<title>[^<]*<\/title>/, '')
   .replaceAll('fill="#F5F6F2"', 'fill="currentColor"')
   .replace('fill="#B8F23A"', 'class="logo-spark"')
+
+// The stylesheet and script are published under names that carry a hash of their
+// content (site.<hash>.css). Cloudflare's edge caches /assets/* for hours and ignores
+// query strings, so a deploy must change the file name or visitors get the old CSS
+// and JS against the new pages.
+const hashed = (file) => {
+  const hash = createHash('sha256').update(readFileSync(join(here, 'assets', file))).digest('hex').slice(0, 10)
+  return file.replace(/\.(\w+)$/, `.${hash}.$1`)
+}
+const CSS_FILE = hashed('site.css')
+const JS_FILE = hashed('site.js')
+const CSS_URL = `/assets/${CSS_FILE}`
+const JS_URL = `/assets/${JS_FILE}`
 
 const TARGETS = {
   site: { origin: SITE_URL, dir: 'public', site: '', docs: DOCS_URL },
@@ -114,8 +128,8 @@ ${meta.noindex ? '<meta name="robots" content="noindex">\n' : ''}<link rel="icon
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap">
-<link rel="stylesheet" href="/assets/site.css">
-${meta.splitforms ? '<script src="https://splitforms.com/embed.js" async></script>\n' : ''}<script src="/assets/site.js" defer></script>
+<link rel="stylesheet" href="${CSS_URL}">
+${meta.splitforms ? '<script src="https://splitforms.com/embed.js" async></script>\n' : ''}<script src="${JS_URL}" defer></script>
 </head>
 <body class="page-${meta.nav || 'other'}">
 <a class="skip-link" href="#main">Skip to content</a>
@@ -184,6 +198,9 @@ function prepare(t) {
   rmSync(out, { recursive: true, force: true })
   mkdirSync(out, { recursive: true })
   cpSync(join(here, 'assets'), join(out, 'assets'), { recursive: true })
+  for (const [file, name] of [['site.css', CSS_FILE], ['site.js', JS_FILE]]) {
+    cpSync(join(here, 'assets', file), join(out, 'assets', name))
+  }
   cpSync(join(here, '_headers'), join(out, '_headers'))
   return out
 }
